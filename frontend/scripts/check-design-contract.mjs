@@ -63,6 +63,27 @@ expectNotContains(entryPath, [":root {", ".app-shell {", ".panel {"]);
 expectContains("package.json", [
   '"check:design": "node scripts/check-design-contract.mjs"',
 ]);
+expectContains("src/styles/foundation.css", [
+  "#f3f5f6",
+  "#ffffff",
+  "#1e2b38",
+  "#d9e0e5",
+  "#0f7c82",
+  "#c65a3a",
+  "--font-display",
+  "--font-body",
+  "--font-data",
+  "prefers-reduced-motion",
+]);
+read("src/components/AppBrand.vue");
+expectContains("src/App.vue", [
+  "<AppBrand",
+  'href="#main-content"',
+  "aria-current=\"page === item.id ? 'page' : undefined\"",
+  'class="evidence-rail"',
+  'class="app-sidebar"',
+  'class="app-header"',
+]);
 
 if (failures.length > 0) {
   console.error(

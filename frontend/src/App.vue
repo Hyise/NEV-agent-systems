@@ -20,6 +20,7 @@ import {
   SlidersHorizontal,
   X,
 } from "lucide-vue-next";
+import AppBrand from "./components/AppBrand.vue";
 import { createWorkspace, provideWorkspace, type Page } from "./workspace";
 
 const OverviewView = defineAsyncComponent(
@@ -127,10 +128,14 @@ onBeforeUnmount(() =>
       aria-label="关闭导航"
       @click="mobileNav = false"
     />
-    <aside class="sidebar" :class="{ open: mobileNav }">
-      <a class="brand" href="#" @click.prevent="navigate('overview')">
-        <span class="brand-mark"><BarChart3 :size="24" /></span>
-        <span>观衡<span class="brand-en">MCDM RESEARCH</span></span>
+    <aside class="app-sidebar" :class="{ open: mobileNav }">
+      <a
+        class="brand-link"
+        href="#"
+        aria-label="观衡研究总览"
+        @click.prevent="navigate('overview')"
+      >
+        <AppBrand />
       </a>
       <div class="workspace-label">新能源汽车研究工作台</div>
       <nav aria-label="主导航">
@@ -143,12 +148,14 @@ onBeforeUnmount(() =>
         >
           <component :is="item.icon" :size="19" />
           <span>{{ item.title }}</span>
-          <span v-if="page === item.id" class="nav-dot" />
+          <span v-if="page === item.id" class="nav-dot" aria-hidden="true" />
         </button>
       </nav>
       <div class="sidebar-note">
-        <Activity :size="19" /><strong>从评论到决策</strong>
-        <p>理解消费者感知，<br />观察市场选择的变化。</p>
+        <div class="sidebar-note__title">
+          <Activity :size="17" /><strong>从评论到决策</strong>
+        </div>
+        <p>以平台用户评论构建准则证据，以销量变化校验市场响应。</p>
         <span class="tiny-label">LLM · PNS · BEAST</span>
       </div>
       <div class="sidebar-foot">
@@ -157,7 +164,7 @@ onBeforeUnmount(() =>
     </aside>
 
     <div class="workspace">
-      <header class="topbar">
+      <header class="app-header">
         <button
           class="icon-btn mobile-menu"
           aria-label="打开导航"
@@ -166,7 +173,7 @@ onBeforeUnmount(() =>
           <Menu :size="22" />
         </button>
         <div class="breadcrumb">
-          研究空间 <ChevronRight :size="14" /><strong>{{
+          研究工作台 <ChevronRight :size="14" /><strong>{{
             activePage.title
           }}</strong>
         </div>
@@ -175,8 +182,12 @@ onBeforeUnmount(() =>
           <span class="avatar" aria-label="本地研究人员">研</span>
         </div>
       </header>
+      <div class="evidence-rail" aria-hidden="true">
+        <span class="evidence-rail__reviews" />
+        <span class="evidence-rail__market" />
+      </div>
 
-      <main id="main-content">
+      <main id="main-content" tabindex="-1">
         <div class="heading-row">
           <div>
             <p class="eyebrow">NEW ENERGY VEHICLE / DECISION SCIENCE</p>
