@@ -34,7 +34,11 @@ const weightOption = computed(() => ({
     data: sortedWeights.value.map((criterion) => criterion[0]),
     axisTick: { show: false },
     axisLine: { show: false },
-    axisLabel: { color: "#435b68", fontSize: 12 },
+    axisLabel: {
+      color: "#435b68",
+      fontSize: 12,
+      fontFamily: '"PingFang SC", "Microsoft YaHei", sans-serif',
+    },
   },
   series: [
     {
@@ -43,8 +47,8 @@ const weightOption = computed(() => ({
       data: sortedWeights.value.map((criterion, index) => ({
         value: criterion[1],
         itemStyle: {
-          color: index < 3 ? "#087f8c" : "#b4d6da",
-          borderRadius: [0, 3, 3, 0],
+          color: index < 3 ? "#0f7c82" : "#c5dcde",
+          borderRadius: [0, 2, 2, 0],
         },
       })),
       label: {
@@ -52,7 +56,7 @@ const weightOption = computed(() => ({
         position: "right",
         formatter: (params: { value: number }) => pct(params.value),
         color: "#385564",
-        fontFamily: "Consolas, monospace",
+        fontFamily: 'Bahnschrift, "DIN Alternate", Consolas, monospace',
       },
     },
   ],
@@ -61,28 +65,28 @@ const weightOption = computed(() => ({
 
 <template>
   <section v-if="overview">
-    <div class="summary-band">
-      <div>
+    <div class="metric-strip" aria-label="研究数据概览">
+      <div class="metric-strip__item">
         <span>车型月份记录</span>
-        <strong class="mono"
+        <strong class="metric-strip__value mono"
           >{{ count(overview.stats.records) }}<small>条</small></strong
         >
       </div>
-      <div>
+      <div class="metric-strip__item">
         <span>覆盖车型</span>
-        <strong class="mono"
+        <strong class="metric-strip__value mono"
           >{{ count(overview.stats.models) }}<small>款</small></strong
         >
       </div>
-      <div>
+      <div class="metric-strip__item">
         <span>观察窗口</span>
-        <strong class="mono"
+        <strong class="metric-strip__value mono"
           >{{ overview.stats.months }}<small>个月</small></strong
         >
       </div>
-      <div>
+      <div class="metric-strip__item">
         <span>评价准则</span>
-        <strong class="mono"
+        <strong class="metric-strip__value mono"
           >{{ overview.stats.criteria }}<small>项</small></strong
         >
       </div>
@@ -119,7 +123,7 @@ const weightOption = computed(() => ({
           </button>
         </div>
       </section>
-      <section class="panel observation">
+      <section class="panel research-note">
         <span class="eyebrow">RESEARCH NOTES</span>
         <h2>{{ isPreset ? "本月观察" : "建立你的研究" }}</h2>
         <template v-if="topCriteria.length">
@@ -152,7 +156,7 @@ const weightOption = computed(() => ({
             等级按由优到劣排列；冻结后可派生新版本继续修改。
           </p>
         </template>
-        <div class="observation-foot">
+        <div class="research-note__foot">
           <FileCheck2 :size="18" />
           <div>
             <strong>数据与结论可追溯</strong>

@@ -84,6 +84,28 @@ expectContains("src/App.vue", [
   'class="app-sidebar"',
   'class="app-header"',
 ]);
+expectContains("src/Chart.vue", [
+  "animation: false",
+  "aria:",
+  "ResizeObserver",
+  "PingFang SC",
+  "Bahnschrift",
+]);
+expectContains("src/views/OverviewView.vue", [
+  'class="metric-strip"',
+  'class="analysis-grid"',
+  'class="panel research-note"',
+  "消费者关注什么",
+  "当前权重最高的三个准则",
+  "研究流程",
+  "overview.notes[0]",
+]);
+expectContains("src/styles/pages.css", [
+  ".metric-strip",
+  ".analysis-grid",
+  ".research-note",
+]);
+expectContains("src/styles/components.css", [".empty", ".panel", ".notice"]);
 
 if (failures.length > 0) {
   console.error(

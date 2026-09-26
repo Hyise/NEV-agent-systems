@@ -28,13 +28,24 @@ const props = defineProps<{
 const element = ref<HTMLElement>();
 let chart: ECharts | undefined;
 let observer: ResizeObserver | undefined;
+const bodyFont = '"PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif';
+const dataFont = 'Bahnschrift, "DIN Alternate", Consolas, monospace';
+
 function draw() {
   chart?.setOption(
     {
-      animation: false,
-      aria: { enabled: true, label: { description: props.label } },
-      textStyle: { fontFamily: "Segoe UI, Microsoft YaHei, sans-serif" },
       ...props.option,
+      animation: false,
+      color: ["#0f7c82", "#c65a3a", "#6f8e98", "#a6b7bd"],
+      aria: { enabled: true, label: { description: props.label } },
+      textStyle: { color: "#536673", fontFamily: bodyFont },
+      tooltip: {
+        borderWidth: 1,
+        borderColor: "#d9e0e5",
+        backgroundColor: "#ffffff",
+        textStyle: { color: "#1e2b38", fontFamily: dataFont, fontSize: 12 },
+        ...(props.option.tooltip || {}),
+      },
     },
     true,
   );
