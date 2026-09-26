@@ -1,0 +1,4 @@
+interface:
+  display_name: "NEV MCDM Vue Boundaries"
+  short_description: "Keep Vue pages, state, API, and charts decoupled"
+  default_prompt: "Use $nev-mcdm-vue to implement this frontend change within the project boundaries."

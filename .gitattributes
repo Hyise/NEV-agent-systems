@@ -1,0 +1,23 @@
+* text=auto eol=lf
+
+*.py text eol=lf
+*.ts text eol=lf
+*.vue text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+*.ps1 text eol=crlf
+
+# Preserve audited third-party Skill copies byte-for-byte, including upstream whitespace.
+.agents/skills/security-best-practices/** -whitespace
+.agents/skills/security-threat-model/** -whitespace
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.pdf binary
+*.zip binary
