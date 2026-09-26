@@ -36,7 +36,7 @@
 
 ## Git 约束
 
-- `origin` 的规范地址是 `https://github.com/Hyise/NEV-agent-systems.git`，主分支为 `main`。
+- `origin` 的规范地址是 `git@github.com:Hyise/NEV-agent-systems.git`，主分支为 `main`。
 - 使用短生命周期主题分支和 `type(scope): summary` 原子提交；提交前执行受影响范围的质量门禁。
 - 不提交运行数据库、研究数据归档、构建产物、依赖目录、凭据或本机临时文件。
 - 不强推或改写共享 `main` 历史；合并、发布和版本标签遵循 [开发与架构规范](docs/开发与架构规范.md#10-git-版本管理)。
