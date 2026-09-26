@@ -5,8 +5,8 @@ import Chart from "../Chart.vue";
 import { pct, useWorkspace } from "../workspace";
 
 const palette = [
-  "#087f8c",
-  "#d58b3d",
+  "#0f7c82",
+  "#c65a3a",
   "#536eaa",
   "#a26481",
   "#4e896c",
@@ -53,7 +53,7 @@ const curveOption = computed(() => ({
 </script>
 
 <template>
-  <section v-if="overview" class="panel">
+  <section v-if="overview" class="panel scenario-workspace">
     <div class="panel-heading">
       <div>
         <h2>时间压力与模型权重</h2>
@@ -84,7 +84,7 @@ const curveOption = computed(() => ({
       </span>
     </div>
     <template v-if="selectedCurves.length">
-      <div class="curve-filters">
+      <div class="curve-filters analysis-controls">
         <button
           v-for="criterion in overview.schema.criteria"
           :key="criterion.name"
@@ -111,7 +111,7 @@ const curveOption = computed(() => ({
         height="380px"
       />
       <div v-else class="empty"><p>选择至少一个准则以显示曲线。</p></div>
-      <div class="notice info">
+      <div class="notice info source-status">
         {{
           curveKind === "weights"
             ? "准则权重由各准则效用范围归一化得到。"

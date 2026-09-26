@@ -131,6 +131,39 @@ expectContains("src/styles/pages.css", [
   ".criteria-workspace",
   ".criteria-row",
 ]);
+expectContains("src/views/ScenarioView.vue", [
+  'class="panel scenario-workspace"',
+  "analysis-controls",
+  "曲线类型",
+  "curve-filters",
+  "查看曲线对应数值",
+  "选择至少一个准则",
+]);
+expectContains("src/views/SharesView.vue", [
+  'class="shares-workspace"',
+  "source-status",
+  "筛选仅影响显示，不重新归一化",
+  "真实样本份额",
+  "归档模型估计",
+  "delta-label",
+]);
+expectContains("src/views/ExperimentsView.vue", [
+  'class="experiments-workspace"',
+  "source-status",
+  "基线模型比较",
+  "消融实验",
+  "R² ↑",
+  "WAPE ↓",
+  "RMSE ↓",
+  "训练",
+]);
+expectContains("src/styles/pages.css", [
+  ".scenario-workspace",
+  ".shares-workspace",
+  ".experiments-workspace",
+  ".source-status",
+  ".delta-label",
+]);
 
 if (failures.length > 0) {
   console.error(

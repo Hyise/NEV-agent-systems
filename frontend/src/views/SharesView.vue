@@ -8,7 +8,7 @@ const { month, predictions, visiblePredictions, query, isPreset, changeMonth } =
   useWorkspace();
 
 const shareOption = computed(() => ({
-  color: ["#087f8c", "#c39b67"],
+  color: ["#0f7c82", "#c65a3a"],
   legend: { bottom: 0, icon: "roundRect", itemWidth: 12 },
   grid: { left: 105, right: 30, top: 8, bottom: 40 },
   tooltip: {
@@ -51,8 +51,8 @@ function showLatestArchive() {
 </script>
 
 <template>
-  <section>
-    <div class="notice info">
+  <section class="shares-workspace">
+    <div class="notice info source-status">
       {{
         predictions.length
           ? "归档模型在训练时见过评估月份；此页用于研究复核，不作为独立测试成绩或未来销量承诺。"
@@ -107,6 +107,9 @@ function showLatestArchive() {
                 class="numeric mono"
                 :class="row.predicted > row.actual ? 'positive' : 'negative'"
               >
+                <span class="delta-label">{{
+                  row.predicted > row.actual ? "高估" : "低估"
+                }}</span>
                 {{ row.predicted > row.actual ? "+" : ""
                 }}{{ ((row.predicted - row.actual) * 100).toFixed(2) }}
               </td>

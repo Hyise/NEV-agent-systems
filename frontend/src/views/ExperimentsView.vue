@@ -16,8 +16,8 @@ const metricName = (name: string) =>
 </script>
 
 <template>
-  <section>
-    <div class="notice info">
+  <section class="experiments-workspace">
+    <div class="notice info source-status">
       实验档案保留原研究数值。后续修复版将重新进行时间切分、基线比较与消融验证，并建立独立版本。
     </div>
     <template v-if="experiments.baseline.length">

@@ -339,6 +339,69 @@
 .spaced {
   margin-top: 22px;
 }
+
+.scenario-workspace,
+.shares-workspace,
+.experiments-workspace {
+  min-width: 0;
+}
+
+.scenario-workspace > .panel-heading,
+.shares-workspace .panel-heading,
+.experiments-workspace .panel-heading {
+  border-bottom: 1px solid var(--line);
+}
+
+.analysis-controls {
+  margin: 0;
+  border-bottom: 1px solid var(--line);
+  background: #fafbfb;
+  padding-block: 16px;
+}
+
+.scenario-workspace .line-legend {
+  border-bottom: 0;
+  padding-top: 15px;
+  padding-bottom: 2px;
+}
+
+.source-status {
+  position: relative;
+  padding-left: 20px;
+}
+
+.source-status::before {
+  position: absolute;
+  top: 11px;
+  bottom: 11px;
+  left: 8px;
+  width: 2px;
+  background: linear-gradient(var(--review) 0 68%, var(--market) 68% 100%);
+  content: "";
+}
+
+.shares-workspace .table-toolbar {
+  border-bottom: 1px solid var(--line);
+  background: #fafbfb;
+  padding-top: 16px;
+}
+
+.delta-label {
+  display: inline-block;
+  min-width: 2.6em;
+  margin-right: 6px;
+  font-family: var(--font-body);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.experiments-workspace .highlighted td:first-child {
+  border-left: 3px solid var(--review);
+}
+
+.experiments-workspace .highlighted td {
+  font-weight: 650;
+}
 @media (min-width: 1550px) {
   main {
     padding-top: 40px;
