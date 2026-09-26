@@ -190,10 +190,35 @@
   background: var(--review-soft);
   color: var(--review);
 }
+.data-workspace,
+.criteria-workspace {
+  min-width: 0;
+}
+
+.dataset-heading {
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 20px;
+}
+
+.dataset-heading h2,
+.criteria-heading h2 {
+  font-size: 20px;
+}
+
+.dataset-toolbar {
+  border-bottom: 1px solid var(--line);
+  background: #fafbfb;
+  padding-block: 15px;
+}
+
+.criteria-heading {
+  border-bottom: 1px solid var(--line);
+}
+
 .criteria-list {
   padding: 0 24px;
 }
-.criterion-row {
+.criteria-row {
   display: flex;
   align-items: center;
   gap: 16px;
@@ -244,11 +269,13 @@
   gap: 7px;
 }
 .level-tags > span {
+  max-width: 100%;
   background: #f0f5f7;
   border-radius: 4px;
   padding: 3px 10px;
   font-size: 11px;
   color: #567481;
+  overflow-wrap: anywhere;
 }
 .level-tags small {
   font-size: 9px;
@@ -502,6 +529,24 @@
     flex-wrap: wrap;
     padding: 0 18px 16px;
   }
+  .dataset-heading,
+  .criteria-heading {
+    align-items: stretch;
+  }
+  .dataset-heading .button-group,
+  .criteria-heading .button-group {
+    width: 100%;
+  }
+  .dataset-toolbar {
+    padding-top: 14px;
+  }
+  .dataset-toolbar .search-field {
+    width: 100%;
+    max-width: none;
+  }
+  .dataset-toolbar .search-field input {
+    width: 100%;
+  }
   .table-toolbar > .caption {
     font-size: 10px;
   }
@@ -518,7 +563,10 @@
   .criteria-list {
     padding: 0 17px;
   }
-  .criterion-row {
+  .criteria-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: start;
     gap: 9px;
   }
   .criterion-index {
@@ -526,6 +574,10 @@
   }
   .level-count {
     font-size: 10px;
+  }
+  .criteria-row .delete-btn {
+    grid-column: 3;
+    grid-row: 1;
   }
   .criteria-actions {
     padding: 17px;

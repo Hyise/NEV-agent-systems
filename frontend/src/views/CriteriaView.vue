@@ -21,9 +21,9 @@ const {
 </script>
 
 <template>
-  <section v-if="overview">
-    <div class="panel">
-      <div class="panel-heading">
+  <section v-if="overview" class="criteria-workspace">
+    <div class="panel criteria-panel">
+      <div class="panel-heading criteria-heading">
         <div>
           <h2>评价准则与有序等级</h2>
           <p>从优到劣排列，每个版本都有独立的数据关联。</p>
@@ -65,7 +65,7 @@ const {
         <div
           v-for="(criterion, index) in draft"
           :key="index"
-          class="criterion-row"
+          class="criteria-row"
         >
           <span class="criterion-index mono">{{
             String(index + 1).padStart(2, "0")

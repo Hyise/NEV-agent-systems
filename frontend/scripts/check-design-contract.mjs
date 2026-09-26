@@ -106,6 +106,31 @@ expectContains("src/styles/pages.css", [
   ".research-note",
 ]);
 expectContains("src/styles/components.css", [".empty", ".panel", ".notice"]);
+expectContains("src/views/DataView.vue", [
+  'class="panel data-workspace"',
+  "dataset-toolbar",
+  "搜索车型",
+  "份额分母固定为当月全部入选车型",
+  "导入加工数据",
+  "导出CSV",
+  "pagination",
+]);
+expectContains("src/views/CriteriaView.vue", [
+  'class="criteria-workspace"',
+  "criteria-row",
+  "版本",
+  "草稿可编辑",
+  "已冻结",
+  "保存草稿",
+  "保存并冻结",
+  "派生新版本",
+]);
+expectContains("src/styles/pages.css", [
+  ".data-workspace",
+  ".dataset-toolbar",
+  ".criteria-workspace",
+  ".criteria-row",
+]);
 
 if (failures.length > 0) {
   console.error(

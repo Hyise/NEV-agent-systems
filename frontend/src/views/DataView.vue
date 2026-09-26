@@ -28,8 +28,8 @@ const {
 </script>
 
 <template>
-  <section v-if="overview" class="panel">
-    <div class="panel-heading">
+  <section v-if="overview" class="panel data-workspace">
+    <div class="panel-heading dataset-heading">
       <div>
         <h2>{{ overview.dataset?.name || "项目数据集" }}</h2>
         <p>
@@ -80,7 +80,7 @@ const {
           : '上传UTF-8 CSV；列含产品型号、观察区间、时间压力、Real_Sales及各准则。准则单元格为 {"L0":0.7,"L1":0.3} 形式的概率对象，等级数需匹配当前版本。'
       }}
     </div>
-    <div class="table-toolbar">
+    <div class="table-toolbar dataset-toolbar">
       <label class="search-field">
         <Search :size="17" />
         <input
