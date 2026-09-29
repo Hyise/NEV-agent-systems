@@ -1,6 +1,6 @@
 # 观衡前端重设计规格
 
-- 状态：待书面复核
+- 状态：已实现并验收
 - 日期：2026-09-26
 - 参考前端：`E:\aaaxz\daima1022\DZagent\frontend`
 - 目标版本：观衡 `0.1.x` 的视觉与交互重设计，不改变研究数据口径
@@ -51,9 +51,7 @@
 
 ### 3.2 字体角色
 
-- 展示标题：`Source Han Serif SC`、`Noto Serif CJK SC`、`STSong`、`SimSun` 回退链。
-- 正文与控件：`PingFang SC`、`Microsoft YaHei`、系统无衬线回退链。
-- 数据与月份：`Bahnschrift`、`DIN Alternate`、`Consolas`、等宽回退链。
+根据最终验收要求，展示标题、正文与控件、数据与月份、ECharts 图表统一使用 `SimSun`、`宋体`、`STSong`、`Songti SC`、`serif` 回退链。仍保留展示、正文、数据三个语义令牌，方便后续在不改组件的情况下调整排版，但当前三个令牌取值一致。
 
 不下载网络字体，确保离线运行和中文覆盖稳定。
 
