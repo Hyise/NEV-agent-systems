@@ -413,7 +413,7 @@
     padding-inline: 10px;
   }
 }
-@media (max-width: 1200px) {
+@media (max-width: 1199px) {
   .analysis-grid {
     grid-template-columns: minmax(0, 1.6fr) minmax(255px, 1fr);
     gap: 15px;
@@ -502,7 +502,7 @@
     font-size: 12px;
   }
 }
-@media (max-width: 760px) {
+@media (max-width: 767px) {
   .context-bar {
     flex-wrap: wrap;
     gap: 8px 10px;
@@ -693,7 +693,7 @@
   border-radius: 2px;
   display: inline-block;
 }
-@media (max-width: 760px) {
+@media (max-width: 767px) {
   .line-legend {
     padding-inline: 17px;
   }

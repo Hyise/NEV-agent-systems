@@ -4,6 +4,7 @@ import {
   defineAsyncComponent,
   onBeforeUnmount,
   onMounted,
+  ref,
 } from "vue";
 import {
   Activity,
@@ -108,9 +109,26 @@ const {
 const activePage = computed(
   () => pages.find((item) => item.id === page.value)!,
 );
+const mobileMenuButton = ref<HTMLButtonElement>();
+
+function closeMobileNavigation() {
+  const shouldRestoreFocus = mobileNav.value;
+  mobileNav.value = false;
+  if (shouldRestoreFocus) {
+    requestAnimationFrame(() => mobileMenuButton.value?.focus());
+  }
+}
+
+function navigateTo(value: Page) {
+  const shouldRestoreFocus = mobileNav.value;
+  navigate(value);
+  if (shouldRestoreFocus) {
+    requestAnimationFrame(() => mobileMenuButton.value?.focus());
+  }
+}
 
 function escapeNavigation(event: KeyboardEvent) {
-  if (event.key === "Escape") mobileNav.value = false;
+  if (event.key === "Escape") closeMobileNavigation();
 }
 
 onMounted(() => document.addEventListener("keydown", escapeNavigation));
@@ -126,9 +144,13 @@ onBeforeUnmount(() =>
       v-if="mobileNav"
       class="nav-backdrop"
       aria-label="关闭导航"
-      @click="mobileNav = false"
+      @click="closeMobileNavigation"
     />
-    <aside class="app-sidebar" :class="{ open: mobileNav }">
+    <aside
+      id="primary-navigation"
+      class="app-sidebar"
+      :class="{ open: mobileNav }"
+    >
       <a
         class="brand-link"
         href="#"
@@ -144,7 +166,7 @@ onBeforeUnmount(() =>
           :key="item.id"
           :class="['nav-item', { active: page === item.id }]"
           :aria-current="page === item.id ? 'page' : undefined"
-          @click="navigate(item.id)"
+          @click="navigateTo(item.id)"
         >
           <component :is="item.icon" :size="19" />
           <span>{{ item.title }}</span>
@@ -166,8 +188,11 @@ onBeforeUnmount(() =>
     <div class="workspace">
       <header class="app-header">
         <button
+          ref="mobileMenuButton"
           class="icon-btn mobile-menu"
           aria-label="打开导航"
+          aria-controls="primary-navigation"
+          :aria-expanded="mobileNav"
           @click="mobileNav = !mobileNav"
         >
           <Menu :size="22" />
@@ -282,13 +307,14 @@ onBeforeUnmount(() =>
       v-if="showCreate"
       ref="createDialog"
       class="project-dialog"
+      aria-labelledby="create-project-title"
       @cancel.prevent="closeCreate"
     >
       <form @submit.prevent="createProject">
         <div class="dialog-heading">
           <div>
             <p class="eyebrow">NEW RESEARCH</p>
-            <h2>建立分析项目</h2>
+            <h2 id="create-project-title">建立分析项目</h2>
           </div>
           <button
             class="icon-btn"

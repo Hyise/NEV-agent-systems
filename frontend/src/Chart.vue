@@ -28,8 +28,8 @@ const props = defineProps<{
 const element = ref<HTMLElement>();
 let chart: ECharts | undefined;
 let observer: ResizeObserver | undefined;
-const bodyFont = '"PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif';
-const dataFont = 'Bahnschrift, "DIN Alternate", Consolas, monospace';
+const bodyFont = 'SimSun, "宋体", STSong, "Songti SC", serif';
+const dataFont = 'SimSun, "宋体", STSong, "Songti SC", serif';
 
 function draw() {
   chart?.setOption(

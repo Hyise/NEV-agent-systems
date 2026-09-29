@@ -88,9 +88,10 @@ expectContains("src/Chart.vue", [
   "animation: false",
   "aria:",
   "ResizeObserver",
-  "PingFang SC",
-  "Bahnschrift",
+  "SimSun",
+  "宋体",
 ]);
+expectNotContains("src/Chart.vue", ["PingFang SC", "Bahnschrift"]);
 expectContains("src/views/OverviewView.vue", [
   'class="metric-strip"',
   'class="analysis-grid"',
@@ -163,6 +164,39 @@ expectContains("src/styles/pages.css", [
   ".experiments-workspace",
   ".source-status",
   ".delta-label",
+]);
+expectContains("src/styles/foundation.css", [
+  "overflow-x: clip",
+  ":focus-visible",
+  "prefers-reduced-motion",
+  "SimSun",
+  "宋体",
+]);
+expectContains("src/styles/shell.css", [
+  "@media (max-width: 1199px)",
+  "@media (max-width: 767px)",
+  ".nav-backdrop",
+]);
+expectContains("src/styles/components.css", [
+  ".table-scroll",
+  "overflow-x: auto",
+]);
+expectContains("src/App.vue", [
+  ':aria-expanded="mobileNav"',
+  'aria-controls="primary-navigation"',
+  'aria-labelledby="create-project-title"',
+  'id="create-project-title"',
+]);
+expectContains("../启动观衡网站.cmd", [
+  "scripts\\start-site.ps1",
+  "ExecutionPolicy Bypass",
+]);
+expectContains("../停止观衡网站.cmd", ["scripts\\stop-local.ps1"]);
+expectContains("../scripts/start-site.ps1", [
+  "start-local.ps1",
+  "Start-Process",
+  "NoBrowser",
+  "npm.cmd",
 ]);
 
 if (failures.length > 0) {

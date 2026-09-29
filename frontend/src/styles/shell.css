@@ -337,7 +337,7 @@ main {
   font-size: 12px;
 }
 
-@media (max-width: 1200px) {
+@media (max-width: 1199px) {
   :root {
     --sidebar-width: 204px;
   }
@@ -359,7 +359,7 @@ main {
   }
 }
 
-@media (max-width: 760px) {
+@media (max-width: 767px) {
   :root {
     --header-height: 58px;
   }

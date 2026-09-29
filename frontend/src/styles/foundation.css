@@ -22,11 +22,9 @@
   --white: #ffffff;
   --amber: #c65a3a;
 
-  --font-display:
-    "Source Han Serif SC", "Noto Serif CJK SC", STSong, SimSun, serif;
-  --font-body:
-    "PingFang SC", "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
-  --font-data: Bahnschrift, "DIN Alternate", Consolas, monospace;
+  --font-display: SimSun, "宋体", STSong, "Songti SC", serif;
+  --font-body: SimSun, "宋体", STSong, "Songti SC", serif;
+  --font-data: SimSun, "宋体", STSong, "Songti SC", serif;
 
   --shadow-soft: 0 10px 30px rgb(30 43 56 / 5%);
   --radius-sm: 4px;
@@ -41,6 +39,7 @@
 
 html {
   min-width: 320px;
+  overflow-x: clip;
   background: var(--canvas);
 }
 
@@ -48,6 +47,7 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+  overflow-x: clip;
   background: var(--canvas);
 }
 

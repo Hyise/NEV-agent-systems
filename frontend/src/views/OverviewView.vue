@@ -37,7 +37,7 @@ const weightOption = computed(() => ({
     axisLabel: {
       color: "#435b68",
       fontSize: 12,
-      fontFamily: '"PingFang SC", "Microsoft YaHei", sans-serif',
+      fontFamily: 'SimSun, "宋体", STSong, "Songti SC", serif',
     },
   },
   series: [
@@ -56,7 +56,7 @@ const weightOption = computed(() => ({
         position: "right",
         formatter: (params: { value: number }) => pct(params.value),
         color: "#385564",
-        fontFamily: 'Bahnschrift, "DIN Alternate", Consolas, monospace',
+        fontFamily: 'SimSun, "宋体", STSong, "Songti SC", serif',
       },
     },
   ],
