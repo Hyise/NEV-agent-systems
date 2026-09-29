@@ -93,6 +93,7 @@ expectContains("src/platform/PlatformHome.vue", [
   "观衡研究平台",
   "researchModules",
   "<RouterLink",
+  '@click.prevent="focusDirectory"',
 ]);
 expectContains("src/platform/AdaptiveIntroduction.vue", [
   "自适应评估系统",
@@ -123,6 +124,7 @@ const mcdmShellPath = "src/modules/mcdm/McdmWorkbench.vue";
 expectContains(mcdmShellPath, [
   "<AppBrand",
   'href="#main-content"',
+  '@click.prevent="focusMain"',
   'class="mcdm-shell"',
   'class="mcdm-platform-bar"',
   'class="research-context"',
@@ -265,22 +267,46 @@ expectContains("src/styles/foundation.css", [
   "prefers-reduced-motion",
   "SimSun",
   "宋体",
+  "text-wrap: balance",
+  "-webkit-tap-highlight-color",
 ]);
 expectContains("src/styles/shell.css", [
   "@media (max-width: 1199px)",
   "@media (max-width: 767px)",
   ".nav-backdrop",
+  "overscroll-behavior: contain",
 ]);
 expectContains("src/styles/components.css", [
   ".table-scroll",
   "overflow-x: auto",
+  "@media (max-width: 767px)",
+  "min-height: 44px",
+]);
+expectContains("src/styles/platform.css", [
+  "@media (max-width: 1199px)",
+  "@media (max-width: 767px)",
 ]);
 expectContains(mcdmShellPath, [
   ':aria-expanded="mobileNav"',
   'aria-controls="primary-navigation"',
   'aria-labelledby="create-project-title"',
   'id="create-project-title"',
+  ':aria-busy="busy"',
+  'aria-live="polite"',
+  'autocomplete="off"',
 ]);
+expectNotContains(mcdmShellPath, ["autofocus"]);
+for (const removedPath of [
+  "src/views/OverviewView.vue",
+  "src/views/DataView.vue",
+  "src/workspace.ts",
+  "src/api.ts",
+  "src/components/Chart.vue",
+]) {
+  if (existsSync(resolve(frontendRoot, removedPath))) {
+    failures.push(`${removedPath}: obsolete pre-module path must not exist`);
+  }
+}
 const workspaceOwners = sourceFiles("src").filter((relativePath) =>
   read(relativePath).includes("const workspace = createWorkspace();"),
 );

@@ -78,6 +78,7 @@ export function createWorkspace() {
   const projectName = ref("");
   const createMode = ref<"preset" | "custom">("custom");
   const createDialog = ref<HTMLDialogElement>();
+  const projectNameInput = ref<HTMLInputElement>();
   const fileInput = ref<HTMLInputElement>();
   const restoreFocus = ref<HTMLElement | null>(null);
   const isPreset = computed(() => overview.value?.project.mode === "preset");
@@ -260,6 +261,9 @@ export function createWorkspace() {
     showCreate.value = true;
     await nextTick();
     createDialog.value?.showModal();
+    if (window.matchMedia("(min-width: 768px)").matches) {
+      projectNameInput.value?.focus();
+    }
   }
 
   function closeCreate() {
@@ -451,6 +455,7 @@ export function createWorkspace() {
     projectName,
     createMode,
     createDialog,
+    projectNameInput,
     fileInput,
     isPreset,
     editable,

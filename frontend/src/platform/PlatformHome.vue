@@ -24,11 +24,20 @@ const presentations: Record<ModuleId, ModulePresentation> = {
     footnote: "当前不提供评估功能或演示数据",
   },
 };
+
+function focusDirectory() {
+  document.querySelector<HTMLElement>("#platform-directory")?.focus();
+}
 </script>
 
 <template>
   <div class="platform-home">
-    <a class="skip-link" href="#platform-directory">跳转到系统目录</a>
+    <a
+      class="skip-link"
+      href="#platform-directory"
+      @click.prevent="focusDirectory"
+      >跳转到系统目录</a
+    >
     <header class="platform-header">
       <AppBrand />
       <div class="platform-header__meta">

@@ -33,6 +33,7 @@ const {
             版本
             <select
               v-model="schemaId"
+              name="criteria-version"
               :disabled="saving || busy || isDirty"
               @change="loadWorkspace"
             >
@@ -81,6 +82,8 @@ const {
               <span class="criterion-field__label">准则名称</span>
               <input
                 v-model="criterion.name"
+                :name="`criterion-${index + 1}-name`"
+                autocomplete="off"
                 :disabled="saving"
                 class="criterion-name-input"
                 :aria-label="`准则${index + 1}名称`"
@@ -95,10 +98,12 @@ const {
               <span class="criterion-field__label">有序等级</span>
               <input
                 v-model="criterion.labelsText"
+                :name="`criterion-${index + 1}-levels`"
+                autocomplete="off"
                 :disabled="saving"
                 class="labels-input"
                 :aria-label="`准则${index + 1}等级`"
-                placeholder="优秀 | 良好 | 一般 | 较差"
+                placeholder="优秀 | 良好 | 一般 | 较差…"
               />
             </label>
             <div v-else class="criterion-field">

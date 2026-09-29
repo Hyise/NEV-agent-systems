@@ -71,6 +71,7 @@ a,
 input,
 select {
   touch-action: manipulation;
+  -webkit-tap-highlight-color: rgb(15 124 130 / 16%);
 }
 
 button {
@@ -109,6 +110,12 @@ h2,
 h3,
 p {
   margin: 0;
+}
+
+h1,
+h2,
+h3 {
+  text-wrap: balance;
 }
 
 h1,

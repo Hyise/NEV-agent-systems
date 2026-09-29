@@ -65,6 +65,7 @@ const {
     </header>
     <input
       ref="fileInput"
+      name="dataset-csv"
       type="file"
       accept=".csv"
       hidden
@@ -86,8 +87,10 @@ const {
           <Search :size="17" />
           <input
             v-model="query"
+            name="dataset-search"
+            autocomplete="off"
             aria-label="搜索车型"
-            placeholder="搜索车型名称"
+            placeholder="搜索车型名称…"
             @input="searchData"
           />
         </label>

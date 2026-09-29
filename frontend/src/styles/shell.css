@@ -308,6 +308,8 @@
   .app-sidebar {
     visibility: hidden;
     width: 216px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
     transform: translateX(-100%);
     transition: transform 180ms ease;
   }

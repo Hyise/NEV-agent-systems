@@ -519,3 +519,19 @@ td strong {
   color: #a24736;
   font-size: 12px;
 }
+
+@media (max-width: 767px) {
+  .btn,
+  .icon-btn,
+  .text-button,
+  .filter-chip,
+  .segmented button,
+  .pagination .icon-btn,
+  .analysis-details summary {
+    min-height: 44px;
+  }
+
+  .pagination {
+    gap: 12px;
+  }
+}

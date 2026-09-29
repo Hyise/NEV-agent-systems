@@ -81,6 +81,7 @@ const {
   projectName,
   createMode,
   createDialog,
+  projectNameInput,
   isPreset,
   editable,
   isDirty,
@@ -118,6 +119,10 @@ function navigateTo(value: Page) {
   }
 }
 
+function focusMain() {
+  document.querySelector<HTMLElement>("#main-content")?.focus();
+}
+
 function escapeNavigation(event: KeyboardEvent) {
   if (event.key === "Escape") closeMobileNavigation();
 }
@@ -130,7 +135,9 @@ onBeforeUnmount(() =>
 
 <template>
   <div class="mcdm-shell">
-    <a class="skip-link" href="#main-content">跳转到主内容</a>
+    <a class="skip-link" href="#main-content" @click.prevent="focusMain"
+      >跳转到主内容</a
+    >
     <button
       v-if="mobileNav"
       class="nav-backdrop"
@@ -195,7 +202,7 @@ onBeforeUnmount(() =>
         <RouterLink class="platform-return" to="/">返回研究平台</RouterLink>
       </header>
 
-      <main id="main-content" class="mcdm-main" tabindex="-1">
+      <main id="main-content" class="mcdm-main" tabindex="-1" :aria-busy="busy">
         <div class="heading-row">
           <div>
             <h1>{{ activePage.title }}</h1>
@@ -217,6 +224,7 @@ onBeforeUnmount(() =>
             <select
               v-model="projectId"
               aria-label="分析项目"
+              name="analysis-project"
               :title="currentProjectName"
               :disabled="busy || saving || (editable && isDirty)"
               @change="changeProject"
@@ -240,6 +248,7 @@ onBeforeUnmount(() =>
             <span>观察月份</span>
             <select
               v-model="month"
+              name="observation-month"
               :disabled="busy || !overview.months.length"
               @change="changeMonth"
             >
@@ -258,7 +267,7 @@ onBeforeUnmount(() =>
           <span>{{ error }}</span
           ><button class="text-button" @click="loadWorkspace">重新加载</button>
         </div>
-        <div v-if="busy" class="loading-line" role="status">
+        <div v-if="busy" class="loading-line" role="status" aria-live="polite">
           正在读取研究数据…
         </div>
 
@@ -310,11 +319,13 @@ onBeforeUnmount(() =>
         <label class="form-label">
           项目名称
           <input
+            ref="projectNameInput"
             v-model="projectName"
+            name="project-name"
+            autocomplete="off"
             required
             maxlength="100"
-            autofocus
-            placeholder="例如：纯电轿车用户评价研究"
+            placeholder="例如：纯电轿车用户评价研究…"
             :disabled="saving"
           />
         </label>
@@ -325,6 +336,7 @@ onBeforeUnmount(() =>
           >
             <input
               v-model="createMode"
+              name="project-mode"
               type="radio"
               value="preset"
               :disabled="saving"
@@ -339,6 +351,7 @@ onBeforeUnmount(() =>
           >
             <input
               v-model="createMode"
+              name="project-mode"
               type="radio"
               value="custom"
               :disabled="saving"

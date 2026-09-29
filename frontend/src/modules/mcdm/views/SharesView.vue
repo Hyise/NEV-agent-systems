@@ -75,8 +75,10 @@ function showLatestArchive() {
           <Search :size="17" />
           <input
             v-model="query"
+            name="prediction-search"
+            autocomplete="off"
             aria-label="搜索预测车型"
-            placeholder="搜索车型名称"
+            placeholder="搜索车型名称…"
           />
         </label>
         <span class="caption">筛选仅影响显示，不重新归一化</span>

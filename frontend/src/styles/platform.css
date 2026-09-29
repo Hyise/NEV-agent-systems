@@ -266,6 +266,21 @@
   color: var(--mcdm-accent);
 }
 
+@media (max-width: 1199px) {
+  .platform-main {
+    width: min(100% - 40px, 1040px);
+  }
+
+  .module-entry {
+    min-height: 480px;
+  }
+
+  .platform-header,
+  .platform-footer {
+    padding-inline: 28px;
+  }
+}
+
 @media (max-width: 767px) {
   .platform-header {
     min-height: 64px;
