@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -34,6 +34,18 @@ function expectNotContains(relativePath, values) {
       );
     }
   }
+}
+
+function sourceFiles(relativeDirectory) {
+  const absoluteDirectory = resolve(frontendRoot, relativeDirectory);
+  if (!existsSync(absoluteDirectory)) return [];
+  return readdirSync(absoluteDirectory, { withFileTypes: true }).flatMap(
+    (entry) => {
+      const relativePath = `${relativeDirectory}/${entry.name}`;
+      if (entry.isDirectory()) return sourceFiles(relativePath);
+      return /\.(ts|vue)$/.test(entry.name) ? [relativePath] : [];
+    },
+  );
 }
 
 const styleLayers = [
@@ -76,7 +88,8 @@ expectContains("src/styles/foundation.css", [
   "prefers-reduced-motion",
 ]);
 read("src/components/AppBrand.vue");
-expectContains("src/App.vue", [
+const mcdmShellPath = "src/modules/mcdm/McdmWorkbench.vue";
+expectContains(mcdmShellPath, [
   "<AppBrand",
   'href="#main-content"',
   "aria-current=\"page === item.id ? 'page' : undefined\"",
@@ -84,15 +97,18 @@ expectContains("src/App.vue", [
   'class="app-sidebar"',
   'class="app-header"',
 ]);
-expectContains("src/Chart.vue", [
+expectContains("src/components/BaseChart.vue", [
   "animation: false",
   "aria:",
   "ResizeObserver",
   "SimSun",
   "宋体",
 ]);
-expectNotContains("src/Chart.vue", ["PingFang SC", "Bahnschrift"]);
-expectContains("src/views/OverviewView.vue", [
+expectNotContains("src/components/BaseChart.vue", [
+  "PingFang SC",
+  "Bahnschrift",
+]);
+expectContains("src/modules/mcdm/views/OverviewView.vue", [
   'class="metric-strip"',
   'class="analysis-grid"',
   'class="panel research-note"',
@@ -107,7 +123,7 @@ expectContains("src/styles/pages.css", [
   ".research-note",
 ]);
 expectContains("src/styles/components.css", [".empty", ".panel", ".notice"]);
-expectContains("src/views/DataView.vue", [
+expectContains("src/modules/mcdm/views/DataView.vue", [
   'class="panel data-workspace"',
   "dataset-toolbar",
   "搜索车型",
@@ -116,7 +132,7 @@ expectContains("src/views/DataView.vue", [
   "导出CSV",
   "pagination",
 ]);
-expectContains("src/views/CriteriaView.vue", [
+expectContains("src/modules/mcdm/views/CriteriaView.vue", [
   'class="criteria-workspace"',
   "criteria-row",
   "版本",
@@ -132,7 +148,7 @@ expectContains("src/styles/pages.css", [
   ".criteria-workspace",
   ".criteria-row",
 ]);
-expectContains("src/views/ScenarioView.vue", [
+expectContains("src/modules/mcdm/views/ScenarioView.vue", [
   'class="panel scenario-workspace"',
   "analysis-controls",
   "曲线类型",
@@ -140,7 +156,7 @@ expectContains("src/views/ScenarioView.vue", [
   "查看曲线对应数值",
   "选择至少一个准则",
 ]);
-expectContains("src/views/SharesView.vue", [
+expectContains("src/modules/mcdm/views/SharesView.vue", [
   'class="shares-workspace"',
   "source-status",
   "筛选仅影响显示，不重新归一化",
@@ -148,7 +164,7 @@ expectContains("src/views/SharesView.vue", [
   "归档模型估计",
   "delta-label",
 ]);
-expectContains("src/views/ExperimentsView.vue", [
+expectContains("src/modules/mcdm/views/ExperimentsView.vue", [
   'class="experiments-workspace"',
   "source-status",
   "基线模型比较",
@@ -181,12 +197,26 @@ expectContains("src/styles/components.css", [
   ".table-scroll",
   "overflow-x: auto",
 ]);
-expectContains("src/App.vue", [
+expectContains(mcdmShellPath, [
   ':aria-expanded="mobileNav"',
   'aria-controls="primary-navigation"',
   'aria-labelledby="create-project-title"',
   'id="create-project-title"',
 ]);
+const workspaceOwners = sourceFiles("src").filter((relativePath) =>
+  read(relativePath).includes("const workspace = createWorkspace();"),
+);
+if (workspaceOwners.length !== 1 || workspaceOwners[0] !== mcdmShellPath) {
+  failures.push(
+    `${mcdmShellPath}: must be the only createWorkspace() owner; found ${workspaceOwners.join(", ") || "none"}`,
+  );
+}
+for (const boundaryPath of ["src/platform/modules.ts", "src/router/index.ts"]) {
+  expectNotContains(boundaryPath, [
+    "modules/mcdm/workspace",
+    "modules/mcdm/api",
+  ]);
+}
 expectContains("../启动观衡网站.cmd", [
   "scripts\\start-site.ps1",
   "ExecutionPolicy Bypass",

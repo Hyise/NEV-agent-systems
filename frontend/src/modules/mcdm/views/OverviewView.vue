@@ -7,7 +7,7 @@ import {
   FileCheck2,
   Layers3,
 } from "lucide-vue-next";
-import Chart from "../Chart.vue";
+import BaseChart from "../../../components/BaseChart.vue";
 import { count, pct, useWorkspace } from "../workspace";
 
 const {
@@ -102,7 +102,7 @@ const weightOption = computed(() => ({
             isPreset ? "研究归档" : "等待运行"
           }}</span>
         </div>
-        <Chart
+        <BaseChart
           v-if="sortedWeights.length"
           :option="weightOption"
           label="十项准则的归档相对权重比较"

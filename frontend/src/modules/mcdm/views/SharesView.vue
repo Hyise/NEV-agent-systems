@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { BarChart3, Search } from "lucide-vue-next";
-import Chart from "../Chart.vue";
+import BaseChart from "../../../components/BaseChart.vue";
 import { pct, useWorkspace } from "../workspace";
 
 const { month, predictions, visiblePredictions, query, isPreset, changeMonth } =
@@ -81,7 +81,7 @@ function showLatestArchive() {
         </label>
         <span class="caption">筛选仅影响显示，不重新归一化</span>
       </div>
-      <Chart
+      <BaseChart
         v-if="visiblePredictions.length"
         :option="shareOption"
         label="各车型真实份额与归档模型估计比较"

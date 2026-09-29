@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { Activity, Check } from "lucide-vue-next";
-import Chart from "../Chart.vue";
+import BaseChart from "../../../components/BaseChart.vue";
 import { pct, useWorkspace } from "../workspace";
 
 const palette = [
@@ -100,7 +100,7 @@ const curveOption = computed(() => ({
           }}
         </button>
       </div>
-      <Chart
+      <BaseChart
         v-if="curveCriteria.length"
         :option="curveOption"
         :label="
