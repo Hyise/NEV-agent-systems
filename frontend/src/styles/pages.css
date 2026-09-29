@@ -469,54 +469,88 @@
 .negative {
   color: #aa7647;
 }
-.spaced {
-  margin-top: 22px;
-}
-
 .scenario-workspace,
 .shares-workspace,
 .experiments-workspace {
   min-width: 0;
 }
 
-.scenario-workspace > .panel-heading,
-.shares-workspace .panel-heading,
-.experiments-workspace .panel-heading {
-  border-bottom: 1px solid var(--line);
+.analysis-document {
+  min-width: 0;
+  overflow: hidden;
+  border-block: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.analysis-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 20px 24px;
+}
+
+.analysis-heading p {
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.analysis-control-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-block: 1px solid var(--line);
+  background: #fafbfb;
+  padding: 13px 24px;
 }
 
 .analysis-controls {
   margin: 0;
-  border-bottom: 1px solid var(--line);
-  background: #fafbfb;
-  padding-block: 16px;
+}
+
+.analysis-control-bar .curve-filters {
+  flex: 1;
+  justify-content: flex-end;
+  padding: 0;
+}
+
+.analysis-evidence {
+  min-width: 0;
+  background: var(--surface);
 }
 
 .scenario-workspace .line-legend {
-  border-bottom: 0;
-  padding-top: 15px;
-  padding-bottom: 2px;
+  border-bottom: 1px solid var(--line);
+  padding: 12px 24px;
 }
 
 .source-status {
-  position: relative;
-  padding-left: 20px;
+  border-left-color: #829ca9;
 }
 
-.source-status::before {
-  position: absolute;
-  top: 11px;
-  bottom: 11px;
-  left: 8px;
-  width: 2px;
-  background: linear-gradient(var(--review) 0 68%, var(--market) 68% 100%);
-  content: "";
+.scenario-workspace > .source-status {
+  margin: 0 24px 18px;
 }
 
-.shares-workspace .table-toolbar {
+.analysis-details {
+  border-top: 1px solid var(--line);
+}
+
+.analysis-details summary {
+  padding: 12px 24px;
+  color: #506b7c;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.analysis-details .table-scroll {
+  border-top: 1px solid var(--line);
+}
+
+.share-evidence .analysis-control-bar {
   border-bottom: 1px solid var(--line);
-  background: #fafbfb;
-  padding-top: 16px;
 }
 
 .delta-label {
@@ -526,6 +560,28 @@
   font-family: var(--font-body);
   font-size: 10px;
   font-weight: 650;
+}
+
+.experiment-section {
+  border-top: 1px solid var(--line);
+}
+
+.experiment-ledger {
+  font-variant-numeric: tabular-nums;
+}
+
+.experiment-section__heading {
+  padding: 16px 24px 12px;
+}
+
+.experiment-section__heading h3 {
+  font-size: 14px;
+}
+
+.experiment-section__heading p {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 11px;
 }
 
 .experiments-workspace .highlighted td:first-child {
@@ -694,6 +750,29 @@
     flex-direction: column;
     gap: 4px;
     font-size: 9px;
+  }
+  .analysis-heading {
+    flex-wrap: wrap;
+    padding: 18px;
+  }
+  .analysis-control-bar {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    padding: 14px 18px;
+  }
+  .analysis-control-bar .curve-filters {
+    flex-basis: 100%;
+    justify-content: flex-start;
+  }
+  .scenario-workspace .line-legend {
+    padding-inline: 18px;
+  }
+  .scenario-workspace > .source-status {
+    margin-inline: 18px;
+  }
+  .analysis-details summary,
+  .experiment-section__heading {
+    padding-inline: 18px;
   }
   .table-toolbar {
     flex-wrap: wrap;

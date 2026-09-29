@@ -146,6 +146,8 @@ expectContains("src/components/BaseChart.vue", [
   "animation: false",
   "aria:",
   "ResizeObserver",
+  "axisPointer",
+  "confine: true",
   "SimSun",
   "宋体",
 ]);
@@ -216,8 +218,10 @@ expectContains("src/styles/pages.css", [
   ".criteria-row",
 ]);
 expectContains("src/modules/mcdm/views/ScenarioView.vue", [
-  'class="panel scenario-workspace"',
+  'class="analysis-document scenario-workspace"',
   "analysis-controls",
+  "analysis-control-bar",
+  "analysis-evidence",
   "曲线类型",
   "curve-filters",
   "查看曲线对应数值",
@@ -225,6 +229,8 @@ expectContains("src/modules/mcdm/views/ScenarioView.vue", [
 ]);
 expectContains("src/modules/mcdm/views/SharesView.vue", [
   'class="shares-workspace"',
+  'class="analysis-document share-evidence"',
+  'class="analysis-control-bar"',
   "source-status",
   "筛选仅影响显示，不重新归一化",
   "真实样本份额",
@@ -233,6 +239,8 @@ expectContains("src/modules/mcdm/views/SharesView.vue", [
 ]);
 expectContains("src/modules/mcdm/views/ExperimentsView.vue", [
   'class="experiments-workspace"',
+  'class="analysis-document experiment-ledger"',
+  'class="experiment-section"',
   "source-status",
   "基线模型比较",
   "消融实验",
@@ -245,6 +253,9 @@ expectContains("src/styles/pages.css", [
   ".scenario-workspace",
   ".shares-workspace",
   ".experiments-workspace",
+  ".analysis-document",
+  ".analysis-control-bar",
+  ".experiment-ledger",
   ".source-status",
   ".delta-label",
 ]);

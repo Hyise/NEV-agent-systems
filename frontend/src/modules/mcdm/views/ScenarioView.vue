@@ -53,12 +53,18 @@ const curveOption = computed(() => ({
 </script>
 
 <template>
-  <section v-if="overview" class="panel scenario-workspace">
-    <div class="panel-heading">
+  <section v-if="overview" class="analysis-document scenario-workspace">
+    <header class="analysis-heading">
       <div>
         <h2>时间压力与模型权重</h2>
         <p>沿真实月度观察点展示，不补造新情景下的计算结果。</p>
       </div>
+      <span class="badge neutral">月度归档</span>
+    </header>
+    <div
+      v-if="selectedCurves.length"
+      class="analysis-control-bar analysis-controls"
+    >
       <div class="segmented" aria-label="曲线类型">
         <button
           :class="{ selected: curveKind === 'weights' }"
@@ -73,18 +79,7 @@ const curveOption = computed(() => ({
           理性混合权重
         </button>
       </div>
-    </div>
-    <div
-      v-if="selectedCurves.length && curveCriteria.length"
-      class="line-legend"
-      aria-label="曲线图例"
-    >
-      <span v-for="(name, index) in curveCriteria" :key="name">
-        <i :style="{ background: palette[index % palette.length] }" />{{ name }}
-      </span>
-    </div>
-    <template v-if="selectedCurves.length">
-      <div class="curve-filters analysis-controls">
+      <div class="curve-filters">
         <button
           v-for="criterion in overview.schema.criteria"
           :key="criterion.name"
@@ -100,17 +95,30 @@ const curveOption = computed(() => ({
           }}
         </button>
       </div>
-      <BaseChart
-        v-if="curveCriteria.length"
-        :option="curveOption"
-        :label="
-          curveKind === 'weights'
-            ? '各月份准则权重变化'
-            : '各月份理性混合权重变化'
-        "
-        height="380px"
-      />
-      <div v-else class="empty"><p>选择至少一个准则以显示曲线。</p></div>
+    </div>
+    <div
+      v-if="selectedCurves.length && curveCriteria.length"
+      class="line-legend"
+      aria-label="曲线图例"
+    >
+      <span v-for="(name, index) in curveCriteria" :key="name">
+        <i :style="{ background: palette[index % palette.length] }" />{{ name }}
+      </span>
+    </div>
+    <template v-if="selectedCurves.length">
+      <div class="analysis-evidence">
+        <BaseChart
+          v-if="curveCriteria.length"
+          :option="curveOption"
+          :label="
+            curveKind === 'weights'
+              ? '各月份准则权重变化'
+              : '各月份理性混合权重变化'
+          "
+          height="380px"
+        />
+        <div v-else class="empty"><p>选择至少一个准则以显示曲线。</p></div>
+      </div>
       <div class="notice info source-status">
         {{
           curveKind === "weights"

@@ -40,9 +40,14 @@ function draw() {
       aria: { enabled: true, label: { description: props.label } },
       textStyle: { color: "#536673", fontFamily: bodyFont },
       tooltip: {
+        confine: true,
         borderWidth: 1,
         borderColor: "#d9e0e5",
         backgroundColor: "#ffffff",
+        axisPointer: {
+          type: "line",
+          lineStyle: { color: "#9eb0b8", width: 1, type: "dashed" },
+        },
         textStyle: { color: "#1e2b38", fontFamily: dataFont, fontSize: 12 },
         ...(props.option.tooltip || {}),
       },
