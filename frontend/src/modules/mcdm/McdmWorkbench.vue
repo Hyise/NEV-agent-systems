@@ -6,21 +6,8 @@ import {
   onMounted,
   ref,
 } from "vue";
-import {
-  Activity,
-  ArrowRight,
-  BarChart3,
-  Check,
-  ChevronRight,
-  Database,
-  FlaskConical,
-  Layers3,
-  LayoutDashboard,
-  Menu,
-  Plus,
-  SlidersHorizontal,
-  X,
-} from "lucide-vue-next";
+import { ArrowRight, Check, Menu, Plus, X } from "lucide-vue-next";
+import { RouterLink } from "vue-router";
 import AppBrand from "../../components/AppBrand.vue";
 import { createWorkspace, provideWorkspace, type Page } from "./workspace";
 
@@ -43,39 +30,38 @@ const pages = [
   {
     id: "overview" as Page,
     title: "研究总览",
-    icon: LayoutDashboard,
     subtitle: "从用户评价，理解市场选择。",
   },
   {
     id: "data" as Page,
     title: "数据中心",
-    icon: Database,
     subtitle: "追溯每一次分析的数据起点。",
   },
   {
     id: "criteria" as Page,
     title: "准则工作台",
-    icon: Layers3,
     subtitle: "让评价维度有定义，让研究版本可追溯。",
   },
   {
     id: "scenario" as Page,
     title: "情景分析",
-    icon: SlidersHorizontal,
     subtitle: "观察时间压力下的权重变化。",
   },
   {
     id: "shares" as Page,
     title: "份额分析",
-    icon: BarChart3,
     subtitle: "在同一候选集内，对照真实份额与模型估计。",
   },
   {
     id: "experiments" as Page,
     title: "实验档案",
-    icon: FlaskConical,
     subtitle: "保留研究证据，也保留它的适用边界。",
   },
+];
+
+const pageGroups = [
+  { label: "研究准备", pages: pages.slice(0, 3) },
+  { label: "分析复核", pages: pages.slice(3) },
 ];
 
 const workspace = createWorkspace();
@@ -109,6 +95,11 @@ const {
 const activePage = computed(
   () => pages.find((item) => item.id === page.value)!,
 );
+const currentProjectName = computed(
+  () =>
+    projects.value.find((project) => project.id === projectId.value)?.name ??
+    "未选择分析项目",
+);
 const mobileMenuButton = ref<HTMLButtonElement>();
 
 function closeMobileNavigation() {
@@ -138,7 +129,7 @@ onBeforeUnmount(() =>
 </script>
 
 <template>
-  <div class="app-shell">
+  <div class="mcdm-shell">
     <a class="skip-link" href="#main-content">跳转到主内容</a>
     <button
       v-if="mobileNav"
@@ -151,42 +142,41 @@ onBeforeUnmount(() =>
       class="app-sidebar"
       :class="{ open: mobileNav }"
     >
-      <a
+      <RouterLink class="module-return" to="/" @click="closeMobileNavigation">
+        <span aria-hidden="true">←</span>返回研究平台
+      </RouterLink>
+      <button
         class="brand-link"
-        href="#"
-        aria-label="观衡研究总览"
-        @click.prevent="navigate('overview')"
+        type="button"
+        aria-label="返回多准则研究总览"
+        @click="navigateTo('overview')"
       >
-        <AppBrand />
-      </a>
-      <div class="workspace-label">新能源汽车研究工作台</div>
+        <AppBrand compact />
+      </button>
+      <p class="workspace-label">多准则决策系统</p>
       <nav aria-label="主导航">
-        <button
-          v-for="item in pages"
-          :key="item.id"
-          :class="['nav-item', { active: page === item.id }]"
-          :aria-current="page === item.id ? 'page' : undefined"
-          @click="navigateTo(item.id)"
+        <section
+          v-for="group in pageGroups"
+          :key="group.label"
+          class="nav-group"
         >
-          <component :is="item.icon" :size="19" />
-          <span>{{ item.title }}</span>
-          <span v-if="page === item.id" class="nav-dot" aria-hidden="true" />
-        </button>
+          <h2 class="nav-group__title">{{ group.label }}</h2>
+          <button
+            v-for="item in group.pages"
+            :key="item.id"
+            :class="['nav-item', { active: page === item.id }]"
+            :aria-current="page === item.id ? 'page' : undefined"
+            @click="navigateTo(item.id)"
+          >
+            <span>{{ item.title }}</span>
+          </button>
+        </section>
       </nav>
-      <div class="sidebar-note">
-        <div class="sidebar-note__title">
-          <Activity :size="17" /><strong>从评论到决策</strong>
-        </div>
-        <p>以平台用户评论构建准则证据，以销量变化校验市场响应。</p>
-        <span class="tiny-label">LLM · PNS · BEAST</span>
-      </div>
-      <div class="sidebar-foot">
-        <span class="online-dot" /> 本机研究版 <span class="mono">0.1</span>
-      </div>
+      <div class="sidebar-foot">本机研究版 <span class="mono">0.1</span></div>
     </aside>
 
-    <div class="workspace">
-      <header class="app-header">
+    <div class="mcdm-workspace">
+      <header class="mcdm-platform-bar">
         <button
           ref="mobileMenuButton"
           class="icon-btn mobile-menu"
@@ -197,25 +187,17 @@ onBeforeUnmount(() =>
         >
           <Menu :size="22" />
         </button>
-        <div class="breadcrumb">
-          研究工作台 <ChevronRight :size="14" /><strong>{{
-            activePage.title
-          }}</strong>
+        <div class="platform-bar__identity">
+          <span class="platform-bar__module">多准则决策系统</span>
+          <span aria-hidden="true">/</span>
+          <strong>{{ activePage.title }}</strong>
         </div>
-        <div class="topbar-right">
-          <span class="environment">阶段一 · 数据与准则</span>
-          <span class="avatar" aria-label="本地研究人员">研</span>
-        </div>
+        <RouterLink class="platform-return" to="/">返回研究平台</RouterLink>
       </header>
-      <div class="evidence-rail" aria-hidden="true">
-        <span class="evidence-rail__reviews" />
-        <span class="evidence-rail__market" />
-      </div>
 
-      <main id="main-content" tabindex="-1">
+      <main id="main-content" class="mcdm-main" tabindex="-1">
         <div class="heading-row">
           <div>
-            <p class="eyebrow">NEW ENERGY VEHICLE / DECISION SCIENCE</p>
             <h1>{{ activePage.title }}</h1>
             <p class="subtitle">{{ activePage.subtitle }}</p>
           </div>
@@ -228,12 +210,14 @@ onBeforeUnmount(() =>
           </button>
         </div>
 
-        <div class="context-bar">
+        <section class="research-context" aria-label="当前研究上下文">
+          <span class="research-context__label">研究上下文</span>
           <label class="project-control">
             <span>分析项目</span>
             <select
               v-model="projectId"
               aria-label="分析项目"
+              :title="currentProjectName"
               :disabled="busy || saving || (editable && isDirty)"
               @change="changeProject"
             >
@@ -246,7 +230,7 @@ onBeforeUnmount(() =>
               </option>
             </select>
           </label>
-          <span v-if="overview" :class="['badge', isPreset ? 'teal' : 'blue']">
+          <span v-if="overview" class="context-mode">
             {{ isPreset ? "预置准则模式" : "自定义准则模式" }}
           </span>
           <label
@@ -268,7 +252,7 @@ onBeforeUnmount(() =>
           <span v-if="overview" class="context-version mono"
             >准则 V{{ overview.schema.version }}</span
           >
-        </div>
+        </section>
 
         <div v-if="error" class="notice error" role="alert">
           <span>{{ error }}</span
@@ -312,10 +296,7 @@ onBeforeUnmount(() =>
     >
       <form @submit.prevent="createProject">
         <div class="dialog-heading">
-          <div>
-            <p class="eyebrow">NEW RESEARCH</p>
-            <h2 id="create-project-title">建立分析项目</h2>
-          </div>
+          <h2 id="create-project-title">建立分析项目</h2>
           <button
             class="icon-btn"
             type="button"

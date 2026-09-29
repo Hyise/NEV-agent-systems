@@ -403,7 +403,7 @@
   font-weight: 650;
 }
 @media (min-width: 1550px) {
-  main {
+  .mcdm-main {
     padding-top: 40px;
   }
   .analysis-grid {
@@ -424,7 +424,7 @@
   .research-note {
     padding: 21px;
   }
-  .context-bar {
+  .research-context {
     gap: 10px;
     padding-inline: 12px;
   }
@@ -503,7 +503,7 @@
   }
 }
 @media (max-width: 767px) {
-  .context-bar {
+  .research-context {
     flex-wrap: wrap;
     gap: 8px 10px;
   }
@@ -666,9 +666,6 @@
   }
   .version-select select {
     max-width: 130px;
-  }
-  .context-bar .badge {
-    font-size: 9px;
   }
   .project-dialog {
     padding: 23px;

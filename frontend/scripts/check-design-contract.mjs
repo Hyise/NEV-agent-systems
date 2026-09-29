@@ -123,10 +123,24 @@ const mcdmShellPath = "src/modules/mcdm/McdmWorkbench.vue";
 expectContains(mcdmShellPath, [
   "<AppBrand",
   'href="#main-content"',
+  'class="mcdm-shell"',
+  'class="mcdm-platform-bar"',
+  'class="research-context"',
+  'to="/"',
+  "返回研究平台",
+  "研究准备",
+  "分析复核",
+  ':title="currentProjectName"',
   "aria-current=\"page === item.id ? 'page' : undefined\"",
-  'class="evidence-rail"',
   'class="app-sidebar"',
-  'class="app-header"',
+]);
+expectNotContains(mcdmShellPath, [
+  "NEW ENERGY VEHICLE",
+  "NEW RESEARCH",
+  'class="evidence-rail"',
+  "阶段一 · 数据与准则",
+  '<component :is="item.icon"',
+  "icon: LayoutDashboard",
 ]);
 expectContains("src/components/BaseChart.vue", [
   "animation: false",
