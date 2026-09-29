@@ -191,18 +191,28 @@ expectNotContains("src/modules/mcdm/views/DataView.vue", [
 ]);
 expectContains("src/modules/mcdm/views/CriteriaView.vue", [
   'class="criteria-workspace"',
+  'class="criteria-document"',
+  'class="criteria-document__meta"',
+  'class="criteria-column-head"',
   "criteria-row",
+  "criteria-row__fields",
   "版本",
   "草稿可编辑",
   "已冻结",
   "保存草稿",
   "保存并冻结",
   "派生新版本",
+  ">删除</span>",
+]);
+expectNotContains("src/modules/mcdm/views/CriteriaView.vue", [
+  'class="panel criteria-panel"',
 ]);
 expectContains("src/styles/pages.css", [
   ".data-workspace",
   ".dataset-toolbar",
   ".criteria-workspace",
+  ".criteria-document",
+  ".criteria-row__fields",
   ".criteria-row",
 ]);
 expectContains("src/modules/mcdm/views/ScenarioView.vue", [

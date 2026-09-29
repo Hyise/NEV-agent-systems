@@ -22,13 +22,13 @@ const {
 
 <template>
   <section v-if="overview" class="criteria-workspace">
-    <div class="panel criteria-panel">
-      <div class="panel-heading criteria-heading">
+    <article class="criteria-document">
+      <header class="criteria-document__header">
         <div>
           <h2>评价准则与有序等级</h2>
           <p>从优到劣排列，每个版本都有独立的数据关联。</p>
         </div>
-        <div class="button-group">
+        <div class="criteria-document__meta">
           <label class="version-select">
             版本
             <select
@@ -52,7 +52,7 @@ const {
             }}
           </span>
         </div>
-      </div>
+      </header>
       <div v-if="isPreset" class="notice info">
         预置模式沿用真实矩阵的 L0 至
         L(n−1)。原自然语言标签存在等级数不一致，尚未自动映射；数字等级顺序按原PNS代码由优到劣保留。
@@ -60,6 +60,12 @@ const {
       <div v-else class="notice info">
         每行一个准则。用“ |
         ”分隔等级，最优等级放最左侧。冻结后不能原地修改，可派生新版本。
+      </div>
+      <div class="criteria-column-head" aria-hidden="true">
+        <span>序号</span>
+        <span>准则定义</span>
+        <span>等级数</span>
+        <span>操作</span>
       </div>
       <div class="criteria-list">
         <div
@@ -70,31 +76,33 @@ const {
           <span class="criterion-index mono">{{
             String(index + 1).padStart(2, "0")
           }}</span>
-          <div class="criterion-content">
-            <template v-if="editable">
-              <label>
-                <span class="visually-hidden">准则{{ index + 1 }}名称</span>
-                <input
-                  v-model="criterion.name"
-                  :disabled="saving"
-                  class="criterion-name-input"
-                  :aria-label="`准则${index + 1}名称`"
-                  maxlength="50"
-                />
-              </label>
-              <label>
-                <span class="visually-hidden">准则{{ index + 1 }}等级</span>
-                <input
-                  v-model="criterion.labelsText"
-                  :disabled="saving"
-                  class="labels-input"
-                  :aria-label="`准则${index + 1}等级`"
-                  placeholder="优秀 | 良好 | 一般 | 较差"
-                />
-              </label>
-            </template>
-            <template v-else>
+          <div class="criteria-row__fields">
+            <label v-if="editable" class="criterion-field">
+              <span class="criterion-field__label">准则名称</span>
+              <input
+                v-model="criterion.name"
+                :disabled="saving"
+                class="criterion-name-input"
+                :aria-label="`准则${index + 1}名称`"
+                maxlength="50"
+              />
+            </label>
+            <div v-else class="criterion-field">
+              <span class="criterion-field__label">准则名称</span>
               <h3>{{ criterion.name }}</h3>
+            </div>
+            <label v-if="editable" class="criterion-field">
+              <span class="criterion-field__label">有序等级</span>
+              <input
+                v-model="criterion.labelsText"
+                :disabled="saving"
+                class="labels-input"
+                :aria-label="`准则${index + 1}等级`"
+                placeholder="优秀 | 良好 | 一般 | 较差"
+              />
+            </label>
+            <div v-else class="criterion-field">
+              <span class="criterion-field__label">有序等级</span>
               <div class="level-tags">
                 <span
                   v-for="(label, labelIndex) in labels(criterion.labelsText)"
@@ -117,19 +125,19 @@ const {
                   overview.source_labels[criterion.name]?.join(" / ")
                 }}
               </p>
-            </template>
+            </div>
           </div>
           <span class="level-count mono"
             >{{ labels(criterion.labelsText).length }}级</span
           >
           <button
             v-if="editable"
-            class="icon-btn delete-btn"
+            class="text-button delete-btn"
             :aria-label="`删除准则${index + 1}`"
             :disabled="draft.length <= 1 || saving"
             @click="draft.splice(index, 1)"
           >
-            <Trash2 :size="16" />
+            <Trash2 :size="15" /><span>删除</span>
           </button>
         </div>
       </div>
@@ -185,6 +193,6 @@ const {
           </button>
         </div>
       </div>
-    </div>
+    </article>
   </section>
 </template>
