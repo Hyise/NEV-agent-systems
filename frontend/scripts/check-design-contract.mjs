@@ -50,6 +50,7 @@ function sourceFiles(relativeDirectory) {
 
 const styleLayers = [
   "./styles/foundation.css",
+  "./styles/platform.css",
   "./styles/shell.css",
   "./styles/components.css",
   "./styles/pages.css",
@@ -74,6 +75,36 @@ for (const layer of styleLayers) {
 expectNotContains(entryPath, [":root {", ".app-shell {", ".panel {"]);
 expectContains("package.json", [
   '"check:design": "node scripts/check-design-contract.mjs"',
+]);
+expectContains("src/main.ts", [
+  "createWebHashHistory",
+  "createPlatformRouter",
+  ".use(router)",
+]);
+expectContains("src/App.vue", [
+  "<RouterView",
+  "<KeepAlive",
+  "router.onError",
+  "模块加载失败",
+  "重新加载",
+  "返回平台",
+]);
+expectContains("src/platform/PlatformHome.vue", [
+  "观衡研究平台",
+  "researchModules",
+  "<RouterLink",
+]);
+expectContains("src/platform/AdaptiveIntroduction.vue", [
+  "自适应评估系统",
+  "研究材料待接入",
+  "业务口径待确认",
+  "后续功能建设",
+  "返回研究平台",
+]);
+expectNotContains("src/platform/AdaptiveIntroduction.vue", [
+  "开始评估",
+  "<form",
+  '"/api',
 ]);
 expectContains("src/styles/foundation.css", [
   "#f3f5f6",

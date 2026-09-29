@@ -22,6 +22,14 @@
   --white: #ffffff;
   --amber: #c65a3a;
 
+  --platform-canvas: #f4f6f7;
+  --platform-surface: #ffffff;
+  --platform-ink: #18232d;
+  --platform-muted: #65717c;
+  --platform-line: #d6dce0;
+  --mcdm-accent: #235f68;
+  --adaptive-accent: #625c82;
+
   --font-display: SimSun, "宋体", STSong, "Songti SC", serif;
   --font-body: SimSun, "宋体", STSong, "Songti SC", serif;
   --font-data: SimSun, "宋体", STSong, "Songti SC", serif;
