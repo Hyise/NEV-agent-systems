@@ -5,23 +5,26 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
+    "test": "vitest",
     "check:design": "node scripts/check-design-contract.mjs",
     "typecheck": "vue-tsc --noEmit",
-    "format": "prettier --write scripts src vite.config.ts tsconfig.json package.json index.html",
-    "format:check": "prettier --check scripts src vite.config.ts tsconfig.json package.json index.html",
+    "format": "prettier --write scripts src vite.config.ts vitest.config.ts tsconfig.json package.json index.html",
+    "format:check": "prettier --check scripts src vite.config.ts vitest.config.ts tsconfig.json package.json index.html",
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview --host 127.0.0.1"
   },
   "dependencies": {
     "echarts": "6.0.0",
     "lucide-vue-next": "0.468.0",
-    "vue": "3.5.22"
+    "vue": "3.5.22",
+    "vue-router": "4.6.4"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "6.0.1",
     "prettier": "3.6.2",
     "typescript": "5.9.3",
     "vite": "7.1.9",
+    "vitest": "5.0.2",
     "vue-tsc": "3.1.1"
   }
 }
