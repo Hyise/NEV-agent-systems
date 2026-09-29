@@ -28,8 +28,8 @@ const {
 </script>
 
 <template>
-  <section v-if="overview" class="panel data-workspace">
-    <div class="panel-heading dataset-heading">
+  <section v-if="overview" class="data-workspace">
+    <header class="data-command-bar">
       <div>
         <h2>{{ overview.dataset?.name || "项目数据集" }}</h2>
         <p>
@@ -62,7 +62,7 @@ const {
           <ArrowDownToLine :size="16" />导出CSV
         </button>
       </div>
-    </div>
+    </header>
     <input
       ref="fileInput"
       type="file"
@@ -80,82 +80,86 @@ const {
           : '上传UTF-8 CSV；列含产品型号、观察区间、时间压力、Real_Sales及各准则。准则单元格为 {"L0":0.7,"L1":0.3} 形式的概率对象，等级数需匹配当前版本。'
       }}
     </div>
-    <div class="table-toolbar dataset-toolbar">
-      <label class="search-field">
-        <Search :size="17" />
-        <input
-          v-model="query"
-          aria-label="搜索车型"
-          placeholder="搜索车型名称"
-          @input="searchData"
-        />
-      </label>
-      <span class="caption">份额分母固定为当月全部入选车型</span>
+    <div class="dataset-toolbar">
+      <div class="dataset-filter-bar">
+        <label class="search-field">
+          <Search :size="17" />
+          <input
+            v-model="query"
+            aria-label="搜索车型"
+            placeholder="搜索车型名称"
+            @input="searchData"
+          />
+        </label>
+        <span class="caption">份额分母固定为当月全部入选车型</span>
+      </div>
     </div>
-    <div v-if="data.rows.length" class="table-scroll">
-      <table>
-        <thead>
-          <tr>
-            <th>车型</th>
-            <th>观察月份</th>
-            <th class="numeric">销量 / 辆</th>
-            <th class="numeric">样本内份额</th>
-            <th class="numeric">时间压力</th>
-            <th class="numeric">准则覆盖</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="row in data.rows" :key="row.model">
-            <td>
-              <strong>{{ row.model }}</strong>
-            </td>
-            <td class="mono">{{ row.month }}</td>
-            <td class="numeric mono">{{ count(row.sales) }}</td>
-            <td class="numeric mono">{{ pct(row.share) }}</td>
-            <td class="numeric mono">{{ row.pressure.toFixed(3) }}</td>
-            <td class="numeric">
-              <span class="badge teal"
-                >{{ Object.keys(row.probabilities).length }} /
-                {{ overview.stats.criteria }}</span
-              >
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-    <div v-else class="empty">
-      <Database :size="34" />
-      <h3>{{ query ? "没有匹配的车型" : "此版本还没有数据" }}</h3>
-      <p>
-        {{
-          query
-            ? "换一个车型名称，或清空搜索条件。"
-            : "冻结准则后，导入与它匹配的加工数据。"
-        }}
-      </p>
-    </div>
-    <div class="pagination">
-      <span
-        >共 {{ count(data.total) }} 条 · 第 {{ pageNumber }} /
-        {{ Math.max(1, Math.ceil(data.total / 15)) }} 页</span
-      >
-      <div>
-        <button
-          class="icon-btn"
-          aria-label="上一页"
-          :disabled="pageNumber <= 1 || busy"
-          @click="previousPage"
+    <div class="data-table-region">
+      <div v-if="data.rows.length" class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>车型</th>
+              <th>观察月份</th>
+              <th class="numeric">销量 / 辆</th>
+              <th class="numeric">样本内份额</th>
+              <th class="numeric">时间压力</th>
+              <th class="numeric">准则覆盖</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="row in data.rows" :key="row.model">
+              <td>
+                <strong>{{ row.model }}</strong>
+              </td>
+              <td class="mono">{{ row.month }}</td>
+              <td class="numeric mono">{{ count(row.sales) }}</td>
+              <td class="numeric mono">{{ pct(row.share) }}</td>
+              <td class="numeric mono">{{ row.pressure.toFixed(3) }}</td>
+              <td class="numeric">
+                <span class="badge teal"
+                  >{{ Object.keys(row.probabilities).length }} /
+                  {{ overview.stats.criteria }}</span
+                >
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div v-else class="empty">
+        <Database :size="34" />
+        <h3>{{ query ? "没有匹配的车型" : "此版本还没有数据" }}</h3>
+        <p>
+          {{
+            query
+              ? "换一个车型名称，或清空搜索条件。"
+              : "冻结准则后，导入与它匹配的加工数据。"
+          }}
+        </p>
+      </div>
+      <div class="pagination">
+        <span
+          >共 {{ count(data.total) }} 条 · 第 {{ pageNumber }} /
+          {{ Math.max(1, Math.ceil(data.total / 15)) }} 页</span
         >
-          <ChevronLeft :size="18" />
-        </button>
-        <button
-          class="icon-btn"
-          aria-label="下一页"
-          :disabled="pageNumber * 15 >= data.total || busy"
-          @click="nextPage"
-        >
-          <ChevronRight :size="18" />
-        </button>
+        <div>
+          <button
+            class="icon-btn"
+            aria-label="上一页"
+            :disabled="pageNumber <= 1 || busy"
+            @click="previousPage"
+          >
+            <ChevronLeft :size="18" />
+          </button>
+          <button
+            class="icon-btn"
+            aria-label="下一页"
+            :disabled="pageNumber * 15 >= data.total || busy"
+            @click="nextPage"
+          >
+            <ChevronRight :size="18" />
+          </button>
+        </div>
       </div>
     </div>
   </section>

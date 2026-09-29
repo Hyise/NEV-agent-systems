@@ -155,27 +155,39 @@ expectNotContains("src/components/BaseChart.vue", [
 ]);
 expectContains("src/modules/mcdm/views/OverviewView.vue", [
   'class="metric-strip"',
-  'class="analysis-grid"',
-  'class="panel research-note"',
+  'class="overview-evidence"',
+  'class="overview-evidence__summary"',
+  'class="research-process"',
   "消费者关注什么",
   "当前权重最高的三个准则",
   "研究流程",
   "overview.notes[0]",
 ]);
+expectNotContains("src/modules/mcdm/views/OverviewView.vue", [
+  'class="analysis-grid"',
+  "RESEARCH NOTES",
+]);
 expectContains("src/styles/pages.css", [
   ".metric-strip",
-  ".analysis-grid",
-  ".research-note",
+  ".overview-evidence",
+  ".overview-evidence__summary",
+  ".research-process",
 ]);
 expectContains("src/styles/components.css", [".empty", ".panel", ".notice"]);
 expectContains("src/modules/mcdm/views/DataView.vue", [
-  'class="panel data-workspace"',
+  'class="data-workspace"',
+  'class="data-command-bar"',
+  'class="dataset-filter-bar"',
+  'class="data-table-region"',
   "dataset-toolbar",
   "搜索车型",
   "份额分母固定为当月全部入选车型",
   "导入加工数据",
   "导出CSV",
   "pagination",
+]);
+expectNotContains("src/modules/mcdm/views/DataView.vue", [
+  'class="panel data-workspace"',
 ]);
 expectContains("src/modules/mcdm/views/CriteriaView.vue", [
   'class="criteria-workspace"',

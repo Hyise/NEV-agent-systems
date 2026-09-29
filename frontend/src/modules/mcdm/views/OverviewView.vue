@@ -91,91 +91,94 @@ const weightOption = computed(() => ({
         >
       </div>
     </div>
-    <div class="analysis-grid">
-      <section class="panel weight-panel">
-        <div class="panel-heading">
-          <div>
-            <h2>消费者关注什么</h2>
-            <p>准则相对权重 · {{ month || "等待数据" }}</p>
+    <section class="overview-evidence">
+      <header class="overview-evidence__heading">
+        <div>
+          <h2>消费者关注什么</h2>
+          <p>准则相对权重 · {{ month || "等待数据" }}</p>
+        </div>
+        <span class="badge neutral">{{
+          isPreset ? "研究归档" : "等待运行"
+        }}</span>
+      </header>
+      <div class="overview-evidence__body">
+        <div class="overview-evidence__chart">
+          <BaseChart
+            v-if="sortedWeights.length"
+            :option="weightOption"
+            label="十项准则的归档相对权重比较"
+            height="338px"
+          />
+          <div v-else class="empty">
+            <Layers3 :size="32" />
+            <h3>从定义评价准则开始</h3>
+            <p>冻结准则、导入数据后，后续模型运行将生成权重结果。</p>
+            <button class="btn secondary" @click="navigate('criteria')">
+              打开准则工作台<ArrowRight :size="16" />
+            </button>
           </div>
-          <span class="badge neutral">{{
-            isPreset ? "研究归档" : "等待运行"
-          }}</span>
         </div>
-        <BaseChart
-          v-if="sortedWeights.length"
-          :option="weightOption"
-          label="十项准则的归档相对权重比较"
-          height="338px"
-        />
-        <div v-else class="empty">
-          <Layers3 :size="32" />
-          <h3>从定义评价准则开始</h3>
-          <p>冻结准则、导入数据后，后续模型运行将生成权重结果。</p>
-          <button class="btn secondary" @click="navigate('criteria')">
-            打开准则工作台<ArrowRight :size="16" />
-          </button>
-        </div>
-        <div v-if="sortedWeights.length" class="panel-footer">
-          <span class="dot teal-dot" />数值来自原研究平滑报表
-          <button class="text-button" @click="navigate('scenario')">
-            查看时间变化 <ArrowRight :size="14" />
-          </button>
-        </div>
-      </section>
-      <section class="panel research-note">
-        <span class="eyebrow">RESEARCH NOTES</span>
-        <h2>{{ isPreset ? "本月观察" : "建立你的研究" }}</h2>
-        <template v-if="topCriteria.length">
-          <p class="insight-lead">当前权重最高的三个准则</p>
-          <div
-            v-for="([name, value], index) in topCriteria"
-            :key="name"
-            class="rank-item"
-          >
-            <span class="rank-number mono">0{{ index + 1 }}</span>
-            <div>
-              <strong>{{ name }}</strong>
-              <div class="small-bar">
-                <span
-                  :style="{ width: (value / topCriteria[0]![1]) * 100 + '%' }"
-                />
+        <aside class="overview-evidence__summary">
+          <p class="summary-label">权重摘要</p>
+          <h2>{{ isPreset ? "本月观察" : "建立你的研究" }}</h2>
+          <template v-if="topCriteria.length">
+            <p class="insight-lead">当前权重最高的三个准则</p>
+            <div
+              v-for="([name, value], index) in topCriteria"
+              :key="name"
+              class="rank-item"
+            >
+              <span class="rank-number mono">0{{ index + 1 }}</span>
+              <div>
+                <strong>{{ name }}</strong>
+                <div class="small-bar">
+                  <span
+                    :style="{
+                      width: (value / topCriteria[0]![1]) * 100 + '%',
+                    }"
+                  />
+                </div>
               </div>
+              <span class="mono">{{ pct(value) }}</span>
             </div>
-            <span class="mono">{{ pct(value) }}</span>
+            <p class="caption">
+              权重反映当前模型下的相对效用范围，不等于提及该属性的评论占比。
+            </p>
+          </template>
+          <template v-else>
+            <p class="summary-copy">
+              自定义项目已与预置研究数据分离。按自己的研究问题定义评价准则和等级。
+            </p>
+            <p class="caption">
+              等级按由优到劣排列；冻结后可派生新版本继续修改。
+            </p>
+          </template>
+          <div class="evidence-trace">
+            <FileCheck2 :size="18" />
+            <div>
+              <strong>数据与结论可追溯</strong>
+              <p>导出包含来源、准则版本及指标口径。</p>
+            </div>
           </div>
-          <p class="caption">
-            权重反映当前模型下的相对效用范围，不等于提及该属性的评论占比。
-          </p>
-        </template>
-        <template v-else>
-          <p>
-            自定义项目已与预置研究数据分离。按自己的研究问题定义评价准则和等级。
-          </p>
-          <p class="caption">
-            等级按由优到劣排列；冻结后可派生新版本继续修改。
-          </p>
-        </template>
-        <div class="research-note__foot">
-          <FileCheck2 :size="18" />
-          <div>
-            <strong>数据与结论可追溯</strong>
-            <p>导出包含来源、准则版本及指标口径。</p>
-          </div>
-        </div>
-        <button class="btn secondary full-width" @click="download('report')">
-          <ArrowDownToLine :size="16" />导出研究快照 JSON
+          <button class="btn secondary full-width" @click="download('report')">
+            <ArrowDownToLine :size="16" />导出研究快照 JSON
+          </button>
+        </aside>
+      </div>
+      <footer v-if="sortedWeights.length" class="overview-evidence__footer">
+        <span><span class="dot teal-dot" />数值来自原研究平滑报表</span>
+        <button class="text-button" @click="navigate('scenario')">
+          查看时间变化 <ArrowRight :size="14" />
         </button>
-      </section>
-    </div>
-    <section class="panel workflow-panel">
-      <div class="panel-heading">
+      </footer>
+    </section>
+    <section class="research-process">
+      <header class="research-process__heading">
         <div>
           <h2>研究流程</h2>
           <p>本阶段已接入真实归档，下一阶段开放新的算法运行。</p>
         </div>
-        <span class="tiny-label">RESEARCH WORKFLOW</span>
-      </div>
+      </header>
       <div class="workflow">
         <div
           v-for="(step, index) in [
