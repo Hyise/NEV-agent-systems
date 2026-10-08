@@ -280,6 +280,7 @@ expectContains("src/styles/shell.css", [
 expectContains("src/styles/components.css", [
   ".table-scroll",
   "overflow-x: auto",
+  "position: relative",
   "@media (max-width: 767px)",
   "min-height: 44px",
 ]);
@@ -310,6 +311,31 @@ expectNotContains("src/styles/collection.css", [
   "linear-gradient",
   "animation:",
 ]);
+expectContains("src/platform/PlatformHome.vue", [
+  "发现汽车之家车系，采集并保存完整原始口碑",
+]);
+expectContains("src/modules/collection/views/JobsView.vue", [
+  "活动任务",
+  "功能验证",
+  "正式采集",
+  "暂停",
+  "继续",
+  "停止",
+]);
+expectContains("src/modules/collection/views/SeriesView.vue", [
+  "车系名称",
+  "series_id",
+  "评论数",
+  "发现顺序",
+  "最近确认",
+]);
+expectContains("src/modules/collection/views/ReviewsView.vue", [
+  "导出该车系 JSONL",
+  "查看完整 JSON",
+  "original_review",
+  "<pre>",
+]);
+expectNotContains("src/modules/collection/api.ts", ["autohome.com.cn"]);
 expectContains(mcdmShellPath, [
   ':aria-expanded="mobileNav"',
   'aria-controls="primary-navigation"',

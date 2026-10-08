@@ -318,6 +318,7 @@ select {
   min-width: 0;
 }
 .table-scroll {
+  position: relative;
   overflow-x: auto;
   width: 100%;
 }

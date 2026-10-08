@@ -5,7 +5,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from backend.collection.autohome import AutohomeAccessPaused, BrowserSession, CatalogDiscoveryResult
+from backend.collection.autohome import (
+    AutohomeAccessPaused,
+    AutohomeStructureError,
+    BrowserSession,
+    CatalogDiscoveryResult,
+)
 from backend.collection.domain import (
     CollectedReview,
     CreateJobBody,
@@ -295,6 +300,30 @@ def test_403_429_and_verification_pause_immediately(tmp_path):
         assert message in job["last_error"]
         assert len(review.calls) == 1
         service.shutdown()
+
+
+def test_review_structure_change_pauses_without_retrying_or_skipping(tmp_path):
+    first, second = make_series(1), make_series(2)
+
+    def responder(series, page, call):
+        raise AutohomeStructureError("review payload changed")
+
+    repository, catalog, review, service = make_service(
+        tmp_path,
+        CreateJobBody(mode="verification", max_series=2).to_config(),
+        [first, second],
+        responder,
+    )
+
+    service.run_job("job-1")
+
+    job = repository.get_job("job-1")
+    assert job["status"] == "paused"
+    assert job["resume_status"] == "collecting"
+    assert review.calls == [(first.series_id, 1)]
+    assert job["failed_count"] == 0
+    assert second.series_id not in [call[0] for call in review.calls]
+    service.shutdown()
 
 
 def test_single_series_failure_continues_and_finishes_partial_failed(tmp_path):

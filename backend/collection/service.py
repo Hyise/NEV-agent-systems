@@ -9,7 +9,12 @@ from threading import Lock
 from time import sleep
 from typing import Any, Callable
 
-from .autohome import AutohomeAccessPaused, AutohomeCatalogAdapter, AutohomeReviewAdapter
+from .autohome import (
+    AutohomeAccessPaused,
+    AutohomeCatalogAdapter,
+    AutohomeReviewAdapter,
+    AutohomeStructureError,
+)
 from .domain import JobStatus, ReviewPage, TaskControlError, VehicleSeries
 from .repository import CollectionRepository
 
@@ -158,7 +163,7 @@ class CollectionService:
             self._apply_control(job_id)
             try:
                 return adapter.fetch_page(series, page)
-            except AutohomeAccessPaused:
+            except (AutohomeAccessPaused, AutohomeStructureError):
                 raise
             except Exception as error:
                 if attempt == len(RETRY_DELAYS):
@@ -204,6 +209,14 @@ class CollectionService:
                         return
                     except AutohomeAccessPaused as error:
                         self._pause_for_source(job_id, error, JobStatus.COLLECTING)
+                        return
+                    except AutohomeStructureError as error:
+                        self._pause_for_source(
+                            job_id,
+                            error,
+                            JobStatus.COLLECTING,
+                            "汽车之家评论页面结构发生变化，请检查采集适配器后重试",
+                        )
                         return
                     except Exception as error:
                         message = (
