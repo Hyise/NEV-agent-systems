@@ -3,6 +3,7 @@ import hashlib
 import io
 import json
 import os
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
@@ -12,6 +13,9 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
+from .collection.api import create_collection_router
+from .collection.repository import CollectionRepository
+from .collection.service import CollectionService
 from .domain import ImportBody, ProjectBody, RevisionBody, SchemaBody, parse_dataset, preset_criteria
 from .research import NOTES, Research
 from .store import Store
@@ -27,11 +31,37 @@ def encoded(value):
     return json.dumps(value, ensure_ascii=False, allow_nan=False)
 
 
-def create_app(db_path: Path | None = None, research_dir: Path | None = None):
-    store = Store(db_path or Path(os.environ.get('NEV_DB_PATH', ROOT / '.runtime/platform.sqlite3')))
+def create_app(
+    db_path: Path | None = None,
+    research_dir: Path | None = None,
+    collection_service_factory=None,
+):
+    database_path = db_path or Path(os.environ.get('NEV_DB_PATH', ROOT / '.runtime/platform.sqlite3'))
+    store = Store(database_path)
     research = Research(research_dir or ROOT / 'backend/data/research')
-    app = FastAPI(title='新能源汽车情景多准则决策分析系统', version='0.1.0')
+    collection_repository = CollectionRepository(database_path)
+    collection_service = (
+        collection_service_factory(collection_repository)
+        if collection_service_factory is not None
+        else CollectionService(collection_repository)
+    )
+
+    @asynccontextmanager
+    async def lifespan(application):
+        collection_repository.pause_interrupted_jobs(now())
+        try:
+            yield
+        finally:
+            collection_service.shutdown()
+
+    app = FastAPI(
+        title='新能源汽车情景多准则决策分析系统',
+        version='0.1.0',
+        lifespan=lifespan,
+    )
     app.state.store = store
+    app.state.collection_repository = collection_repository
+    app.state.collection_service = collection_service
     with store.connect() as conn:
         conn.execute('INSERT OR IGNORE INTO projects VALUES (?,?,?,?)',
                      ('research-archive', '新能源汽车消费者决策研究', 'preset', now()))
@@ -71,6 +101,8 @@ def create_app(db_path: Path | None = None, research_dir: Path | None = None):
     @app.get('/api/health')
     def health():
         return {'status': 'ok', 'version': '0.1.0', 'app_id': 'nev-mcdm-platform'}
+
+    app.include_router(create_collection_router(collection_repository, collection_service))
 
     @app.get('/api/projects')
     def projects():

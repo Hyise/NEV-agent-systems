@@ -499,6 +499,14 @@ class CollectionRepository:
             "page_size": page_size,
         }
 
+    def get_series(self, series_id: str):
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM vehicle_series WHERE platform='autohome' AND series_id=?",
+                (series_id,),
+            ).fetchone()
+        return dict(row) if row is not None else None
+
     def list_reviews(
         self,
         *,
