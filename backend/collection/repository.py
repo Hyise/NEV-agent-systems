@@ -2,18 +2,26 @@
 
 import json
 import sqlite3
+from collections.abc import Iterable
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
-from .domain import CollectedReview, JobConfig, JobStatus, VehicleSeries
+from .domain import (
+    CollectedReview,
+    JobConfig,
+    JobStatus,
+    TaskControlError,
+    VehicleSeries,
+)
 
 AUTOHOME_CATALOG_URL = "https://www.autohome.com.cn/price/ev#pvareaid=3311257"
-ACTIVE_STATUSES = (
+RUNNING_STATUSES = (
     JobStatus.QUEUED.value,
     JobStatus.DISCOVERING.value,
     JobStatus.COLLECTING.value,
 )
+CONTROLLABLE_STATUSES = (*RUNNING_STATUSES, JobStatus.PAUSED.value)
 
 
 def _json(value: Any) -> str:
@@ -134,6 +142,13 @@ class CollectionRepository:
     def create_job(self, job_id: str, config: JobConfig, created_at: str):
         values = config.model_dump(mode="json")
         with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            placeholders = ",".join("?" for _ in CONTROLLABLE_STATUSES)
+            if connection.execute(
+                f"SELECT 1 FROM collection_jobs WHERE status IN ({placeholders}) LIMIT 1",
+                CONTROLLABLE_STATUSES,
+            ).fetchone():
+                raise TaskControlError("已有活动采集任务")
             connection.execute(
                 """
                 INSERT INTO collection_jobs (
@@ -188,13 +203,13 @@ class CollectionRepository:
         }
 
     def active_job(self):
-        placeholders = ",".join("?" for _ in ACTIVE_STATUSES)
+        placeholders = ",".join("?" for _ in CONTROLLABLE_STATUSES)
         with self.connect() as connection:
             return self._job(
                 connection.execute(
                     f"SELECT * FROM collection_jobs WHERE status IN ({placeholders}) "
                     "ORDER BY created_at LIMIT 1",
-                    ACTIVE_STATUSES,
+                    CONTROLLABLE_STATUSES,
                 ).fetchone()
             )
 
@@ -463,10 +478,15 @@ class CollectionRepository:
     def list_events(self, job_id: str, limit: int = 100):
         with self.connect() as connection:
             rows = connection.execute(
-                "SELECT * FROM collection_events WHERE job_id=? ORDER BY id LIMIT ?",
+                "SELECT * FROM ("
+                "SELECT * FROM collection_events WHERE job_id=? ORDER BY id DESC LIMIT ?"
+                ") ORDER BY id",
                 (job_id, limit),
             ).fetchall()
-        return [dict(row) for row in rows]
+        events = [dict(row) for row in rows]
+        for event in events:
+            event["retryable"] = bool(event["retryable"])
+        return events
 
     def list_series(
         self, *, search: str = "", page: int = 1, page_size: int = 20
@@ -576,11 +596,11 @@ class CollectionRepository:
         }
 
     def pause_interrupted_jobs(self, paused_at: str) -> int:
-        placeholders = ",".join("?" for _ in ACTIVE_STATUSES)
+        placeholders = ",".join("?" for _ in RUNNING_STATUSES)
         with self.connect() as connection:
             rows = connection.execute(
                 f"SELECT id,status FROM collection_jobs WHERE status IN ({placeholders})",
-                ACTIVE_STATUSES,
+                RUNNING_STATUSES,
             ).fetchall()
             for row in rows:
                 connection.execute(

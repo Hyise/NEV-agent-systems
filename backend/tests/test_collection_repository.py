@@ -1,9 +1,17 @@
 import json
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
 
 import pytest
 
-from backend.collection.domain import CollectedReview, CreateJobBody, JobStatus, VehicleSeries
+from backend.collection.domain import (
+    CollectedReview,
+    CreateJobBody,
+    JobStatus,
+    TaskControlError,
+    VehicleSeries,
+)
 from backend.collection.repository import CollectionRepository
 
 
@@ -178,6 +186,63 @@ def test_interrupted_active_job_becomes_paused_and_resumable(tmp_path):
     assert job["status"] == "paused"
     assert job["resume_status"] == "discovering"
     assert repository.list_events("job-1")[0]["event_type"] == "interrupted"
+
+
+def test_paused_job_remains_controllable_and_blocks_a_second_job(tmp_path):
+    repository = make_repository(tmp_path)
+    create_job(repository)
+    repository.set_status(
+        "job-1",
+        JobStatus.PAUSED,
+        "2026-10-08T08:01:00+00:00",
+        resume_status=JobStatus.DISCOVERING,
+    )
+
+    assert repository.overview()["active_job"]["status"] == "paused"
+    with pytest.raises(TaskControlError, match="已有活动采集任务"):
+        repository.create_job(
+            "job-2",
+            CreateJobBody(mode="verification").to_config(),
+            "2026-10-08T08:02:00+00:00",
+        )
+
+
+def test_concurrent_job_creation_preserves_single_controllable_job(tmp_path):
+    repository = make_repository(tmp_path)
+    barrier = Barrier(2)
+
+    def create(job_id):
+        barrier.wait(timeout=5)
+        try:
+            repository.create_job(
+                job_id,
+                CreateJobBody(mode="verification").to_config(),
+                "2026-10-08T08:00:00+00:00",
+            )
+            return "created"
+        except TaskControlError:
+            return "rejected"
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(create, ("job-1", "job-2")))
+
+    assert sorted(results) == ["created", "rejected"]
+    assert repository.list_jobs()["total"] == 1
+
+
+def test_list_events_returns_latest_hundred_in_chronological_order(tmp_path):
+    repository = make_repository(tmp_path)
+    create_job(repository)
+    for index in range(105):
+        repository.record_event(
+            "job-1", "sample", f"event-{index}", f"2026-10-08T08:00:{index:02d}+00:00"
+        )
+
+    events = repository.list_events("job-1")
+
+    assert len(events) == 100
+    assert events[0]["message"] == "event-5"
+    assert events[-1]["message"] == "event-104"
 
 
 def test_detail_and_export_return_lossless_original_review(tmp_path):

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   CollectionApi,
   CollectionJob,
+  CollectionJobDetail,
   CollectionOverview,
   Page,
   ReviewDetail,
@@ -59,7 +60,7 @@ function api(overrides: Partial<CollectionApi> = {}): CollectionApi {
   return {
     getOverview: vi.fn().mockResolvedValue(overview(null)),
     listJobs: vi.fn().mockResolvedValue(page([])),
-    getJob: vi.fn().mockResolvedValue(job()),
+    getJob: vi.fn().mockResolvedValue({ ...job(), events: [] }),
     createJob: vi.fn().mockResolvedValue(job("queued")),
     pauseJob: vi.fn().mockResolvedValue(job("collecting")),
     resumeJob: vi.fn().mockResolvedValue(job("collecting")),
@@ -184,6 +185,36 @@ describe("collection workspace", () => {
     expect(client.getOverview).toHaveBeenCalledTimes(4);
   });
 
+  it("loads persisted events for a selected historical job", async () => {
+    const detail: CollectionJobDetail = {
+      ...job("partial_failed"),
+      events: [
+        {
+          id: 7,
+          job_id: "job-1",
+          series_id: "5769",
+          event_type: "series_failed",
+          error_class: "TimeoutError",
+          message: "车系采集失败",
+          details: null,
+          retryable: false,
+          created_at: "2026-10-08T08:03:00+00:00",
+        },
+      ],
+    };
+    const client = api({ getJob: vi.fn().mockResolvedValue(detail) });
+    const workspace = createCollectionWorkspace(client, false);
+
+    await workspace.openJob("job-1");
+
+    expect(client.getJob).toHaveBeenCalledWith("job-1");
+    expect(workspace.selectedJob.value?.events[0]?.event_type).toBe(
+      "series_failed",
+    );
+    workspace.closeJob();
+    expect(workspace.selectedJob.value).toBeNull();
+  });
+
   it("test_deactivation_clears_poll_timer", async () => {
     const client = api({
       getOverview: vi.fn().mockResolvedValue(overview(job("discovering"))),
@@ -216,6 +247,8 @@ describe("collection workspace", () => {
     expect(workspace.productionConfirmationText).toContain(
       "前 500 个车系、每车系全部评论",
     );
+    expect(workspace.productionConfirmationText).toContain("2～4 秒");
+    expect(workspace.productionConfirmationText).toContain("5～10 秒");
 
     await workspace.confirmProduction();
     expect(client.createJob).toHaveBeenLastCalledWith({ mode: "production" });

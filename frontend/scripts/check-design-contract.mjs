@@ -321,6 +321,13 @@ expectContains("src/modules/collection/views/JobsView.vue", [
   "暂停",
   "继续",
   "停止",
+  "查看事件",
+  "事件与异常",
+]);
+expectContains("src/modules/collection/workspace.ts", [
+  "2～4 秒",
+  "5～10 秒",
+  "5/15/45 秒",
 ]);
 expectContains("src/modules/collection/views/SeriesView.vue", [
   "车系名称",

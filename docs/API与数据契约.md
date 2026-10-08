@@ -85,4 +85,6 @@
 
 评论列表不返回大型 `original_review`。详情和 JSONL 中的每条记录包含 `platform`、`review_id`、`series_id`、采集时车系名称快照、来源地址、内容哈希、采集时间和完整 `original_review`。JSONL 媒体类型为 `application/x-ndjson; charset=utf-8`，每行是独立 JSON 对象；不生成拼接评论文本，也不把嵌套对象压平为 CSV。
 
-车系唯一键为 `platform + series_id`；评论唯一键为 `platform + review_id`。不同年款、改款和配置保留在原始对象字段中，但不形成独立车系任务。每页评论和下一页游标在同一事务提交；重复请求依靠唯一键幂等，同一评论 ID 内容变化会写入采集事件。
+车系唯一键为 `platform + series_id`；评论唯一键为 `platform + review_id`。来源存在 `Koubeiid` 或 `showId` 时直接使用；两者都缺失时，回退 ID 为 `sha256-{series_id}-{原始对象规范哈希}`，避免相同无 ID 对象在不同车系间碰撞。不同年款、改款和配置保留在原始对象字段中，但不形成独立车系任务。每页评论和下一页游标在同一事务提交；重复请求依靠唯一键幂等，同一评论 ID 内容变化会写入采集事件。
+
+任务详情返回最近 100 条事件，并按发生时间正序展示；长任务的更早事件仍保留在 SQLite。分页终止以来源响应中已校验的 `pageindex`、`pagesize`、`pagecount` 和 `seriesid` 为准，不假设每页固定返回 20 条。

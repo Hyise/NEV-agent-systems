@@ -10,10 +10,9 @@ from uuid import uuid4
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
-from .domain import CreateJobBody, TaskControlError
+from .domain import CreateJobBody, JobStatus, TaskControlError
 from .repository import CollectionRepository
 from .service import CollectionService
-
 
 Page = Annotated[int, Query(ge=1)]
 PageSize = Annotated[int, Query(ge=1, le=100)]
@@ -54,11 +53,31 @@ def create_collection_router(
         if repository.active_job() is not None:
             raise HTTPException(status_code=409, detail="已有活动采集任务")
         job_id = str(uuid4())
-        job = repository.create_job(job_id, body.to_config(), _now())
         try:
+            job = repository.create_job(job_id, body.to_config(), _now())
             service.start(job_id)
         except TaskControlError as error:
+            created = repository.get_job(job_id)
+            if created is not None and created["status"] == "queued":
+                repository.set_status(
+                    job_id,
+                    JobStatus.STOPPED,
+                    _now(),
+                    last_error="任务未能启动，请重试",
+                    finished=True,
+                )
             raise HTTPException(status_code=409, detail=str(error)) from error
+        except Exception as error:
+            created = repository.get_job(job_id)
+            if created is not None and created["status"] == "queued":
+                repository.set_status(
+                    job_id,
+                    JobStatus.STOPPED,
+                    _now(),
+                    last_error="任务未能启动，请重试",
+                    finished=True,
+                )
+            raise HTTPException(status_code=503, detail="任务调度失败，请重试") from error
         return job
 
     @router.get("/jobs/{job_id}")

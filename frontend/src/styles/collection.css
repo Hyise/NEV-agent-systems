@@ -167,6 +167,55 @@
   margin-bottom: 0;
 }
 
+.collection-event-detail {
+  margin-top: 20px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.collection-event-detail > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  border-bottom: 1px solid var(--line);
+  padding: 18px 20px;
+}
+
+.collection-event-detail > header p:last-child {
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.collection-event-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.collection-event-list li {
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--line);
+}
+
+.collection-event-list li:last-child {
+  border-bottom: 0;
+}
+
+.collection-event-list li > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.collection-event-list p {
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
 .collection-data-table,
 .collection-reviews {
   border: 1px solid var(--line);

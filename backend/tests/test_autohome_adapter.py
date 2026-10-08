@@ -1,4 +1,5 @@
 import json
+from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import parse_qs
 
@@ -6,6 +7,8 @@ import httpx
 import pytest
 
 from backend.collection.autohome import (
+    AutohomeAccessPaused,
+    AutohomeCatalogAdapter,
     AutohomeReviewAdapter,
     AutohomeStructureError,
     BrowserSession,
@@ -21,6 +24,28 @@ FIXTURES = Path(__file__).parent / "fixtures/autohome"
 
 def fixture_json(name):
     return json.loads((FIXTURES / name).read_text(encoding="utf-8"))
+
+
+class FixtureLinkParser(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.links = []
+        self.current = None
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "a":
+            values = dict(attrs)
+            self.current = {"href": values.get("href", ""), "name": values.get("title", "")}
+
+    def handle_data(self, data):
+        if self.current is not None and not self.current["name"]:
+            self.current["name"] += data
+
+    def handle_endtag(self, tag):
+        if tag == "a" and self.current is not None:
+            self.current["name"] = self.current["name"].strip()
+            self.links.append(self.current)
+            self.current = None
 
 
 def model_y():
@@ -65,6 +90,60 @@ def test_catalog_keeps_discovery_order_and_stops_at_limit():
     ]
 
 
+def test_catalog_fixture_exercises_scoped_dom_extraction():
+    parser = FixtureLinkParser()
+    parser.feed((FIXTURES / "ev-catalog.html").read_text(encoding="utf-8"))
+
+    class FixturePage:
+        def eval_on_selector_all(self, selector, script):
+            assert selector != "a[href]"
+            assert "main" in selector or "article" in selector
+            assert "data-series-name" in script
+            return parser.links
+
+    links = AutohomeCatalogAdapter._read_links(FixturePage())
+    series = extract_catalog_series(links, max_series=500)
+
+    assert [(item.series_id, item.series_name) for item in series] == [
+        ("5769", "Model Y"),
+        ("6762", "海鸥"),
+    ]
+
+
+def test_catalog_page_identity_rejects_redirects_and_verification_pages():
+    class Body:
+        def __init__(self, text):
+            self.text = text
+
+        def inner_text(self, timeout):
+            assert timeout == 5_000
+            return self.text
+
+    class Page:
+        def __init__(self, url, text):
+            self.url = url
+            self.text = text
+
+        def locator(self, selector):
+            assert selector == "body"
+            return Body(self.text)
+
+    response = type("Response", (), {"status": 200})()
+    AutohomeCatalogAdapter._validate_catalog_page(
+        Page("https://www.autohome.com.cn/price/ev#pvareaid=3311257", "新能源汽车"),
+        response,
+    )
+
+    with pytest.raises(AutohomeAccessPaused, match="非预期"):
+        AutohomeCatalogAdapter._validate_catalog_page(
+            Page("https://www.autohome.com.cn/login/", "新能源汽车"), response
+        )
+    with pytest.raises(AutohomeAccessPaused, match="验证"):
+        AutohomeCatalogAdapter._validate_catalog_page(
+            Page("https://www.autohome.com.cn/price/ev", "请完成安全检查"), response
+        )
+
+
 def test_review_request_uses_series_id_yearid_zero_and_page_size_twenty():
     observed = {}
 
@@ -106,6 +185,46 @@ def test_review_page_keeps_complete_original_objects():
     }
     assert {review.series_id for review in page.reviews} == {"5769"}
     assert {review.series_name for review in page.reviews} == {"Model Y"}
+    assert page.page_size == 20
+    assert page.page_count == 1
+
+
+def test_review_page_validates_server_pagination_and_series_identity():
+    payload = fixture_json("reviews-page-1.json")
+    payload["result"]["seriesid"] = 9999
+    with pytest.raises(AutohomeStructureError, match="车系"):
+        parse_review_page(model_y(), payload, page_index=1)
+
+    payload = fixture_json("reviews-page-1.json")
+    payload["result"]["pageindex"] = 2
+    with pytest.raises(AutohomeStructureError, match="页码"):
+        parse_review_page(model_y(), payload, page_index=1)
+
+
+def test_missing_source_id_fallback_is_scoped_to_series():
+    payload = fixture_json("reviews-page-1.json")
+    item = payload["result"]["list"][0]
+    item.pop("Koubeiid")
+    item.pop("showId")
+    payload["result"]["list"] = [item]
+    payload["result"]["rowcount"] = 1
+
+    first = parse_review_page(model_y(), payload, page_index=1).reviews[0]
+    other = model_y().model_copy(
+        update={
+            "series_id": "6762",
+            "series_name": "海鸥",
+            "series_url": "https://www.autohome.com.cn/6762/",
+            "review_url": "https://k.autohome.com.cn/6762/",
+        }
+    )
+    other_payload = json.loads(json.dumps(payload, ensure_ascii=False))
+    other_payload["result"]["seriesid"] = 6762
+    second = parse_review_page(other, other_payload, page_index=1).reviews[0]
+
+    assert first.review_id != second.review_id
+    assert first.review_id.startswith("sha256-5769-")
+    assert second.review_id.startswith("sha256-6762-")
 
 
 @pytest.mark.parametrize(

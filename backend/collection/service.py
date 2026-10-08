@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime, timezone
 from random import Random
-from threading import Lock
-from time import sleep
-from typing import Any, Callable
+from threading import Event, Lock
+from typing import Any
 
 from .autohome import (
     AutohomeAccessPaused,
@@ -18,8 +18,8 @@ from .autohome import (
 from .domain import JobStatus, ReviewPage, TaskControlError, VehicleSeries
 from .repository import CollectionRepository
 
-
 RETRY_DELAYS = (5, 15, 45)
+CONSECUTIVE_SERIES_FAILURE_LIMIT = 3
 
 
 class _JobInterrupted(RuntimeError):
@@ -32,7 +32,7 @@ class CollectionService:
         repository: CollectionRepository,
         catalog_adapter_factory: Callable[[], Any] = AutohomeCatalogAdapter,
         review_adapter_factory: Callable[[Any], Any] = AutohomeReviewAdapter,
-        sleeper: Callable[[float], None] = sleep,
+        sleeper: Callable[[float], None] | None = None,
         clock: Callable[[], Any] | None = None,
         rng: Any | None = None,
     ):
@@ -45,6 +45,7 @@ class CollectionService:
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="collection")
         self._future: Future[None] | None = None
         self._lock = Lock()
+        self._shutdown_requested = Event()
 
     def _now(self) -> str:
         value = self.clock()
@@ -54,8 +55,15 @@ class CollectionService:
         with self._lock:
             if self._future is not None and not self._future.done():
                 raise TaskControlError("已有活动采集任务")
+            self._shutdown_requested.clear()
             self._future = self._executor.submit(self.run_job, job_id)
             return self._future
+
+    def _wait(self, seconds: float) -> None:
+        if self.sleeper is not None:
+            self.sleeper(seconds)
+        else:
+            self._shutdown_requested.wait(seconds)
 
     def start(self, job_id: str) -> Future[None]:
         job = self.repository.get_job(job_id)
@@ -86,9 +94,24 @@ class CollectionService:
         if active is not None and active["id"] != job_id:
             raise TaskControlError("已有活动采集任务")
         target = JobStatus(job["resume_status"] or JobStatus.COLLECTING.value)
-        self.repository.clear_control(job_id, self._now())
-        self.repository.set_status(job_id, target, self._now())
-        return self._submit(job_id)
+        with self._lock:
+            if self._future is not None and not self._future.done():
+                raise TaskControlError("已有活动采集任务")
+            self._shutdown_requested.clear()
+            self.repository.clear_control(job_id, self._now())
+            self.repository.set_status(job_id, target, self._now())
+            try:
+                self._future = self._executor.submit(self.run_job, job_id)
+            except Exception:
+                self.repository.set_status(
+                    job_id,
+                    JobStatus.PAUSED,
+                    self._now(),
+                    resume_status=target,
+                    last_error="任务调度失败，请重试",
+                )
+                raise
+            return self._future
 
     def stop(self, job_id: str) -> None:
         job = self.repository.get_job(job_id)
@@ -111,6 +134,23 @@ class CollectionService:
         self.repository.request_control(job_id, "stop", self._now())
 
     def shutdown(self) -> None:
+        with self._lock:
+            job = self.repository.active_job()
+            if job is not None:
+                status = JobStatus(job["status"])
+                if status in (JobStatus.DISCOVERING, JobStatus.COLLECTING):
+                    self.repository.request_control(job["id"], "pause", self._now())
+                elif status is JobStatus.QUEUED and (
+                    self._future is None or self._future.done()
+                ):
+                    self.repository.set_status(
+                        job["id"],
+                        JobStatus.PAUSED,
+                        self._now(),
+                        resume_status=JobStatus.QUEUED,
+                        last_error="应用正在关闭，任务已暂停",
+                    )
+            self._shutdown_requested.set()
         self._executor.shutdown(wait=True)
 
     def _apply_control(self, job_id: str) -> None:
@@ -172,19 +212,25 @@ class CollectionService:
                 self.repository.record_event(
                     job_id,
                     "request_retry",
-                    str(error),
+                    f"临时请求失败，将在 {delay} 秒后重试",
                     self._now(),
                     series_id=series.series_id,
                     error_class=type(error).__name__,
                     retryable=True,
                     details={"page": page, "attempt": attempt + 1, "delay_seconds": delay},
                 )
-                self.sleeper(delay)
+                self._wait(delay)
 
     @staticmethod
     def _is_last_page(page: ReviewPage) -> bool:
-        return not page.reviews or (
-            page.total is not None and page.page_index * 20 >= page.total
+        if not page.reviews:
+            return True
+        if page.page_count is not None:
+            return page.page_index >= page.page_count
+        return bool(
+            page.total is not None
+            and page.page_size is not None
+            and page.page_index * page.page_size >= page.total
         )
 
     def _collect(self, job_id: str, session: Any) -> None:
@@ -193,6 +239,7 @@ class CollectionService:
             raise KeyError(job_id)
         series_list = [VehicleSeries(**item) for item in job["series_manifest"]]
         adapter = self.review_adapter_factory(session)
+        consecutive_failures = 0
         try:
             for index in range(job["current_series_index"], len(series_list)):
                 series = series_list[index]
@@ -218,7 +265,7 @@ class CollectionService:
                             "汽车之家评论页面结构发生变化，请检查采集适配器后重试",
                         )
                         return
-                    except Exception as error:
+                    except Exception as error:  # noqa: BLE001 - adapter boundary
                         message = (
                             f"车系 {series.series_name} 第 {page_index} 页采集失败，"
                             "重试已用尽"
@@ -238,6 +285,15 @@ class CollectionService:
                             failed=True,
                             last_error=message,
                         )
+                        consecutive_failures += 1
+                        if consecutive_failures >= CONSECUTIVE_SERIES_FAILURE_LIMIT:
+                            self._pause_for_source(
+                                job_id,
+                                error,
+                                JobStatus.COLLECTING,
+                                "连续 3 个车系请求失败，任务已暂停，请检查网络后继续",
+                            )
+                            return
                         series_failed = True
                         break
 
@@ -265,6 +321,11 @@ class CollectionService:
                     self.repository.save_review_page(
                         job_id, series, page.reviews, page_index + 1, self._now()
                     )
+                    consecutive_failures = 0
+                    try:
+                        self._apply_control(job_id)
+                    except _JobInterrupted:
+                        return
                     previous_ids = review_ids
                     reached_cap = (
                         job["max_pages_per_series"] is not None
@@ -277,7 +338,11 @@ class CollectionService:
                         job["request_delay_min_seconds"],
                         job["request_delay_max_seconds"],
                     )
-                    self.sleeper(delay)
+                    self._wait(delay)
+                    try:
+                        self._apply_control(job_id)
+                    except _JobInterrupted:
+                        return
                     page_index += 1
 
                 if index + 1 < len(series_list):
@@ -285,7 +350,11 @@ class CollectionService:
                         job["series_delay_min_seconds"],
                         job["series_delay_max_seconds"],
                     )
-                    self.sleeper(delay)
+                    self._wait(delay)
+                    try:
+                        self._apply_control(job_id)
+                    except _JobInterrupted:
+                        return
                 if series_failed:
                     continue
         finally:
@@ -295,6 +364,10 @@ class CollectionService:
 
         final = self.repository.get_job(job_id)
         if final is None or JobStatus(final["status"]) is not JobStatus.COLLECTING:
+            return
+        try:
+            self._apply_control(job_id)
+        except _JobInterrupted:
             return
         status = JobStatus.PARTIAL_FAILED if final["failed_count"] else JobStatus.COMPLETED
         self.repository.set_status(job_id, status, self._now(), finished=True)
@@ -315,9 +388,10 @@ class CollectionService:
                 result = catalog.discover(job["max_series"])
                 self.repository.save_discovery(job_id, result.series, self._now())
                 session = result.session
+                self._apply_control(job_id)
             except _JobInterrupted:
                 return
-            except Exception as error:
+            except Exception as error:  # noqa: BLE001 - source boundary
                 self._pause_for_source(
                     job_id,
                     error,
@@ -329,9 +403,10 @@ class CollectionService:
             try:
                 self._apply_control(job_id)
                 session = catalog.open_session()
+                self._apply_control(job_id)
             except _JobInterrupted:
                 return
-            except Exception as error:
+            except Exception as error:  # noqa: BLE001 - source boundary
                 self._pause_for_source(
                     job_id,
                     error,

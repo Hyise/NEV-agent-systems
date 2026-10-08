@@ -91,20 +91,24 @@ function escapeNavigation(event: KeyboardEvent) {
 }
 
 function openCreateDialog() {
-  restoreFocus.value = document.activeElement as HTMLElement;
   openCreate();
 }
 
 function closeCreateDialog() {
-  createDialog.value?.close();
   closeCreate();
-  restoreFocus.value?.focus();
 }
 
 watch(showCreate, async (open) => {
-  if (!open) return;
+  if (open) {
+    restoreFocus.value = document.activeElement as HTMLElement;
+    await nextTick();
+    createDialog.value?.showModal();
+    return;
+  }
+  createDialog.value?.close();
   await nextTick();
-  createDialog.value?.showModal();
+  restoreFocus.value?.focus();
+  restoreFocus.value = null;
 });
 
 onMounted(() => document.addEventListener("keydown", escapeNavigation));

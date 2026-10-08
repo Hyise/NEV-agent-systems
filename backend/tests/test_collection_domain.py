@@ -48,6 +48,20 @@ def test_delay_cannot_be_zero_or_reverse(values):
         CreateJobBody(mode="verification", **values)
 
 
+@pytest.mark.parametrize(
+    "values",
+    [
+        {"request_delay_min_seconds": 1.99},
+        {"request_delay_max_seconds": 1.99},
+        {"series_delay_min_seconds": 4.99},
+        {"series_delay_max_seconds": 4.99},
+    ],
+)
+def test_delay_cannot_be_faster_than_approved_policy(values):
+    with pytest.raises(ValidationError):
+        CreateJobBody(mode="verification", **values)
+
+
 def test_only_paused_job_can_resume():
     assert transition_status(JobStatus.PAUSED, "resume") is JobStatus.COLLECTING
 

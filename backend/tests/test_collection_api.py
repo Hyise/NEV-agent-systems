@@ -131,6 +131,28 @@ def test_second_active_job_returns_409(client):
     assert client.get("/api/collection/jobs").json()["total"] == 1
 
 
+def test_scheduler_failure_does_not_leave_queued_job(tmp_path):
+    class FailingService(RecordingService):
+        def start(self, job_id):
+            raise RuntimeError("executor unavailable")
+
+    app = create_app(
+        tmp_path / "scheduler.sqlite3",
+        ROOT / "backend/data/research",
+        collection_service_factory=FailingService,
+    )
+
+    with TestClient(app) as failing_client:
+        response = failing_client.post(
+            "/api/collection/jobs", json={"mode": "verification"}
+        )
+        jobs = failing_client.get("/api/collection/jobs").json()["rows"]
+
+    assert response.status_code == 503
+    assert jobs[0]["status"] == "stopped"
+    assert jobs[0]["last_error"] == "任务未能启动，请重试"
+
+
 def test_pause_resume_stop_validate_current_state(client):
     repository = client.app.state.collection_repository
     seed_job(repository)
@@ -144,13 +166,34 @@ def test_pause_resume_stop_validate_current_state(client):
     assert client.post("/api/collection/jobs/missing/pause").status_code == 404
 
 
+def test_paused_job_remains_visible_and_resumable_from_overview(client):
+    repository = client.app.state.collection_repository
+    seed_job(repository)
+    repository.set_status(
+        "job-1",
+        JobStatus.PAUSED,
+        "2026-10-08T08:01:00+00:00",
+        resume_status=JobStatus.DISCOVERING,
+    )
+
+    overview = client.get("/api/collection/overview")
+    resumed = client.post("/api/collection/jobs/job-1/resume")
+
+    assert overview.status_code == 200
+    assert overview.json()["active_job"]["status"] == "paused"
+    assert resumed.status_code == 200
+
+
 def test_overview_jobs_and_series_are_paginated(client):
     repository = client.app.state.collection_repository
     seed_job(repository, "job-1")
-    seed_job(repository, "job-2")
     repository.save_discovery(
         "job-1", [make_series(1), make_series(2)], "2026-10-08T08:01:00+00:00"
     )
+    repository.set_status(
+        "job-1", JobStatus.STOPPED, "2026-10-08T08:00:10+00:00", finished=True
+    )
+    seed_job(repository, "job-2")
 
     overview = client.get("/api/collection/overview").json()
     jobs = client.get("/api/collection/jobs", params={"page": 2, "page_size": 1}).json()
@@ -161,8 +204,25 @@ def test_overview_jobs_and_series_are_paginated(client):
     assert series["total"] == 2 and len(series["rows"]) == 1 and series["page"] == 2
 
 
+def test_job_detail_returns_latest_events(client):
+    repository = client.app.state.collection_repository
+    seed_job(repository)
+    repository.record_event(
+        "job-1",
+        "source_paused",
+        "结构变化后暂停",
+        "2026-10-08T08:01:00+00:00",
+        error_class="AutohomeStructureError",
+    )
+
+    response = client.get("/api/collection/jobs/job-1")
+
+    assert response.status_code == 200
+    assert response.json()["events"][0]["event_type"] == "source_paused"
+
+
 def test_review_list_omits_original_payload(client):
-    series, original = seed_review(client.app.state.collection_repository)
+    series, _original = seed_review(client.app.state.collection_repository)
 
     response = client.get("/api/collection/reviews", params={"series_id": series.series_id})
 

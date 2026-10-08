@@ -13,6 +13,7 @@ import {
   collectionApi,
   type CollectionApi,
   type CollectionJob,
+  type CollectionJobDetail,
   type CollectionOverview,
   type Page as ResultPage,
   type ReviewDetail,
@@ -54,11 +55,13 @@ export function createCollectionWorkspace(
   const jobMode = ref<"verification" | "production">("verification");
   const productionConfirmPending = ref(false);
   const productionConfirmationText =
-    "正式采集将处理前 500 个车系、每车系全部评论，并按当前限速持续运行。";
+    "正式采集将处理前 500 个车系、每车系全部评论；分页间隔 2～4 秒、车系间隔 5～10 秒，临时失败按 5/15/45 秒重试，单次请求超时 20 秒。";
   const series = ref<ResultPage<SeriesRow>>(emptyPage());
   const reviews = ref<ResultPage<ReviewSummary>>(emptyPage());
   const selectedSeries = ref<SeriesRow | null>(null);
   const reviewDetail = ref<ReviewDetail | null>(null);
+  const selectedJob = ref<CollectionJobDetail | null>(null);
+  const jobDetailBusy = ref(false);
   const seriesQuery = ref("");
   const seriesPage = ref(1);
   const reviewPage = ref(1);
@@ -76,6 +79,7 @@ export function createCollectionWorkspace(
   let seriesRequestId = 0;
   let reviewRequestId = 0;
   let detailRequestId = 0;
+  let jobDetailRequestId = 0;
 
   function clearPoll() {
     if (pollTimer !== undefined) clearTimeout(pollTimer);
@@ -205,6 +209,26 @@ export function createCollectionWorkspace(
     reviewDetail.value = null;
   }
 
+  async function openJob(jobId: string) {
+    const token = ++jobDetailRequestId;
+    jobDetailBusy.value = true;
+    error.value = "";
+    try {
+      const result = await client.getJob(jobId);
+      if (token === jobDetailRequestId) selectedJob.value = result;
+    } catch (cause) {
+      if (token === jobDetailRequestId) error.value = (cause as Error).message;
+    } finally {
+      if (token === jobDetailRequestId) jobDetailBusy.value = false;
+    }
+  }
+
+  function closeJob() {
+    jobDetailRequestId += 1;
+    selectedJob.value = null;
+    jobDetailBusy.value = false;
+  }
+
   async function previousSeriesPage() {
     if (seriesPage.value <= 1) return;
     seriesPage.value -= 1;
@@ -302,6 +326,7 @@ export function createCollectionWorkspace(
     seriesRequestId += 1;
     reviewRequestId += 1;
     detailRequestId += 1;
+    jobDetailRequestId += 1;
   }
 
   if (registerLifecycle) {
@@ -333,6 +358,8 @@ export function createCollectionWorkspace(
     reviews,
     selectedSeries,
     reviewDetail,
+    selectedJob,
+    jobDetailBusy,
     seriesQuery,
     seriesPage,
     reviewPage,
@@ -353,6 +380,8 @@ export function createCollectionWorkspace(
     selectSeries,
     openReview,
     closeReview,
+    openJob,
+    closeJob,
     previousSeriesPage,
     nextSeriesPage,
     previousReviewPage,

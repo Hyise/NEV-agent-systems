@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from threading import Event
 from types import SimpleNamespace
 
 import pytest
@@ -22,7 +23,6 @@ from backend.collection.domain import (
 from backend.collection.repository import CollectionRepository
 from backend.collection.service import CollectionService
 
-
 NOW = datetime(2026, 10, 8, 8, 0, tzinfo=timezone.utc)
 
 
@@ -37,7 +37,15 @@ def make_series(index: int) -> VehicleSeries:
     )
 
 
-def make_page(series: VehicleSeries, page_index: int, *, total: int = 999, ids=None):
+def make_page(
+    series: VehicleSeries,
+    page_index: int,
+    *,
+    total: int = 999,
+    ids=None,
+    page_count: int | None = None,
+    page_size: int = 20,
+):
     ids = ids if ids is not None else [f"{series.series_id}-{page_index}"]
     reviews = [
         CollectedReview(
@@ -49,7 +57,14 @@ def make_page(series: VehicleSeries, page_index: int, *, total: int = 999, ids=N
         )
         for review_id in ids
     ]
-    return ReviewPage(series=series, page_index=page_index, total=total, reviews=reviews)
+    return ReviewPage(
+        series=series,
+        page_index=page_index,
+        page_size=page_size,
+        page_count=page_count,
+        total=total,
+        reviews=reviews,
+    )
 
 
 class FakeCatalogAdapter:
@@ -124,7 +139,8 @@ def test_production_job_has_500_series_and_no_page_cap(tmp_path):
 
     def responder(item, page, call):
         total = 41 if item.discovery_rank == 1 else 1
-        return make_page(item, page, total=total)
+        page_count = 3 if item.discovery_rank == 1 else 1
+        return make_page(item, page, total=total, page_count=page_count)
 
     repository, catalog, review, service = make_service(
         tmp_path, config, series, responder
@@ -139,9 +155,36 @@ def test_production_job_has_500_series_and_no_page_cap(tmp_path):
     service.shutdown()
 
 
+def test_server_page_count_prevents_early_stop_when_page_has_ten_rows(tmp_path):
+    item = make_series(1)
+
+    def responder(series, page, call):
+        count = 2 if page == 69 else 10
+        ids = [f"{series.series_id}-{page}-{index}" for index in range(count)]
+        return make_page(
+            series,
+            page,
+            total=682,
+            ids=ids,
+            page_count=69,
+            page_size=10,
+        )
+
+    repository, _catalog, review, service = make_service(
+        tmp_path, CreateJobBody(mode="production").to_config(), [item], responder
+    )
+
+    service.run_job("job-1")
+
+    assert review.calls[-1] == (item.series_id, 69)
+    assert len(review.calls) == 69
+    assert repository.list_reviews(series_id=item.series_id)["total"] == 682
+    service.shutdown()
+
+
 def test_repeated_page_stops_series_without_looping(tmp_path):
     item = make_series(1)
-    repository, catalog, review, service = make_service(
+    repository, _catalog, review, service = make_service(
         tmp_path,
         CreateJobBody(mode="production").to_config(),
         [item],
@@ -220,6 +263,38 @@ def test_pause_and_stop_take_effect_before_next_request(tmp_path):
         service.shutdown()
 
 
+def test_shutdown_pauses_running_job_after_current_response(tmp_path):
+    item = make_series(1)
+    fetched = Event()
+
+    def responder(series, page, call):
+        fetched.set()
+        return make_page(series, page, total=100, page_count=5)
+
+    repository = CollectionRepository(tmp_path / "collection.sqlite3")
+    repository.create_job(
+        "job-1", CreateJobBody(mode="production").to_config(), NOW.isoformat()
+    )
+    catalog = FakeCatalogAdapter([item])
+    review = FakeReviewAdapter(responder)
+    service = CollectionService(
+        repository,
+        catalog_adapter_factory=lambda: catalog,
+        review_adapter_factory=lambda session: review,
+        clock=lambda: NOW,
+        rng=SimpleNamespace(uniform=lambda low, high: low),
+    )
+
+    service.start("job-1")
+    assert fetched.wait(timeout=5)
+    service.shutdown()
+
+    job = repository.get_job("job-1")
+    assert job["status"] == "paused"
+    assert job["resume_status"] == "collecting"
+    assert review.calls == [(item.series_id, 1)]
+
+
 def test_page_and_series_delays_use_configured_ranges(tmp_path):
     sleeps = []
     ranges = []
@@ -238,7 +313,7 @@ def test_page_and_series_delays_use_configured_ranges(tmp_path):
         series_delay_min_seconds=5,
         series_delay_max_seconds=10,
     ).to_config()
-    repository, catalog, review, service = make_service(
+    _repository, _catalog, _review, service = make_service(
         tmp_path,
         config,
         [make_series(1), make_series(2)],
@@ -259,10 +334,10 @@ def test_transient_error_retries_after_5_15_45_seconds(tmp_path):
 
     def responder(series, page, call):
         if call <= 3:
-            raise TimeoutError("temporary timeout")
+            raise TimeoutError(r"temporary timeout at C:\\secret\\socket")
         return make_page(series, page, total=1)
 
-    repository, catalog, review, service = make_service(
+    repository, _catalog, review, service = make_service(
         tmp_path,
         CreateJobBody(mode="verification", max_series=1, max_pages_per_series=1).to_config(),
         [make_series(1)],
@@ -275,6 +350,10 @@ def test_transient_error_retries_after_5_15_45_seconds(tmp_path):
     assert sleeps == [5, 15, 45]
     assert len(review.calls) == 4
     assert repository.get_job("job-1")["status"] == "completed"
+    assert all(
+        "secret" not in event["message"]
+        for event in repository.list_events("job-1")
+    )
     service.shutdown()
 
 
@@ -286,7 +365,7 @@ def test_403_429_and_verification_pause_immediately(tmp_path):
         def responder(series, page, call, *, message=message):
             raise AutohomeAccessPaused(message)
 
-        repository, catalog, review, service = make_service(
+        repository, _catalog, review, service = make_service(
             case_dir,
             CreateJobBody(mode="verification").to_config(),
             [make_series(1)],
@@ -308,7 +387,7 @@ def test_review_structure_change_pauses_without_retrying_or_skipping(tmp_path):
     def responder(series, page, call):
         raise AutohomeStructureError("review payload changed")
 
-    repository, catalog, review, service = make_service(
+    repository, _catalog, review, service = make_service(
         tmp_path,
         CreateJobBody(mode="verification", max_series=2).to_config(),
         [first, second],
@@ -334,7 +413,7 @@ def test_single_series_failure_continues_and_finishes_partial_failed(tmp_path):
             raise TimeoutError("series unavailable")
         return make_page(series, page, total=1)
 
-    repository, catalog, review, service = make_service(
+    repository, _catalog, review, service = make_service(
         tmp_path,
         CreateJobBody(mode="verification", max_series=2, max_pages_per_series=1).to_config(),
         [first, second],
@@ -351,23 +430,102 @@ def test_single_series_failure_continues_and_finishes_partial_failed(tmp_path):
     service.shutdown()
 
 
+def test_three_consecutive_series_failures_pause_whole_job(tmp_path):
+    items = [make_series(index) for index in range(1, 5)]
+
+    def responder(series, page, call):
+        raise TimeoutError(r"network failed at C:\\secret\\socket")
+
+    repository, _catalog, review, service = make_service(
+        tmp_path,
+        CreateJobBody(mode="production").to_config(),
+        items,
+        responder,
+    )
+
+    service.run_job("job-1")
+
+    job = repository.get_job("job-1")
+    assert job["status"] == "paused"
+    assert job["failed_count"] == 3
+    assert {series_id for series_id, page in review.calls} == {
+        item.series_id for item in items[:3]
+    }
+    assert "secret" not in job["last_error"]
+    service.shutdown()
+
+
 def test_second_active_job_is_rejected(tmp_path):
     repository = CollectionRepository(tmp_path / "collection.sqlite3")
     config = CreateJobBody(mode="verification").to_config()
     repository.create_job("job-1", config, NOW.isoformat())
+    entered = Event()
+    release = Event()
+
+    class BlockingCatalog(FakeCatalogAdapter):
+        def discover(self, max_series):
+            entered.set()
+            release.wait(timeout=5)
+            return super().discover(max_series)
+
+    service = CollectionService(
+        repository,
+        catalog_adapter_factory=lambda: BlockingCatalog([]),
+        review_adapter_factory=lambda session: FakeReviewAdapter(lambda *_: None),
+        sleeper=lambda seconds: None,
+        clock=lambda: NOW,
+        rng=SimpleNamespace(uniform=lambda low, high: low),
+    )
+    service.start("job-1")
+    assert entered.wait(timeout=5)
+    repository.set_status(
+        "job-1", JobStatus.STOPPED, NOW.isoformat(), finished=True
+    )
     repository.create_job("job-2", config, NOW.isoformat())
+
+    with pytest.raises(TaskControlError, match="已有活动采集任务"):
+        service.start("job-2")
+
+    release.set()
+    service.shutdown()
+
+
+def test_resume_scheduling_failure_restores_paused_state(tmp_path):
+    repository = CollectionRepository(tmp_path / "collection.sqlite3")
+    repository.create_job(
+        "job-1", CreateJobBody(mode="verification").to_config(), NOW.isoformat()
+    )
+    repository.set_status(
+        "job-1",
+        JobStatus.PAUSED,
+        NOW.isoformat(),
+        resume_status=JobStatus.DISCOVERING,
+    )
     service = CollectionService(
         repository,
         catalog_adapter_factory=lambda: FakeCatalogAdapter([]),
         review_adapter_factory=lambda session: FakeReviewAdapter(lambda *_: None),
         sleeper=lambda seconds: None,
         clock=lambda: NOW,
-        rng=SimpleNamespace(uniform=lambda low, high: low),
     )
 
-    with pytest.raises(TaskControlError, match="已有活动采集任务"):
-        service.start("job-2")
+    class BrokenExecutor:
+        def submit(self, *args):
+            raise RuntimeError("executor unavailable")
 
+        def shutdown(self, wait=True):
+            return None
+
+    service._executor.shutdown(wait=True)
+    service._executor = BrokenExecutor()
+
+    with pytest.raises(RuntimeError, match="executor unavailable"):
+        service.resume("job-1")
+
+    job = repository.get_job("job-1")
+    assert job["status"] == "paused"
+    assert job["resume_status"] == "discovering"
+    assert job["last_error"] == "任务调度失败，请重试"
     service.shutdown()
 
 

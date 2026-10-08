@@ -44,6 +44,22 @@ export interface CollectionOverview {
   active_job: CollectionJob | null;
 }
 
+export interface CollectionEvent {
+  id: number;
+  job_id: string;
+  series_id: string | null;
+  event_type: string;
+  error_class: string | null;
+  message: string;
+  details: string | null;
+  retryable: boolean;
+  created_at: string;
+}
+
+export interface CollectionJobDetail extends CollectionJob {
+  events: CollectionEvent[];
+}
+
 export interface Page<T> {
   rows: T[];
   total: number;
@@ -120,7 +136,7 @@ const post = <T>(path: string, body?: unknown) =>
 export interface CollectionApi {
   getOverview(): Promise<CollectionOverview>;
   listJobs(page?: number, pageSize?: number): Promise<Page<CollectionJob>>;
-  getJob(jobId: string): Promise<CollectionJob>;
+  getJob(jobId: string): Promise<CollectionJobDetail>;
   createJob(input: CreateJobInput): Promise<CollectionJob>;
   pauseJob(jobId: string): Promise<CollectionJob>;
   resumeJob(jobId: string): Promise<CollectionJob>;

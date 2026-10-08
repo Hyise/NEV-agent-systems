@@ -3,7 +3,18 @@ import type { CollectionJob } from "../api";
 import { useCollectionWorkspace } from "../workspace";
 
 const workspace = useCollectionWorkspace();
-const { overview, jobs, actionBusy, pause, resume, stop } = workspace;
+const {
+  overview,
+  jobs,
+  actionBusy,
+  selectedJob,
+  jobDetailBusy,
+  pause,
+  resume,
+  stop,
+  openJob,
+  closeJob,
+} = workspace;
 
 const labels: Record<CollectionJob["status"], string> = {
   queued: "等待启动",
@@ -147,6 +158,7 @@ function dateTime(value: string | null) {
               <th class="numeric">车系</th>
               <th class="numeric">已保存</th>
               <th class="numeric">失败</th>
+              <th><span class="visually-hidden">操作</span></th>
             </tr>
           </thead>
           <tbody>
@@ -159,11 +171,50 @@ function dateTime(value: string | null) {
               <td class="numeric mono">{{ item.discovered_count }}</td>
               <td class="numeric mono">{{ item.saved_count }}</td>
               <td class="numeric mono">{{ item.failed_count }}</td>
+              <td>
+                <button
+                  class="text-button"
+                  :disabled="jobDetailBusy"
+                  @click="openJob(item.id)"
+                >
+                  查看事件
+                </button>
+              </td>
             </tr>
           </tbody>
         </table>
       </div>
       <div v-else class="collection-empty-inline">尚无采集任务。</div>
+    </section>
+
+    <section
+      v-if="selectedJob"
+      class="collection-event-detail"
+      aria-labelledby="job-event-title"
+    >
+      <header>
+        <div>
+          <p class="collection-eyebrow">任务记录</p>
+          <h2 id="job-event-title">事件与异常</h2>
+          <p class="mono">{{ selectedJob.id }}</p>
+        </div>
+        <button class="text-button" @click="closeJob">关闭</button>
+      </header>
+      <ol v-if="selectedJob.events.length" class="collection-event-list">
+        <li v-for="event in selectedJob.events" :key="event.id">
+          <div>
+            <strong>{{ event.message }}</strong>
+            <span class="mono">{{ event.event_type }}</span>
+          </div>
+          <p>
+            {{ dateTime(event.created_at) }}
+            <span v-if="event.series_id" class="mono"
+              >· series_id {{ event.series_id }}</span
+            >
+          </p>
+        </li>
+      </ol>
+      <p v-else class="collection-empty-inline">该任务没有事件记录。</p>
     </section>
   </section>
 </template>

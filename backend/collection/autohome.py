@@ -1,7 +1,8 @@
 """Automotive Home source adapters with a fixed, auditable access boundary."""
 
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from typing import Any, Callable, Iterable
+from typing import Any
 from urllib.parse import urlparse
 
 import httpx
@@ -15,6 +16,10 @@ from .domain import (
 
 AUTOHOME_CATALOG_URL = "https://www.autohome.com.cn/price/ev#pvareaid=3311257"
 AUTOHOME_REVIEW_API_URL = "https://koubeiipv6.app.autohome.com.cn/pc/series/list"
+CATALOG_LINK_SELECTOR = (
+    "main a[href], article a[href], [data-series-id] a[href], "
+    "[class*='series'] a[href], [class*='car-list'] a[href]"
+)
 ALLOWED_HOSTS = frozenset(
     {
         "www.autohome.com.cn",
@@ -116,8 +121,26 @@ def parse_review_page(
         raise AutohomeStructureError("汽车之家口碑响应缺少result对象")
     items = result.get("list")
     total = result.get("rowcount")
-    if not isinstance(items, list) or isinstance(total, bool) or not isinstance(total, int):
+    page_size = result.get("pagesize")
+    page_count = result.get("pagecount")
+    response_page = result.get("pageindex")
+    response_series = result.get("seriesid")
+    integers = (total, page_size, page_count, response_page)
+    if (
+        not isinstance(items, list)
+        or any(isinstance(value, bool) or not isinstance(value, int) for value in integers)
+        or total < 0
+        or page_size < 1
+        or page_count < 0
+        or response_page < 1
+    ):
         raise AutohomeStructureError("汽车之家口碑响应缺少有效的list或rowcount")
+    if str(response_series) != series.series_id:
+        raise AutohomeStructureError("汽车之家口碑响应车系与请求不一致")
+    if response_page != page_index:
+        raise AutohomeStructureError("汽车之家口碑响应页码与请求不一致")
+    if total > 0 and page_count < 1:
+        raise AutohomeStructureError("汽车之家口碑响应分页总数无效")
     reviews: list[CollectedReview] = []
     for item in items:
         if not isinstance(item, dict) or not item:
@@ -125,7 +148,7 @@ def parse_review_page(
         source_id = item.get("Koubeiid") or item.get("showId")
         review_id = str(source_id).strip() if source_id is not None else ""
         if not review_id:
-            review_id = "sha256-" + canonical_review_hash(item)
+            review_id = f"sha256-{series.series_id}-{canonical_review_hash(item)}"
         reviews.append(
             CollectedReview(
                 review_id=review_id,
@@ -138,6 +161,8 @@ def parse_review_page(
     return ReviewPage(
         series=series,
         page_index=page_index,
+        page_size=page_size,
+        page_count=page_count,
         total=total,
         reviews=reviews,
     )
@@ -157,7 +182,7 @@ class AutohomeCatalogAdapter:
     @staticmethod
     def _read_links(page) -> list[CatalogLink]:
         values = page.eval_on_selector_all(
-            "a[href]",
+            CATALOG_LINK_SELECTOR,
             """
             elements => elements.map(anchor => {
               const image = anchor.querySelector('img');
@@ -176,6 +201,38 @@ class AutohomeCatalogAdapter:
         return [CatalogLink(str(value["href"]), str(value["name"])) for value in values]
 
     @staticmethod
+    def _guard_browser_requests(context) -> None:
+        def handle(route) -> None:
+            request = route.request
+            parsed = urlparse(request.url)
+            host = (parsed.hostname or "").casefold()
+            if request.resource_type == "document":
+                allowed = parsed.scheme == "https" and host == "www.autohome.com.cn"
+            else:
+                allowed = parsed.scheme in {"data", "blob"} or (
+                    parsed.scheme == "https"
+                    and (
+                        host in {"autohome.com.cn", "autoimg.cn"}
+                        or host.endswith((".autohome.com.cn", ".autoimg.cn"))
+                    )
+                )
+            route.continue_() if allowed else route.abort()
+
+        context.route("**/*", handle)
+
+    @staticmethod
+    def _validate_catalog_page(page, response) -> None:
+        if response is None or response.status >= 400:
+            raise AutohomeAccessPaused("汽车之家新能源汽车目录访问失败，任务已暂停")
+        final_url = ensure_allowed_url(page.url)
+        parsed = urlparse(final_url)
+        if parsed.hostname != "www.autohome.com.cn" or parsed.path.rstrip("/") != "/price/ev":
+            raise AutohomeAccessPaused("汽车之家目录跳转到非预期页面，任务已暂停")
+        body_text = str(page.locator("body").inner_text(timeout=5_000))
+        if "新能源" not in body_text:
+            raise AutohomeAccessPaused("汽车之家目录页面需要验证或结构发生变化，任务已暂停")
+
+    @staticmethod
     def _session(context, page) -> BrowserSession:
         cookies = {
             str(cookie["name"]): str(cookie["value"])
@@ -191,8 +248,14 @@ class AutohomeCatalogAdapter:
             browser = playwright.chromium.launch(headless=True)
             try:
                 context = browser.new_context(locale="zh-CN")
+                self._guard_browser_requests(context)
                 page = context.new_page()
-                page.goto(AUTOHOME_CATALOG_URL, wait_until="domcontentloaded", timeout=20_000)
+                response = page.goto(
+                    AUTOHOME_CATALOG_URL,
+                    wait_until="domcontentloaded",
+                    timeout=20_000,
+                )
+                self._validate_catalog_page(page, response)
                 found: list[VehicleSeries] = []
                 unchanged_rounds = 0
                 while len(found) < max_series and unchanged_rounds < 5:
@@ -215,8 +278,14 @@ class AutohomeCatalogAdapter:
             browser = playwright.chromium.launch(headless=True)
             try:
                 context = browser.new_context(locale="zh-CN")
+                self._guard_browser_requests(context)
                 page = context.new_page()
-                page.goto(AUTOHOME_CATALOG_URL, wait_until="domcontentloaded", timeout=20_000)
+                response = page.goto(
+                    AUTOHOME_CATALOG_URL,
+                    wait_until="domcontentloaded",
+                    timeout=20_000,
+                )
+                self._validate_catalog_page(page, response)
                 return self._session(context, page)
             finally:
                 browser.close()

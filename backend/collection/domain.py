@@ -70,10 +70,10 @@ class CreateJobBody(StrictModel):
     mode: JobMode
     max_series: int | None = Field(default=None, ge=1)
     max_pages_per_series: int | None = Field(default=None, ge=1)
-    request_delay_min_seconds: float = Field(default=2, gt=0)
-    request_delay_max_seconds: float = Field(default=4, gt=0)
-    series_delay_min_seconds: float = Field(default=5, gt=0)
-    series_delay_max_seconds: float = Field(default=10, gt=0)
+    request_delay_min_seconds: float = Field(default=2, ge=2)
+    request_delay_max_seconds: float = Field(default=4, ge=2)
+    series_delay_min_seconds: float = Field(default=5, ge=5)
+    series_delay_max_seconds: float = Field(default=10, ge=5)
 
     @model_validator(mode="after")
     def apply_scope_and_validate_delays(self):
@@ -109,10 +109,10 @@ class JobConfig(StrictModel):
     mode: JobMode
     max_series: int = Field(ge=1, le=500)
     max_pages_per_series: int | None = Field(default=None, ge=1)
-    request_delay_min_seconds: float = Field(gt=0)
-    request_delay_max_seconds: float = Field(gt=0)
-    series_delay_min_seconds: float = Field(gt=0)
-    series_delay_max_seconds: float = Field(gt=0)
+    request_delay_min_seconds: float = Field(ge=2)
+    request_delay_max_seconds: float = Field(ge=2)
+    series_delay_min_seconds: float = Field(ge=5)
+    series_delay_max_seconds: float = Field(ge=5)
 
 
 class VehicleSeries(StrictModel):
@@ -157,5 +157,7 @@ class CollectedReview(StrictModel):
 class ReviewPage(StrictModel):
     series: VehicleSeries
     page_index: int = Field(ge=1)
+    page_size: int | None = Field(default=None, ge=1)
+    page_count: int | None = Field(default=None, ge=0)
     total: int | None = Field(default=None, ge=0)
     reviews: list[CollectedReview]
