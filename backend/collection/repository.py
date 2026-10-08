@@ -397,6 +397,38 @@ class CollectionRepository:
             )
         return {"saved": saved, "duplicates": duplicates, "changed": changed}
 
+    def advance_series(
+        self,
+        job_id: str,
+        next_series_index: int,
+        updated_at: str,
+        *,
+        failed: bool = False,
+        skipped: bool = False,
+        last_error: str | None = None,
+    ) -> None:
+        with self.connect() as connection:
+            count = connection.execute(
+                """
+                UPDATE collection_jobs SET
+                    current_series_index=?,current_series_id=NULL,
+                    current_series_name=NULL,current_page=1,
+                    failed_count=failed_count+?,skipped_count=skipped_count+?,
+                    last_error=COALESCE(?,last_error),updated_at=?
+                WHERE id=?
+                """,
+                (
+                    next_series_index,
+                    int(failed),
+                    int(skipped),
+                    last_error,
+                    updated_at,
+                    job_id,
+                ),
+            ).rowcount
+            if count != 1:
+                raise KeyError(job_id)
+
     def record_event(
         self,
         job_id: str,
