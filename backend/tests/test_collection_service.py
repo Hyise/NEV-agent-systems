@@ -340,3 +340,31 @@ def test_second_active_job_is_rejected(tmp_path):
         service.start("job-2")
 
     service.shutdown()
+
+
+def test_discovery_failure_pauses_without_exposing_adapter_internals(tmp_path):
+    repository = CollectionRepository(tmp_path / "collection.sqlite3")
+    repository.create_job(
+        "job-1", CreateJobBody(mode="verification").to_config(), NOW.isoformat()
+    )
+
+    class BrokenCatalog:
+        def discover(self, max_series):
+            raise RuntimeError(r"BrowserType.launch failed at C:\Users\secret\chrome.exe")
+
+    service = CollectionService(
+        repository,
+        catalog_adapter_factory=BrokenCatalog,
+        review_adapter_factory=lambda session: None,
+        sleeper=lambda seconds: None,
+        clock=lambda: NOW,
+        rng=SimpleNamespace(uniform=lambda low, high: low),
+    )
+
+    service.run_job("job-1")
+
+    job = repository.get_job("job-1")
+    assert job["status"] == "paused"
+    assert job["last_error"] == "汽车之家车系目录访问失败，请检查浏览器安装、网络和页面结构后重试"
+    assert "secret" not in repository.list_events("job-1")[0]["message"]
+    service.shutdown()

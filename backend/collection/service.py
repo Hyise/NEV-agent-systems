@@ -130,8 +130,14 @@ class CollectionService:
             )
         raise _JobInterrupted
 
-    def _pause_for_source(self, job_id: str, error: Exception, resume: JobStatus) -> None:
-        message = str(error)
+    def _pause_for_source(
+        self,
+        job_id: str,
+        error: Exception,
+        resume: JobStatus,
+        public_message: str | None = None,
+    ) -> None:
+        message = public_message or str(error)
         self.repository.record_event(
             job_id,
             "source_paused",
@@ -200,7 +206,10 @@ class CollectionService:
                         self._pause_for_source(job_id, error, JobStatus.COLLECTING)
                         return
                     except Exception as error:
-                        message = f"车系 {series.series_name} 第 {page_index} 页采集失败：{error}"
+                        message = (
+                            f"车系 {series.series_name} 第 {page_index} 页采集失败，"
+                            "重试已用尽"
+                        )
                         self.repository.record_event(
                             job_id,
                             "series_failed",
@@ -296,7 +305,12 @@ class CollectionService:
             except _JobInterrupted:
                 return
             except Exception as error:
-                self._pause_for_source(job_id, error, JobStatus.DISCOVERING)
+                self._pause_for_source(
+                    job_id,
+                    error,
+                    JobStatus.DISCOVERING,
+                    "汽车之家车系目录访问失败，请检查浏览器安装、网络和页面结构后重试",
+                )
                 return
         elif status is JobStatus.COLLECTING:
             try:
@@ -305,7 +319,12 @@ class CollectionService:
             except _JobInterrupted:
                 return
             except Exception as error:
-                self._pause_for_source(job_id, error, JobStatus.COLLECTING)
+                self._pause_for_source(
+                    job_id,
+                    error,
+                    JobStatus.COLLECTING,
+                    "汽车之家评论访问失败，请检查网络或页面结构后重试",
+                )
                 return
         else:
             raise TaskControlError("当前任务不能运行")
