@@ -1,0 +1,13 @@
+{
+  "returncode": 0,
+  "message": "success",
+  "result": {
+    "seriesid": 5769,
+    "seriesname": "Model Y",
+    "pageindex": 2,
+    "pagesize": 20,
+    "pagecount": 1,
+    "rowcount": 2,
+    "list": []
+  }
+}

@@ -24,7 +24,12 @@ def test_windows_powershell_can_parse_all_launcher_scripts() -> None:
         "$errors | ForEach-Object { Write-Error $_.Message }; exit 1 }"
     )
 
-    for script_name in ("start-site.ps1", "start-local.ps1", "stop-local.ps1"):
+    for script_name in (
+        "start-site.ps1",
+        "start-local.ps1",
+        "stop-local.ps1",
+        "install-collection-browser.ps1",
+    ):
         env = os.environ.copy()
         env["SCRIPT_UNDER_TEST"] = str(SCRIPTS_DIR / script_name)
         result = subprocess.run(
@@ -37,6 +42,49 @@ def test_windows_powershell_can_parse_all_launcher_scripts() -> None:
             check=False,
         )
         assert result.returncode == 0, f"{script_name}: {result.stderr or result.stdout}"
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows launcher integration test")
+def test_collection_browser_installer_uses_selected_python_and_chromium(tmp_path: Path) -> None:
+    powershell = shutil.which("powershell.exe")
+    assert powershell is not None
+
+    scripts_dir = tmp_path / "scripts"
+    scripts_dir.mkdir()
+    installer = scripts_dir / "install-collection-browser.ps1"
+    shutil.copy2(SCRIPTS_DIR / "install-collection-browser.ps1", installer)
+    command_log = tmp_path / "python.log"
+    fake_python = tmp_path / "python.cmd"
+    fake_python.write_text(
+        '@echo off\necho %*>>"%PYTHON_LOG%"\nexit /b 0\n',
+        encoding="utf-8",
+    )
+    env = os.environ.copy()
+    env["PYTHON_LOG"] = str(command_log)
+
+    result = subprocess.run(
+        [
+            powershell,
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(installer),
+            "-PythonExe",
+            str(fake_python),
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        env=env,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr or result.stdout
+    assert command_log.read_text(encoding="utf-8").splitlines() == [
+        "-m playwright install chromium"
+    ]
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows launcher integration test")
