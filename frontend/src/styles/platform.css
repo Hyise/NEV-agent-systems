@@ -68,14 +68,14 @@
 
 .module-directory {
   display: grid;
-  grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   border: 1px solid var(--platform-line);
   background: var(--platform-surface);
 }
 
 .module-entry {
   display: flex;
-  min-height: 520px;
+  min-height: 500px;
   flex-direction: column;
   padding: clamp(28px, 4vw, 48px);
 }

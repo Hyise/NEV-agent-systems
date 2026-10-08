@@ -11,6 +11,12 @@ interface ModulePresentation {
 }
 
 const presentations: Record<ModuleId, ModulePresentation> = {
+  collection: {
+    summary: "发现汽车之家车系，采集并保存完整原始口碑。",
+    pathLabel: "数据采集范围",
+    steps: ["新能源汽车车系", "完整原始口碑", "查询与 JSONL 导出"],
+    footnote: "支持限速、暂停、断点续采和原始数据追溯",
+  },
   mcdm: {
     summary: "以用户评论构建评价准则，并结合销量观察市场选择。",
     pathLabel: "研究证据路径",
@@ -51,7 +57,7 @@ function focusDirectory() {
         <p class="platform-kicker">研究系统目录</p>
         <h1>观衡研究平台</h1>
         <p>
-          选择要进入的研究系统。两个方向共享工程基础，但研究数据、状态和方法相互独立。
+          选择要进入的功能系统。三个子系统共享工程基础，但数据、状态和研究方法相互独立。
         </p>
       </div>
 

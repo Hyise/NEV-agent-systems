@@ -6,6 +6,7 @@ import "./style.css";
 
 const router = createPlatformRouter(createWebHashHistory(), {
   home: () => import("./platform/PlatformHome.vue"),
+  collection: () => import("./modules/collection/CollectionWorkbench.vue"),
   mcdm: () => import("./modules/mcdm/McdmWorkbench.vue"),
   adaptive: () => import("./platform/AdaptiveIntroduction.vue"),
 });

@@ -11,6 +11,7 @@ type LazyRouteComponent = () => Promise<
 
 export interface PlatformRouteComponents {
   home: RouteComponent | LazyRouteComponent;
+  collection: RouteComponent | LazyRouteComponent;
   mcdm: RouteComponent | LazyRouteComponent;
   adaptive: RouteComponent | LazyRouteComponent;
 }
@@ -26,6 +27,12 @@ export function createPlatformRouter(
         path: "/",
         name: "platform-home",
         component: components.home,
+      },
+      {
+        path: "/collection",
+        name: "collection",
+        component: components.collection,
+        meta: { keepAlive: true },
       },
       {
         path: "/mcdm",

@@ -5,6 +5,7 @@ import { createPlatformRouter } from "./index";
 
 const routeComponents = {
   home: defineComponent(() => () => h("div", "platform")),
+  collection: defineComponent(() => () => h("div", "collection")),
   mcdm: defineComponent(() => () => h("div", "mcdm")),
   adaptive: defineComponent(() => () => h("div", "adaptive")),
 };
@@ -12,6 +13,7 @@ const routeComponents = {
 describe("createPlatformRouter", () => {
   it.each([
     ["/", "platform-home"],
+    ["/collection", "collection"],
     ["/mcdm", "mcdm"],
     ["/adaptive", "adaptive"],
   ])("resolves %s to %s", (path, routeName) => {
@@ -20,10 +22,11 @@ describe("createPlatformRouter", () => {
     expect(router.resolve(path).name).toBe(routeName);
   });
 
-  it("keeps only the MCDM module alive", () => {
+  it("keeps both available workspaces alive", () => {
     const router = createPlatformRouter(createMemoryHistory(), routeComponents);
 
     expect(router.resolve("/mcdm").meta.keepAlive).toBe(true);
+    expect(router.resolve("/collection").meta.keepAlive).toBe(true);
     expect(router.resolve("/").meta.keepAlive).not.toBe(true);
     expect(router.resolve("/adaptive").meta.keepAlive).not.toBe(true);
   });

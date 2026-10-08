@@ -1,4 +1,4 @@
-export type ModuleId = "mcdm" | "adaptive";
+export type ModuleId = "collection" | "mcdm" | "adaptive";
 export type ModuleStatus = "available" | "planned";
 
 export interface ResearchModule {
@@ -13,6 +13,16 @@ export interface ResearchModule {
 }
 
 export const researchModules = [
+  {
+    id: "collection",
+    name: "评论数据采集系统",
+    status: "available",
+    statusLabel: "已开放",
+    routeName: "collection",
+    path: "/collection",
+    actionLabel: "进入采集系统",
+    accent: "#3F6655",
+  },
   {
     id: "mcdm",
     name: "多准则决策系统",
