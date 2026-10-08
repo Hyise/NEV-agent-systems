@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$PythonExe = '',
     [string]$NpmExe = '',
     [int]$Port = 8018,
@@ -39,6 +39,7 @@ $python = Resolve-Executable -DisplayName 'Python 3.11 运行环境' -Candidates
 $frontendInputs = @(
     Get-ChildItem -LiteralPath (Join-Path $frontendRoot 'src') -Recurse -File
     Get-Item -LiteralPath (Join-Path $frontendRoot 'package.json')
+    Get-Item -LiteralPath (Join-Path $frontendRoot 'package-lock.json')
     Get-Item -LiteralPath (Join-Path $frontendRoot 'vite.config.ts')
     Get-Item -LiteralPath (Join-Path $frontendRoot 'index.html')
 )
@@ -51,17 +52,27 @@ if (-not $needsBuild) {
 }
 
 if ($needsBuild -and -not $SkipBuild) {
-    if (-not (Test-Path -LiteralPath (Join-Path $frontendRoot 'node_modules'))) {
-        throw '前端依赖尚未安装。请先在 frontend 目录执行 npm install。'
-    }
     $npm = Resolve-Executable -DisplayName 'npm.cmd' -Candidates @(
         $NpmExe,
         'E:\aaaxz\nodejs0324\npm.cmd',
         'npm.cmd'
     )
-    Write-Output '检测到前端源码有更新，正在生成生产页面…'
+
     Push-Location $frontendRoot
     try {
+        $dependenciesReady = $false
+        if (Test-Path -LiteralPath (Join-Path $frontendRoot 'node_modules')) {
+            & $npm ls --depth=0 --silent | Out-Null
+            $dependenciesReady = $LASTEXITCODE -eq 0
+        }
+
+        if (-not $dependenciesReady) {
+            Write-Output '检测到前端依赖缺失或版本不一致，正在安装依赖…'
+            & $npm install
+            if ($LASTEXITCODE -ne 0) { throw "前端依赖安装失败（退出码 $LASTEXITCODE）。" }
+        }
+
+        Write-Output '检测到前端源码有更新，正在生成生产页面…'
         & $npm run build
         if ($LASTEXITCODE -ne 0) { throw "前端构建失败（退出码 $LASTEXITCODE）。" }
     }
