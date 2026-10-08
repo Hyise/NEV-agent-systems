@@ -1,0 +1,569 @@
+"""SQLite persistence for collection jobs and immutable source payloads."""
+
+import json
+import sqlite3
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Any, Iterable
+
+from .domain import CollectedReview, JobConfig, JobStatus, VehicleSeries
+
+AUTOHOME_CATALOG_URL = "https://www.autohome.com.cn/price/ev#pvareaid=3311257"
+ACTIVE_STATUSES = (
+    JobStatus.QUEUED.value,
+    JobStatus.DISCOVERING.value,
+    JobStatus.COLLECTING.value,
+)
+
+
+def _json(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
+
+
+class CollectionRepository:
+    def __init__(self, path: Path):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self.path = path
+        with self.connect() as connection:
+            connection.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS collection_jobs (
+                    id TEXT PRIMARY KEY,
+                    mode TEXT NOT NULL,
+                    source_url TEXT NOT NULL,
+                    max_series INTEGER NOT NULL,
+                    max_pages_per_series INTEGER,
+                    request_delay_min_seconds REAL NOT NULL,
+                    request_delay_max_seconds REAL NOT NULL,
+                    series_delay_min_seconds REAL NOT NULL,
+                    series_delay_max_seconds REAL NOT NULL,
+                    status TEXT NOT NULL,
+                    resume_status TEXT,
+                    control_requested TEXT,
+                    series_manifest TEXT NOT NULL DEFAULT '[]',
+                    current_series_index INTEGER NOT NULL DEFAULT 0,
+                    current_series_id TEXT,
+                    current_series_name TEXT,
+                    current_page INTEGER NOT NULL DEFAULT 1,
+                    discovered_count INTEGER NOT NULL DEFAULT 0,
+                    saved_count INTEGER NOT NULL DEFAULT 0,
+                    duplicate_count INTEGER NOT NULL DEFAULT 0,
+                    failed_count INTEGER NOT NULL DEFAULT 0,
+                    skipped_count INTEGER NOT NULL DEFAULT 0,
+                    last_success_at TEXT,
+                    last_error TEXT,
+                    created_at TEXT NOT NULL,
+                    started_at TEXT,
+                    finished_at TEXT,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS vehicle_series (
+                    platform TEXT NOT NULL,
+                    series_id TEXT NOT NULL,
+                    series_name TEXT NOT NULL,
+                    series_url TEXT NOT NULL,
+                    review_url TEXT NOT NULL,
+                    discovery_rank INTEGER NOT NULL,
+                    first_discovered_at TEXT NOT NULL,
+                    last_confirmed_at TEXT NOT NULL,
+                    PRIMARY KEY (platform, series_id)
+                );
+                CREATE TABLE IF NOT EXISTS reviews (
+                    platform TEXT NOT NULL,
+                    review_id TEXT NOT NULL,
+                    series_id TEXT NOT NULL,
+                    series_name_snapshot TEXT NOT NULL,
+                    source_url TEXT NOT NULL,
+                    original_review_json TEXT NOT NULL,
+                    content_hash TEXT NOT NULL,
+                    first_collected_at TEXT NOT NULL,
+                    last_confirmed_at TEXT NOT NULL,
+                    PRIMARY KEY (platform, review_id),
+                    FOREIGN KEY (platform, series_id)
+                        REFERENCES vehicle_series(platform, series_id)
+                );
+                CREATE TABLE IF NOT EXISTS collection_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    job_id TEXT NOT NULL REFERENCES collection_jobs(id),
+                    series_id TEXT,
+                    event_type TEXT NOT NULL,
+                    error_class TEXT,
+                    message TEXT NOT NULL,
+                    details TEXT,
+                    retryable INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS ix_reviews_series
+                    ON reviews(platform, series_id, first_collected_at);
+                CREATE INDEX IF NOT EXISTS ix_collection_events_job
+                    ON collection_events(job_id, id);
+                """
+            )
+
+    @contextmanager
+    def connect(self):
+        connection = sqlite3.connect(self.path, timeout=10)
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys = ON")
+        try:
+            yield connection
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+    @staticmethod
+    def _job(row: sqlite3.Row | None):
+        if row is None:
+            return None
+        result = dict(row)
+        result["series_manifest"] = json.loads(result["series_manifest"])
+        return result
+
+    @staticmethod
+    def _review(row: sqlite3.Row | None):
+        if row is None:
+            return None
+        result = dict(row)
+        result["series_name"] = result.pop("series_name_snapshot")
+        result["original_review"] = json.loads(result.pop("original_review_json"))
+        return result
+
+    def create_job(self, job_id: str, config: JobConfig, created_at: str):
+        values = config.model_dump(mode="json")
+        with self.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO collection_jobs (
+                    id, mode, source_url, max_series, max_pages_per_series,
+                    request_delay_min_seconds, request_delay_max_seconds,
+                    series_delay_min_seconds, series_delay_max_seconds,
+                    status, created_at, updated_at
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    job_id,
+                    values["mode"],
+                    AUTOHOME_CATALOG_URL,
+                    values["max_series"],
+                    values["max_pages_per_series"],
+                    values["request_delay_min_seconds"],
+                    values["request_delay_max_seconds"],
+                    values["series_delay_min_seconds"],
+                    values["series_delay_max_seconds"],
+                    JobStatus.QUEUED.value,
+                    created_at,
+                    created_at,
+                ),
+            )
+            return self._job(
+                connection.execute(
+                    "SELECT * FROM collection_jobs WHERE id=?", (job_id,)
+                ).fetchone()
+            )
+
+    def get_job(self, job_id: str):
+        with self.connect() as connection:
+            return self._job(
+                connection.execute(
+                    "SELECT * FROM collection_jobs WHERE id=?", (job_id,)
+                ).fetchone()
+            )
+
+    def list_jobs(self, page: int = 1, page_size: int = 20):
+        offset = (page - 1) * page_size
+        with self.connect() as connection:
+            total = connection.execute("SELECT COUNT(*) FROM collection_jobs").fetchone()[0]
+            rows = connection.execute(
+                "SELECT * FROM collection_jobs ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?",
+                (page_size, offset),
+            ).fetchall()
+        return {
+            "rows": [self._job(row) for row in rows],
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        }
+
+    def active_job(self):
+        placeholders = ",".join("?" for _ in ACTIVE_STATUSES)
+        with self.connect() as connection:
+            return self._job(
+                connection.execute(
+                    f"SELECT * FROM collection_jobs WHERE status IN ({placeholders}) "
+                    "ORDER BY created_at LIMIT 1",
+                    ACTIVE_STATUSES,
+                ).fetchone()
+            )
+
+    def set_status(
+        self,
+        job_id: str,
+        status: JobStatus,
+        updated_at: str,
+        *,
+        resume_status: JobStatus | None = None,
+        last_error: str | None = None,
+        finished: bool = False,
+    ):
+        started_at = updated_at if status in (JobStatus.DISCOVERING, JobStatus.COLLECTING) else None
+        with self.connect() as connection:
+            count = connection.execute(
+                """
+                UPDATE collection_jobs
+                SET status=?, resume_status=?, last_error=?, updated_at=?,
+                    started_at=COALESCE(started_at,?),
+                    finished_at=CASE WHEN ? THEN ? ELSE finished_at END
+                WHERE id=?
+                """,
+                (
+                    status.value,
+                    resume_status.value if resume_status else None,
+                    last_error,
+                    updated_at,
+                    started_at,
+                    int(finished),
+                    updated_at,
+                    job_id,
+                ),
+            ).rowcount
+            if count != 1:
+                raise KeyError(job_id)
+        return self.get_job(job_id)
+
+    def request_control(self, job_id: str, action: str, updated_at: str):
+        if action not in {"pause", "stop"}:
+            raise ValueError("不支持的控制动作")
+        with self.connect() as connection:
+            count = connection.execute(
+                "UPDATE collection_jobs SET control_requested=?,updated_at=? WHERE id=?",
+                (action, updated_at, job_id),
+            ).rowcount
+            if count != 1:
+                raise KeyError(job_id)
+
+    def clear_control(self, job_id: str, updated_at: str):
+        with self.connect() as connection:
+            connection.execute(
+                "UPDATE collection_jobs SET control_requested=NULL,updated_at=? WHERE id=?",
+                (updated_at, job_id),
+            )
+
+    def save_discovery(
+        self, job_id: str, series: list[VehicleSeries], saved_at: str
+    ) -> None:
+        manifest = [item.model_dump(mode="json") for item in series]
+        with self.connect() as connection:
+            if not connection.execute(
+                "SELECT 1 FROM collection_jobs WHERE id=?", (job_id,)
+            ).fetchone():
+                raise KeyError(job_id)
+            for item in series:
+                connection.execute(
+                    """
+                    INSERT INTO vehicle_series (
+                        platform,series_id,series_name,series_url,review_url,
+                        discovery_rank,first_discovered_at,last_confirmed_at
+                    ) VALUES (?,?,?,?,?,?,?,?)
+                    ON CONFLICT(platform,series_id) DO UPDATE SET
+                        series_name=excluded.series_name,
+                        series_url=excluded.series_url,
+                        review_url=excluded.review_url,
+                        discovery_rank=MIN(vehicle_series.discovery_rank,excluded.discovery_rank),
+                        last_confirmed_at=excluded.last_confirmed_at
+                    """,
+                    (
+                        item.platform,
+                        item.series_id,
+                        item.series_name,
+                        item.series_url,
+                        item.review_url,
+                        item.discovery_rank,
+                        saved_at,
+                        saved_at,
+                    ),
+                )
+            connection.execute(
+                """
+                UPDATE collection_jobs
+                SET series_manifest=?,discovered_count=?,status=?,resume_status=NULL,
+                    current_series_index=0,current_series_id=NULL,current_series_name=NULL,
+                    current_page=1,updated_at=?
+                WHERE id=?
+                """,
+                (_json(manifest), len(series), JobStatus.COLLECTING.value, saved_at, job_id),
+            )
+
+    def save_review_page(
+        self,
+        job_id: str,
+        series: VehicleSeries,
+        reviews: list[CollectedReview],
+        next_page: int,
+        saved_at: str,
+    ) -> dict[str, int]:
+        saved = duplicates = changed = 0
+        with self.connect() as connection:
+            if not connection.execute(
+                "SELECT 1 FROM collection_jobs WHERE id=?", (job_id,)
+            ).fetchone():
+                raise KeyError(job_id)
+            for review in reviews:
+                existing = connection.execute(
+                    "SELECT content_hash FROM reviews WHERE platform=? AND review_id=?",
+                    (review.platform, review.review_id),
+                ).fetchone()
+                if existing is None:
+                    connection.execute(
+                        """
+                        INSERT INTO reviews VALUES (?,?,?,?,?,?,?,?,?)
+                        """,
+                        (
+                            review.platform,
+                            review.review_id,
+                            review.series_id,
+                            review.series_name,
+                            review.source_url,
+                            _json(review.original_review),
+                            review.content_hash,
+                            saved_at,
+                            saved_at,
+                        ),
+                    )
+                    saved += 1
+                    continue
+                duplicates += 1
+                if existing["content_hash"] != review.content_hash:
+                    changed += 1
+                    connection.execute(
+                        """
+                        INSERT INTO collection_events (
+                            job_id,series_id,event_type,message,details,created_at
+                        ) VALUES (?,?,?,?,?,?)
+                        """,
+                        (
+                            job_id,
+                            series.series_id,
+                            "review_changed",
+                            "同一评论ID的原始内容发生变化",
+                            _json(
+                                {
+                                    "review_id": review.review_id,
+                                    "previous_hash": existing["content_hash"],
+                                    "current_hash": review.content_hash,
+                                }
+                            ),
+                            saved_at,
+                        ),
+                    )
+                connection.execute(
+                    """
+                    UPDATE reviews SET
+                        series_id=?,series_name_snapshot=?,source_url=?,
+                        original_review_json=?,content_hash=?,last_confirmed_at=?
+                    WHERE platform=? AND review_id=?
+                    """,
+                    (
+                        review.series_id,
+                        review.series_name,
+                        review.source_url,
+                        _json(review.original_review),
+                        review.content_hash,
+                        saved_at,
+                        review.platform,
+                        review.review_id,
+                    ),
+                )
+            connection.execute(
+                """
+                UPDATE collection_jobs SET
+                    current_series_id=?,current_series_name=?,current_page=?,
+                    saved_count=saved_count+?,duplicate_count=duplicate_count+?,
+                    last_success_at=?,updated_at=?
+                WHERE id=?
+                """,
+                (
+                    series.series_id,
+                    series.series_name,
+                    next_page,
+                    saved,
+                    duplicates,
+                    saved_at,
+                    saved_at,
+                    job_id,
+                ),
+            )
+        return {"saved": saved, "duplicates": duplicates, "changed": changed}
+
+    def record_event(
+        self,
+        job_id: str,
+        event_type: str,
+        message: str,
+        created_at: str,
+        *,
+        series_id: str | None = None,
+        error_class: str | None = None,
+        retryable: bool = False,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        with self.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO collection_events (
+                    job_id,series_id,event_type,error_class,message,details,retryable,created_at
+                ) VALUES (?,?,?,?,?,?,?,?)
+                """,
+                (
+                    job_id,
+                    series_id,
+                    event_type,
+                    error_class,
+                    message,
+                    _json(details) if details is not None else None,
+                    int(retryable),
+                    created_at,
+                ),
+            )
+
+    def list_events(self, job_id: str, limit: int = 100):
+        with self.connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM collection_events WHERE job_id=? ORDER BY id LIMIT ?",
+                (job_id, limit),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def list_series(
+        self, *, search: str = "", page: int = 1, page_size: int = 20
+    ) -> dict[str, Any]:
+        pattern = f"%{search.casefold()}%"
+        where = "WHERE lower(s.series_name) LIKE ? OR s.series_id LIKE ?"
+        params = (pattern, pattern)
+        offset = (page - 1) * page_size
+        with self.connect() as connection:
+            total = connection.execute(
+                f"SELECT COUNT(*) FROM vehicle_series s {where}", params
+            ).fetchone()[0]
+            rows = connection.execute(
+                f"""
+                SELECT s.*,COUNT(r.review_id) AS comment_count
+                FROM vehicle_series s
+                LEFT JOIN reviews r
+                    ON r.platform=s.platform AND r.series_id=s.series_id
+                {where}
+                GROUP BY s.platform,s.series_id
+                ORDER BY s.discovery_rank,s.series_id
+                LIMIT ? OFFSET ?
+                """,
+                (*params, page_size, offset),
+            ).fetchall()
+        return {
+            "rows": [dict(row) for row in rows],
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        }
+
+    def list_reviews(
+        self,
+        *,
+        series_id: str | None = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> dict[str, Any]:
+        where = "WHERE series_id=?" if series_id else ""
+        params: tuple[Any, ...] = (series_id,) if series_id else ()
+        offset = (page - 1) * page_size
+        summary_columns = (
+            "platform,review_id,series_id,series_name_snapshot AS series_name,"
+            "source_url,content_hash,first_collected_at,last_confirmed_at"
+        )
+        with self.connect() as connection:
+            total = connection.execute(
+                f"SELECT COUNT(*) FROM reviews {where}", params
+            ).fetchone()[0]
+            rows = connection.execute(
+                f"SELECT {summary_columns} FROM reviews {where} "
+                "ORDER BY first_collected_at,review_id LIMIT ? OFFSET ?",
+                (*params, page_size, offset),
+            ).fetchall()
+        return {
+            "rows": [dict(row) for row in rows],
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        }
+
+    def get_review(self, review_id: str):
+        with self.connect() as connection:
+            return self._review(
+                connection.execute(
+                    "SELECT * FROM reviews WHERE platform='autohome' AND review_id=?",
+                    (review_id,),
+                ).fetchone()
+            )
+
+    def iter_reviews_for_export(self, series_id: str) -> Iterable[dict[str, Any]]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT * FROM reviews
+                WHERE platform='autohome' AND series_id=?
+                ORDER BY first_collected_at,review_id
+                """,
+                (series_id,),
+            ).fetchall()
+            payloads = [self._review(row) for row in rows]
+        yield from payloads
+
+    def overview(self):
+        with self.connect() as connection:
+            series_count = connection.execute(
+                "SELECT COUNT(*) FROM vehicle_series"
+            ).fetchone()[0]
+            review_count = connection.execute("SELECT COUNT(*) FROM reviews").fetchone()[0]
+            pending_errors = connection.execute(
+                "SELECT COUNT(*) FROM collection_events WHERE error_class IS NOT NULL"
+            ).fetchone()[0]
+        return {
+            "series_count": series_count,
+            "review_count": review_count,
+            "pending_errors": pending_errors,
+            "active_job": self.active_job(),
+        }
+
+    def pause_interrupted_jobs(self, paused_at: str) -> int:
+        placeholders = ",".join("?" for _ in ACTIVE_STATUSES)
+        with self.connect() as connection:
+            rows = connection.execute(
+                f"SELECT id,status FROM collection_jobs WHERE status IN ({placeholders})",
+                ACTIVE_STATUSES,
+            ).fetchall()
+            for row in rows:
+                connection.execute(
+                    """
+                    UPDATE collection_jobs
+                    SET status=?,resume_status=?,control_requested=NULL,
+                        last_error=?,updated_at=?
+                    WHERE id=?
+                    """,
+                    (
+                        JobStatus.PAUSED.value,
+                        row["status"],
+                        "应用上次运行期间中断，请检查后继续",
+                        paused_at,
+                        row["id"],
+                    ),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO collection_events (
+                        job_id,event_type,message,created_at
+                    ) VALUES (?,?,?,?)
+                    """,
+                    (row["id"], "interrupted", "应用重启，任务已转为暂停", paused_at),
+                )
+        return len(rows)
