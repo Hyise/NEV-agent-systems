@@ -167,4 +167,43 @@ describe("collection workspace", () => {
 
     expect(vi.getTimerCount()).toBe(0);
   });
+
+  it("submits verification defaults and requires a second production confirmation", async () => {
+    const client = api();
+    const workspace = createCollectionWorkspace(client, false);
+
+    await workspace.createJob();
+    expect(client.createJob).toHaveBeenCalledWith({
+      mode: "verification",
+      max_series: 3,
+      max_pages_per_series: 2,
+    });
+
+    workspace.jobMode.value = "production";
+    await workspace.createJob();
+    expect(client.createJob).toHaveBeenCalledTimes(1);
+    expect(workspace.productionConfirmPending.value).toBe(true);
+    expect(workspace.productionConfirmationText).toContain(
+      "前 500 个车系、每车系全部评论",
+    );
+
+    await workspace.confirmProduction();
+    expect(client.createJob).toHaveBeenLastCalledWith({ mode: "production" });
+  });
+
+  it("keeps saved counts after stop and exposes state errors unchanged", async () => {
+    const stopped = { ...job("stopped"), saved_count: 37 };
+    const client = api({
+      getOverview: vi.fn().mockResolvedValue(overview(null)),
+      listJobs: vi.fn().mockResolvedValue(page([stopped])),
+      stopJob: vi.fn().mockResolvedValue(stopped),
+      pauseJob: vi.fn().mockRejectedValue(new Error("当前任务不能暂停")),
+    });
+    const workspace = createCollectionWorkspace(client, false);
+
+    await workspace.stop("job-1");
+    expect(workspace.jobs.value.rows[0]?.saved_count).toBe(37);
+    await workspace.pause("job-1");
+    expect(workspace.error.value).toBe("当前任务不能暂停");
+  });
 });

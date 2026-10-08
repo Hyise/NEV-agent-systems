@@ -39,6 +39,11 @@ export function createCollectionWorkspace(
   const actionBusy = ref(false);
   const error = ref("");
   const mobileNav = ref(false);
+  const showCreate = ref(false);
+  const jobMode = ref<"verification" | "production">("verification");
+  const productionConfirmPending = ref(false);
+  const productionConfirmationText =
+    "正式采集将处理前 500 个车系、每车系全部评论，并按当前限速持续运行。";
 
   let active = false;
   let requestId = 0;
@@ -51,7 +56,8 @@ export function createCollectionWorkspace(
 
   function hasRunningJob() {
     return Boolean(
-      overview.value?.active_job && RUNNING.has(overview.value.active_job.status),
+      overview.value?.active_job &&
+        RUNNING.has(overview.value.active_job.status),
     );
   }
 
@@ -92,7 +98,10 @@ export function createCollectionWorkspace(
     mobileNav.value = false;
   }
 
-  async function runAction(action: (jobId: string) => Promise<CollectionJob>, jobId: string) {
+  async function runAction(
+    action: (jobId: string) => Promise<CollectionJob>,
+    jobId: string,
+  ) {
     actionBusy.value = true;
     error.value = "";
     try {
@@ -108,6 +117,45 @@ export function createCollectionWorkspace(
   const pause = (jobId: string) => runAction(client.pauseJob, jobId);
   const resume = (jobId: string) => runAction(client.resumeJob, jobId);
   const stop = (jobId: string) => runAction(client.stopJob, jobId);
+
+  function openCreate() {
+    jobMode.value = "verification";
+    productionConfirmPending.value = false;
+    showCreate.value = true;
+  }
+
+  function closeCreate() {
+    showCreate.value = false;
+    productionConfirmPending.value = false;
+  }
+
+  async function createJob(productionConfirmed = false) {
+    if (jobMode.value === "production" && !productionConfirmed) {
+      productionConfirmPending.value = true;
+      return;
+    }
+    actionBusy.value = true;
+    error.value = "";
+    try {
+      await client.createJob(
+        jobMode.value === "verification"
+          ? {
+              mode: "verification",
+              max_series: 3,
+              max_pages_per_series: 2,
+            }
+          : { mode: "production" },
+      );
+      closeCreate();
+      await loadWorkspace();
+    } catch (cause) {
+      error.value = (cause as Error).message;
+    } finally {
+      actionBusy.value = false;
+    }
+  }
+
+  const confirmProduction = () => createJob(true);
 
   async function activate() {
     active = true;
@@ -141,11 +189,19 @@ export function createCollectionWorkspace(
     actionBusy,
     error,
     mobileNav,
+    showCreate,
+    jobMode,
+    productionConfirmPending,
+    productionConfirmationText,
     navigate,
     loadWorkspace,
     pause,
     resume,
     stop,
+    openCreate,
+    closeCreate,
+    createJob,
+    confirmProduction,
     activate,
     deactivate,
   };

@@ -96,7 +96,9 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   if (!response.ok) {
     let message = `请求失败（${response.status}）`;
     try {
-      const body = (await response.json()) as { detail?: string | Array<{ msg: string }> };
+      const body = (await response.json()) as {
+        detail?: string | Array<{ msg: string }>;
+      };
       if (typeof body.detail === "string") message = body.detail;
       else if (Array.isArray(body.detail)) {
         message = body.detail.map((item) => item.msg).join("；") || message;
@@ -123,8 +125,16 @@ export interface CollectionApi {
   pauseJob(jobId: string): Promise<CollectionJob>;
   resumeJob(jobId: string): Promise<CollectionJob>;
   stopJob(jobId: string): Promise<CollectionJob>;
-  listSeries(search?: string, page?: number, pageSize?: number): Promise<Page<SeriesRow>>;
-  listReviews(seriesId?: string, page?: number, pageSize?: number): Promise<Page<ReviewSummary>>;
+  listSeries(
+    search?: string,
+    page?: number,
+    pageSize?: number,
+  ): Promise<Page<SeriesRow>>;
+  listReviews(
+    seriesId?: string,
+    page?: number,
+    pageSize?: number,
+  ): Promise<Page<ReviewSummary>>;
   getReview(reviewId: string): Promise<ReviewDetail>;
 }
 
