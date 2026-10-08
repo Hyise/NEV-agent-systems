@@ -1,0 +1,84 @@
+.collection-shell {
+  --sidebar-width: 176px;
+  --header-height: 52px;
+
+  min-height: 100vh;
+  background: var(--canvas);
+  font-family: inherit;
+}
+
+.collection-shell .module-return:hover,
+.collection-shell .platform-return:hover,
+.collection-shell .nav-item.active {
+  color: var(--collection-accent, #3f6655);
+}
+
+.collection-shell .nav-item.active::before {
+  background: var(--collection-accent, #3f6655);
+}
+
+.collection-shell .app-sidebar nav {
+  gap: 1px;
+}
+
+.collection-workspace {
+  min-width: 0;
+  margin-left: var(--sidebar-width);
+}
+
+.collection-platform-bar {
+  position: sticky;
+  top: 0;
+  z-index: 15;
+  display: flex;
+  height: var(--header-height);
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+  padding: 0 30px;
+}
+
+.collection-main {
+  width: min(100%, 1280px);
+  margin: 0 auto;
+  padding: 30px 34px 22px;
+}
+
+.collection-placeholder {
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+  padding: 34px 4px;
+}
+
+.collection-placeholder p {
+  margin-top: 8px;
+  color: var(--muted);
+}
+
+@media (max-width: 1199px) {
+  .collection-platform-bar,
+  .collection-main {
+    padding-inline: 24px;
+  }
+}
+
+@media (max-width: 767px) {
+  .collection-shell {
+    --header-height: 56px;
+  }
+
+  .collection-workspace {
+    margin-left: 0;
+  }
+
+  .collection-platform-bar {
+    gap: 10px;
+    padding-inline: 14px;
+  }
+
+  .collection-main {
+    padding: 22px 16px;
+  }
+}

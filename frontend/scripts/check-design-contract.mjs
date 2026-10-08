@@ -52,6 +52,7 @@ const styleLayers = [
   "./styles/foundation.css",
   "./styles/platform.css",
   "./styles/shell.css",
+  "./styles/collection.css",
   "./styles/components.css",
   "./styles/pages.css",
 ];
@@ -286,6 +287,29 @@ expectContains("src/styles/platform.css", [
   "@media (max-width: 1199px)",
   "@media (max-width: 767px)",
 ]);
+const collectionShellPath = "src/modules/collection/CollectionWorkbench.vue";
+expectContains(collectionShellPath, [
+  "createCollectionWorkspace",
+  "provideCollectionWorkspace",
+  "评论数据采集系统",
+  "总览",
+  "采集任务",
+  "车系",
+  "原始评论",
+  "返回研究平台",
+  ':aria-expanded="mobileNav"',
+  'aria-controls="collection-navigation"',
+]);
+expectContains("src/styles/collection.css", [
+  ".collection-shell",
+  "font-family: inherit",
+  "@media (max-width: 1199px)",
+  "@media (max-width: 767px)",
+]);
+expectNotContains("src/styles/collection.css", [
+  "linear-gradient",
+  "animation:",
+]);
 expectContains(mcdmShellPath, [
   ':aria-expanded="mobileNav"',
   'aria-controls="primary-navigation"',
@@ -315,10 +339,23 @@ if (workspaceOwners.length !== 1 || workspaceOwners[0] !== mcdmShellPath) {
     `${mcdmShellPath}: must be the only createWorkspace() owner; found ${workspaceOwners.join(", ") || "none"}`,
   );
 }
+const collectionWorkspaceOwners = sourceFiles("src").filter((relativePath) =>
+  read(relativePath).includes("const workspace = createCollectionWorkspace();"),
+);
+if (
+  collectionWorkspaceOwners.length !== 1 ||
+  collectionWorkspaceOwners[0] !== collectionShellPath
+) {
+  failures.push(
+    `${collectionShellPath}: must be the only createCollectionWorkspace() owner; found ${collectionWorkspaceOwners.join(", ") || "none"}`,
+  );
+}
 for (const boundaryPath of ["src/platform/modules.ts", "src/router/index.ts"]) {
   expectNotContains(boundaryPath, [
     "modules/mcdm/workspace",
     "modules/mcdm/api",
+    "modules/collection/workspace",
+    "modules/collection/api",
   ]);
 }
 expectContains("../启动观衡网站.cmd", [

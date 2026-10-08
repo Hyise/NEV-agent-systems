@@ -1,5 +1,6 @@
 @import "./styles/foundation.css";
 @import "./styles/platform.css";
 @import "./styles/shell.css";
+@import "./styles/collection.css";
 @import "./styles/components.css";
 @import "./styles/pages.css";

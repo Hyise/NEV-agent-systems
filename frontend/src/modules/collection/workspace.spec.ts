@@ -1,0 +1,170 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type {
+  CollectionApi,
+  CollectionJob,
+  CollectionOverview,
+  Page,
+} from "./api";
+import { createCollectionWorkspace } from "./workspace";
+
+function job(status: CollectionJob["status"] = "collecting"): CollectionJob {
+  return {
+    id: "job-1",
+    mode: "verification",
+    source_url: "https://www.autohome.com.cn/price/ev#pvareaid=3311257",
+    max_series: 3,
+    max_pages_per_series: 2,
+    request_delay_min_seconds: 2,
+    request_delay_max_seconds: 4,
+    series_delay_min_seconds: 5,
+    series_delay_max_seconds: 10,
+    status,
+    resume_status: null,
+    control_requested: null,
+    current_series_index: 0,
+    current_series_id: "5769",
+    current_series_name: "Model Y",
+    current_page: 1,
+    discovered_count: 3,
+    saved_count: 20,
+    duplicate_count: 0,
+    failed_count: 0,
+    skipped_count: 0,
+    last_success_at: null,
+    last_error: null,
+    created_at: "2026-10-08T08:00:00+00:00",
+    started_at: "2026-10-08T08:00:01+00:00",
+    finished_at: null,
+    updated_at: "2026-10-08T08:00:02+00:00",
+  };
+}
+
+function overview(activeJob: CollectionJob | null): CollectionOverview {
+  return {
+    series_count: activeJob ? 3 : 12,
+    review_count: activeJob ? 20 : 240,
+    pending_errors: 0,
+    active_job: activeJob,
+  };
+}
+
+function page(rows: CollectionJob[]): Page<CollectionJob> {
+  return { rows, total: rows.length, page: 1, page_size: 20 };
+}
+
+function api(overrides: Partial<CollectionApi> = {}): CollectionApi {
+  return {
+    getOverview: vi.fn().mockResolvedValue(overview(null)),
+    listJobs: vi.fn().mockResolvedValue(page([])),
+    getJob: vi.fn().mockResolvedValue(job()),
+    createJob: vi.fn().mockResolvedValue(job("queued")),
+    pauseJob: vi.fn().mockResolvedValue(job("collecting")),
+    resumeJob: vi.fn().mockResolvedValue(job("collecting")),
+    stopJob: vi.fn().mockResolvedValue(job("collecting")),
+    listSeries: vi.fn(),
+    listReviews: vi.fn(),
+    getReview: vi.fn(),
+    ...overrides,
+  };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
+describe("collection workspace", () => {
+  beforeEach(() => vi.useFakeTimers());
+
+  it("test_loads_overview_and_jobs_without_project_context", async () => {
+    const client = api();
+    const workspace = createCollectionWorkspace(client, false);
+
+    await workspace.loadWorkspace();
+
+    expect(client.getOverview).toHaveBeenCalledOnce();
+    expect(client.listJobs).toHaveBeenCalledWith(1, 20);
+    expect(workspace.overview.value?.series_count).toBe(12);
+    expect(workspace.jobs.value.rows).toEqual([]);
+  });
+
+  it("test_polls_only_while_active_job_is_running", async () => {
+    const running = job("collecting");
+    const client = api({
+      getOverview: vi
+        .fn()
+        .mockResolvedValueOnce(overview(running))
+        .mockResolvedValueOnce(overview(null)),
+      listJobs: vi
+        .fn()
+        .mockResolvedValueOnce(page([running]))
+        .mockResolvedValueOnce(page([job("completed")])),
+    });
+    const workspace = createCollectionWorkspace(client, false);
+
+    await workspace.activate();
+    expect(vi.getTimerCount()).toBe(1);
+    await vi.runOnlyPendingTimersAsync();
+
+    expect(client.getOverview).toHaveBeenCalledTimes(2);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("test_stale_poll_response_cannot_replace_newer_state", async () => {
+    const oldOverview = deferred<CollectionOverview>();
+    const oldJobs = deferred<Page<CollectionJob>>();
+    const client = api({
+      getOverview: vi
+        .fn()
+        .mockReturnValueOnce(oldOverview.promise)
+        .mockResolvedValueOnce(overview(null)),
+      listJobs: vi
+        .fn()
+        .mockReturnValueOnce(oldJobs.promise)
+        .mockResolvedValueOnce(page([job("completed")])),
+    });
+    const workspace = createCollectionWorkspace(client, false);
+
+    const stale = workspace.loadWorkspace();
+    await workspace.loadWorkspace();
+    oldOverview.resolve(overview(job("collecting")));
+    oldJobs.resolve(page([job("collecting")]));
+    await stale;
+
+    expect(workspace.overview.value?.active_job).toBeNull();
+    expect(workspace.jobs.value.rows[0]?.status).toBe("completed");
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("test_pause_resume_stop_refresh_current_job", async () => {
+    const client = api();
+    const workspace = createCollectionWorkspace(client, false);
+    await workspace.loadWorkspace();
+
+    await workspace.pause("job-1");
+    await workspace.resume("job-1");
+    await workspace.stop("job-1");
+
+    expect(client.pauseJob).toHaveBeenCalledWith("job-1");
+    expect(client.resumeJob).toHaveBeenCalledWith("job-1");
+    expect(client.stopJob).toHaveBeenCalledWith("job-1");
+    expect(client.getOverview).toHaveBeenCalledTimes(4);
+  });
+
+  it("test_deactivation_clears_poll_timer", async () => {
+    const client = api({
+      getOverview: vi.fn().mockResolvedValue(overview(job("discovering"))),
+      listJobs: vi.fn().mockResolvedValue(page([job("discovering")])),
+    });
+    const workspace = createCollectionWorkspace(client, false);
+
+    await workspace.activate();
+    expect(vi.getTimerCount()).toBe(1);
+    workspace.deactivate();
+
+    expect(vi.getTimerCount()).toBe(0);
+  });
+});
