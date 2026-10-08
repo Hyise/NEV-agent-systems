@@ -251,13 +251,55 @@ class CollectionRepository:
     def request_control(self, job_id: str, action: str, updated_at: str):
         if action not in {"pause", "stop"}:
             raise ValueError("不支持的控制动作")
+        allowed_statuses = (
+            RUNNING_STATUSES
+            if action == "pause"
+            else (JobStatus.DISCOVERING.value, JobStatus.COLLECTING.value)
+        )
+        placeholders = ",".join("?" for _ in allowed_statuses)
         with self.connect() as connection:
             count = connection.execute(
-                "UPDATE collection_jobs SET control_requested=?,updated_at=? WHERE id=?",
-                (action, updated_at, job_id),
+                f"UPDATE collection_jobs SET control_requested=?,updated_at=? "
+                f"WHERE id=? AND status IN ({placeholders})",
+                (action, updated_at, job_id, *allowed_statuses),
             ).rowcount
             if count != 1:
+                exists = connection.execute(
+                    "SELECT 1 FROM collection_jobs WHERE id=?", (job_id,)
+                ).fetchone()
+                if exists is None:
+                    raise KeyError(job_id)
+                raise TaskControlError("任务状态已变化，请刷新后重试")
+
+    def finalize_job(
+        self, job_id: str, status: JobStatus, updated_at: str
+    ) -> bool:
+        if status not in (JobStatus.COMPLETED, JobStatus.PARTIAL_FAILED):
+            raise ValueError("只允许通过终结操作写入完成状态")
+        with self.connect() as connection:
+            count = connection.execute(
+                """
+                UPDATE collection_jobs
+                SET status=?,resume_status=NULL,control_requested=NULL,
+                    updated_at=?,finished_at=?
+                WHERE id=? AND status=? AND control_requested IS NULL
+                """,
+                (
+                    status.value,
+                    updated_at,
+                    updated_at,
+                    job_id,
+                    JobStatus.COLLECTING.value,
+                ),
+            ).rowcount
+            if count == 1:
+                return True
+            exists = connection.execute(
+                "SELECT 1 FROM collection_jobs WHERE id=?", (job_id,)
+            ).fetchone()
+            if exists is None:
                 raise KeyError(job_id)
+            return False
 
     def clear_control(self, job_id: str, updated_at: str):
         with self.connect() as connection:

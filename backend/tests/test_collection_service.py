@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from threading import Event
+from threading import Event, Thread
+from time import monotonic, sleep
 from types import SimpleNamespace
 
 import pytest
@@ -293,6 +294,86 @@ def test_shutdown_pauses_running_job_after_current_response(tmp_path):
     assert job["status"] == "paused"
     assert job["resume_status"] == "collecting"
     assert review.calls == [(item.series_id, 1)]
+
+
+def test_shutdown_pauses_job_while_worker_is_still_queued(tmp_path):
+    repository = CollectionRepository(tmp_path / "collection.sqlite3")
+    repository.create_job(
+        "job-1", CreateJobBody(mode="verification").to_config(), NOW.isoformat()
+    )
+    catalog = FakeCatalogAdapter([make_series(1)])
+    service = CollectionService(
+        repository,
+        catalog_adapter_factory=lambda: catalog,
+        review_adapter_factory=lambda session: FakeReviewAdapter(lambda *_: None),
+        sleeper=lambda seconds: None,
+        clock=lambda: NOW,
+    )
+    blocker_entered = Event()
+    release_blocker = Event()
+
+    def block_executor():
+        blocker_entered.set()
+        release_blocker.wait(timeout=5)
+
+    service._executor.submit(block_executor)
+    assert blocker_entered.wait(timeout=5)
+    service.start("job-1")
+
+    shutdown_thread = Thread(target=service.shutdown)
+    shutdown_thread.start()
+    deadline = monotonic() + 5
+    while repository.get_job("job-1")["control_requested"] != "pause":
+        if monotonic() >= deadline:
+            raise AssertionError("shutdown did not persist a pause request")
+        sleep(0.01)
+    release_blocker.set()
+    shutdown_thread.join(timeout=5)
+
+    assert not shutdown_thread.is_alive()
+    assert repository.get_job("job-1")["status"] == "paused"
+    assert repository.get_job("job-1")["resume_status"] == "discovering"
+    assert catalog.discover_limits == []
+
+
+def test_pause_wins_race_with_terminal_completion(tmp_path):
+    finalizing = Event()
+    allow_finalize = Event()
+
+    class RacingRepository(CollectionRepository):
+        def finalize_job(self, job_id, status, updated_at):
+            finalizing.set()
+            allow_finalize.wait(timeout=5)
+            return super().finalize_job(job_id, status, updated_at)
+
+    repository = RacingRepository(tmp_path / "collection.sqlite3")
+    repository.create_job(
+        "job-1", CreateJobBody(mode="verification").to_config(), NOW.isoformat()
+    )
+    item = make_series(1)
+    service = CollectionService(
+        repository,
+        catalog_adapter_factory=lambda: FakeCatalogAdapter([item]),
+        review_adapter_factory=lambda session: FakeReviewAdapter(
+            lambda series, page, call: make_page(
+                series, page, total=1, page_count=1
+            )
+        ),
+        sleeper=lambda seconds: None,
+        clock=lambda: NOW,
+    )
+
+    future = service.start("job-1")
+    assert finalizing.wait(timeout=5)
+    service.pause("job-1")
+    allow_finalize.set()
+    future.result(timeout=5)
+
+    job = repository.get_job("job-1")
+    assert job["status"] == "paused"
+    assert job["resume_status"] == "collecting"
+    assert job["control_requested"] is None
+    service.shutdown()
 
 
 def test_page_and_series_delays_use_configured_ranges(tmp_path):

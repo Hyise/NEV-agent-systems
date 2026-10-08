@@ -140,16 +140,19 @@ class CollectionService:
                 status = JobStatus(job["status"])
                 if status in (JobStatus.DISCOVERING, JobStatus.COLLECTING):
                     self.repository.request_control(job["id"], "pause", self._now())
-                elif status is JobStatus.QUEUED and (
-                    self._future is None or self._future.done()
-                ):
-                    self.repository.set_status(
-                        job["id"],
-                        JobStatus.PAUSED,
-                        self._now(),
-                        resume_status=JobStatus.QUEUED,
-                        last_error="应用正在关闭，任务已暂停",
-                    )
+                elif status is JobStatus.QUEUED:
+                    if self._future is not None and not self._future.done():
+                        self.repository.request_control(
+                            job["id"], "pause", self._now()
+                        )
+                    else:
+                        self.repository.set_status(
+                            job["id"],
+                            JobStatus.PAUSED,
+                            self._now(),
+                            resume_status=JobStatus.QUEUED,
+                            last_error="应用正在关闭，任务已暂停",
+                        )
             self._shutdown_requested.set()
         self._executor.shutdown(wait=True)
 
@@ -370,7 +373,12 @@ class CollectionService:
         except _JobInterrupted:
             return
         status = JobStatus.PARTIAL_FAILED if final["failed_count"] else JobStatus.COMPLETED
-        self.repository.set_status(job_id, status, self._now(), finished=True)
+        if self.repository.finalize_job(job_id, status, self._now()):
+            return
+        try:
+            self._apply_control(job_id)
+        except _JobInterrupted:
+            return
 
     def run_job(self, job_id: str) -> None:
         job = self.repository.get_job(job_id)
