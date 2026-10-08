@@ -1,6 +1,6 @@
 # 观衡 · 新能源汽车研究平台
 
-第一阶段可运行版本 `0.1.0`。面向汽车企业分析人员和研究人员。启动后先进入研究平台，可选择“多准则决策系统”或查看“自适应评估系统”的建设规划。
+面向汽车企业分析人员和研究人员。启动后先进入研究平台，可选择评论数据采集、多准则决策，或查看自适应评估的建设规划。
 
 ## 当前能力
 
@@ -8,11 +8,13 @@
 - 研究总览、数据浏览/搜索/分页、归档权重曲线、条件选择份额比较、基线和消融实验档案。
 - 自定义项目、准则编辑、冻结、派生新版本；SQLite持久化、版本隔离和并发修改保护。
 - 按冻结准则导入UTF-8加工CSV、严格验证概率与月度数据；导出加工CSV和带来源的JSON研究快照。
-- 双研究系统入口、模块级路由和多准则草稿状态保留；自适应评估当前仅有规划说明，不提供模拟功能。
+- 三个平级功能入口和模块级路由；自适应评估当前仅有规划说明，不提供模拟功能。
+- 评论采集支持汽车之家新能源汽车车系发现、完整原始口碑保存、限速、重试、暂停、继续、停止、断点和 JSONL 导出。
+- 采集任务提供“功能验证”（最多 3 个车系、每车系 2 页）和“正式采集”（前 500 个唯一车系、每车系全部评论）两种模式；日常验收只使用功能验证。
 
 **当前图表和指标是原研究归档，不是本系统新训练结果。** 原研究的训练与测试时间存在重叠，界面明确标注。原始评论LLM分析、训练/推理worker、完整矩阵生成、登录协作及Word/PDF报告尚未接入。
 
-系统设计、后续模块和验收标准见 [系统设计与实施路线](docs/系统设计与实施路线.md)。首次运行前请阅读 [运行须知](docs/运行须知.md)，接口见 [API与数据契约](docs/API与数据契约.md)，双系统结构取舍见 [ADR-0001](docs/ADR/0001-双研究系统平台与模块路由.md)，最终验收证据见 [双研究系统平台验收记录](docs/双研究系统平台验收记录.md)。
+系统设计、后续模块和验收标准见 [系统设计与实施路线](docs/系统设计与实施路线.md)。首次运行前请阅读 [运行须知](docs/运行须知.md)，接口见 [API与数据契约](docs/API与数据契约.md)。历史双研究入口决策见 [ADR-0001](docs/ADR/0001-双研究系统平台与模块路由.md)，采集系统独立化取舍见 [ADR-0002](docs/ADR/0002-评论采集作为独立平台子系统.md)，实际结果见 [评论数据采集系统验收记录](docs/评论数据采集系统验收记录.md)。
 
 ## 工程治理
 
@@ -59,6 +61,7 @@ Set-Location 'E:\aaaxz\daima1022\软著\nev-mcdm-platform'
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r backend/requirements.txt
+.\scripts\install-collection-browser.ps1 -PythonExe '.\.venv\Scripts\python.exe'
 .\.venv\Scripts\python.exe scripts/bootstrap_research.py --archive '原研究压缩包的绝对路径'
 Set-Location frontend
 npm ci
@@ -109,6 +112,7 @@ npm run build
 
 ```text
 backend/           FastAPI、SQLite、数据与准则规则、测试
+backend/collection/ 评论采集领域、仓储、汽车之家适配器、任务服务和API
 frontend/          Vue 3 + TypeScript + ECharts
 algorithms/reference/  原研究代码副本（归档脚本生成）
 backend/data/research/ 原始加工数据和报表（归档脚本生成）
@@ -118,4 +122,4 @@ docs/              设计、接口、验收
 output/playwright/ 浏览器验收截图
 ```
 
-目前的SQLite数据库和研究归档为本机数据，不计入源码仓库。正式迁移需单独备份 `.runtime/platform.sqlite3` 和 `backend/data/research`。
+目前的 SQLite 数据库、采集结果和研究归档为本机数据，不计入源码仓库。采集车系、评论、任务断点与研究项目共用 `.runtime/platform.sqlite3`；正式迁移需单独备份该文件和 `backend/data/research`。正式采集以实验室对汽车之家授权持续有效为前提，系统不会绕过 403、429 或验证页面。

@@ -53,3 +53,36 @@
 名称和标签数量限制见接口自动文档。概率和允许浮点误差1e-5，同月压力允许误差1e-6。导入上限10000行、前端文件上限8MB。CSV版本导出使用UTF-8 BOM。JSON快照包含准则、来源哈希、统计和历史结果，不声称是Word/PDF正式报告。
 
 当前每一准则版本显示最近导入的数据集；数据库保留此前导入记录，历史数据集切换界面列入后续开发。第一版不提供删除API。
+
+## 评论数据采集 API
+
+评论采集路径统一以 `/api/collection` 开头。资源不存在返回 404，当前状态不允许操作或已有活动任务返回 409，输入范围不合法返回 422。本机任一时刻最多运行一个发现/采集任务。
+
+| 方法 | 路径 | 用途 |
+| --- | --- | --- |
+| GET | `/overview` | 车系数、评论数、异常数与活动任务 |
+| GET/POST | `/jobs` | 分页查询任务；创建并启动验证或正式任务 |
+| GET | `/jobs/{id}` | 任务配置、游标、统计及事件 |
+| POST | `/jobs/{id}/pause` | 协作式请求暂停 |
+| POST | `/jobs/{id}/resume` | 从已提交页的断点继续 |
+| POST | `/jobs/{id}/stop` | 停止任务并保留已保存数据 |
+| GET | `/series` | 按名称或 `series_id` 分页查询车系 |
+| GET | `/reviews` | 按 `series_id` 分页查询评论摘要 |
+| GET | `/reviews/{id}` | 读取单条完整原始评论 |
+| GET | `/export?series_id=...` | 按已存在车系导出 JSONL |
+
+创建功能验证任务：
+
+```json
+{
+  "mode": "verification",
+  "max_series": 3,
+  "max_pages_per_series": 2
+}
+```
+
+正式模式只提交 `{"mode":"production"}`，服务端固定为前 500 个唯一车系、每车系不限页数。两种模式都使用服务端强制的正数限速范围；任务配置创建后冻结。
+
+评论列表不返回大型 `original_review`。详情和 JSONL 中的每条记录包含 `platform`、`review_id`、`series_id`、采集时车系名称快照、来源地址、内容哈希、采集时间和完整 `original_review`。JSONL 媒体类型为 `application/x-ndjson; charset=utf-8`，每行是独立 JSON 对象；不生成拼接评论文本，也不把嵌套对象压平为 CSV。
+
+车系唯一键为 `platform + series_id`；评论唯一键为 `platform + review_id`。不同年款、改款和配置保留在原始对象字段中，但不形成独立车系任务。每页评论和下一页游标在同一事务提交；重复请求依靠唯一键幂等，同一评论 ID 内容变化会写入采集事件。
