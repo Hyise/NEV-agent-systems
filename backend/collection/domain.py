@@ -1,0 +1,161 @@
+"""Pure contracts and state rules for comment collection."""
+
+import hashlib
+import json
+from enum import StrEnum
+from typing import Any, Literal
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+
+class StrictModel(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+
+class JobMode(StrEnum):
+    VERIFICATION = "verification"
+    PRODUCTION = "production"
+
+
+class JobStatus(StrEnum):
+    QUEUED = "queued"
+    DISCOVERING = "discovering"
+    COLLECTING = "collecting"
+    PAUSED = "paused"
+    COMPLETED = "completed"
+    STOPPED = "stopped"
+    PARTIAL_FAILED = "partial_failed"
+
+
+class TaskControlError(ValueError):
+    """Raised when a task action is invalid for its current state."""
+
+
+JobAction = Literal[
+    "start",
+    "discovery_complete",
+    "pause",
+    "resume",
+    "resume_discovery",
+    "stop",
+    "complete",
+    "partial_fail",
+]
+
+
+_TRANSITIONS: dict[tuple[JobStatus, JobAction], JobStatus] = {
+    (JobStatus.QUEUED, "start"): JobStatus.DISCOVERING,
+    (JobStatus.DISCOVERING, "discovery_complete"): JobStatus.COLLECTING,
+    (JobStatus.DISCOVERING, "pause"): JobStatus.PAUSED,
+    (JobStatus.COLLECTING, "pause"): JobStatus.PAUSED,
+    (JobStatus.PAUSED, "resume"): JobStatus.COLLECTING,
+    (JobStatus.PAUSED, "resume_discovery"): JobStatus.DISCOVERING,
+    (JobStatus.QUEUED, "stop"): JobStatus.STOPPED,
+    (JobStatus.DISCOVERING, "stop"): JobStatus.STOPPED,
+    (JobStatus.COLLECTING, "stop"): JobStatus.STOPPED,
+    (JobStatus.PAUSED, "stop"): JobStatus.STOPPED,
+    (JobStatus.COLLECTING, "complete"): JobStatus.COMPLETED,
+    (JobStatus.COLLECTING, "partial_fail"): JobStatus.PARTIAL_FAILED,
+}
+
+
+def transition_status(current: JobStatus, action: JobAction) -> JobStatus:
+    try:
+        return _TRANSITIONS[(current, action)]
+    except KeyError as exc:
+        raise TaskControlError(f"任务状态 {current.value} 不允许执行 {action}") from exc
+
+
+class CreateJobBody(StrictModel):
+    mode: JobMode
+    max_series: int | None = Field(default=None, ge=1)
+    max_pages_per_series: int | None = Field(default=None, ge=1)
+    request_delay_min_seconds: float = Field(default=2, gt=0)
+    request_delay_max_seconds: float = Field(default=4, gt=0)
+    series_delay_min_seconds: float = Field(default=5, gt=0)
+    series_delay_max_seconds: float = Field(default=10, gt=0)
+
+    @model_validator(mode="after")
+    def apply_scope_and_validate_delays(self):
+        if self.mode is JobMode.PRODUCTION:
+            if self.max_series not in (None, 500):
+                raise ValueError("正式采集固定为前500个车系")
+            if self.max_pages_per_series is not None:
+                raise ValueError("正式采集必须采集每个车系的全部评论")
+            self.max_series = 500
+            self.max_pages_per_series = None
+        else:
+            self.max_series = 3 if self.max_series is None else self.max_series
+            self.max_pages_per_series = (
+                2 if self.max_pages_per_series is None else self.max_pages_per_series
+            )
+            if self.max_series > 3:
+                raise ValueError("功能验证最多采集3个车系")
+            if self.max_pages_per_series > 2:
+                raise ValueError("功能验证每个车系最多采集2页")
+        if self.request_delay_min_seconds > self.request_delay_max_seconds:
+            raise ValueError("分页请求最小间隔不能大于最大间隔")
+        if self.series_delay_min_seconds > self.series_delay_max_seconds:
+            raise ValueError("车系最小间隔不能大于最大间隔")
+        return self
+
+    def to_config(self) -> "JobConfig":
+        return JobConfig(**self.model_dump())
+
+
+class JobConfig(StrictModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    mode: JobMode
+    max_series: int = Field(ge=1, le=500)
+    max_pages_per_series: int | None = Field(default=None, ge=1)
+    request_delay_min_seconds: float = Field(gt=0)
+    request_delay_max_seconds: float = Field(gt=0)
+    series_delay_min_seconds: float = Field(gt=0)
+    series_delay_max_seconds: float = Field(gt=0)
+
+
+class VehicleSeries(StrictModel):
+    platform: Literal["autohome"] = "autohome"
+    series_id: str = Field(pattern=r"^\d+$")
+    series_name: str = Field(min_length=1, max_length=200)
+    series_url: str = Field(pattern=r"^https://")
+    review_url: str = Field(pattern=r"^https://")
+    discovery_rank: int = Field(ge=1)
+
+
+def canonical_review_hash(payload: dict[str, Any]) -> str:
+    canonical = json.dumps(
+        payload,
+        ensure_ascii=False,
+        allow_nan=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+class CollectedReview(StrictModel):
+    platform: Literal["autohome"] = "autohome"
+    review_id: str = Field(min_length=1, max_length=200)
+    series_id: str = Field(pattern=r"^\d+$")
+    series_name: str = Field(min_length=1, max_length=200)
+    source_url: str = Field(pattern=r"^https://")
+    original_review: dict[str, Any]
+    content_hash: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+
+    @model_validator(mode="after")
+    def set_content_hash(self):
+        expected = canonical_review_hash(self.original_review)
+        if self.content_hash is None:
+            self.content_hash = expected
+        elif self.content_hash != expected:
+            raise ValueError("评论内容哈希与原始对象不一致")
+        return self
+
+
+class ReviewPage(StrictModel):
+    series: VehicleSeries
+    page_index: int = Field(ge=1)
+    total: int | None = Field(default=None, ge=0)
+    reviews: list[CollectedReview]
