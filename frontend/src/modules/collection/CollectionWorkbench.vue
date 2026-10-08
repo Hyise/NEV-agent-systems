@@ -18,6 +18,8 @@ import {
 
 import OverviewView from "./views/OverviewView.vue";
 import JobsView from "./views/JobsView.vue";
+import ReviewsView from "./views/ReviewsView.vue";
+import SeriesView from "./views/SeriesView.vue";
 
 const pages = [
   {
@@ -208,14 +210,8 @@ onBeforeUnmount(() =>
         </div>
         <OverviewView v-if="!busy && page === 'overview'" />
         <JobsView v-else-if="!busy && page === 'jobs'" />
-        <section
-          v-else-if="!busy"
-          class="collection-placeholder"
-          aria-live="polite"
-        >
-          <h2>{{ activePage.title }}</h2>
-          <p>页面功能将在当前实施阶段继续接入。</p>
-        </section>
+        <SeriesView v-else-if="!busy && page === 'series'" />
+        <ReviewsView v-else-if="!busy && page === 'reviews'" />
       </main>
     </div>
 

@@ -4,6 +4,9 @@ import type {
   CollectionJob,
   CollectionOverview,
   Page,
+  ReviewDetail,
+  ReviewSummary,
+  SeriesRow,
 } from "./api";
 import { createCollectionWorkspace } from "./workspace";
 
@@ -74,6 +77,33 @@ function deferred<T>() {
     resolve = done;
   });
   return { promise, resolve };
+}
+
+function seriesRow(): SeriesRow {
+  return {
+    platform: "autohome",
+    series_id: "5769",
+    series_name: "Model Y",
+    series_url: "https://www.autohome.com.cn/5769/",
+    review_url: "https://k.autohome.com.cn/5769/",
+    discovery_rank: 1,
+    first_discovered_at: "2026-10-08T08:00:00+00:00",
+    last_confirmed_at: "2026-10-08T08:01:00+00:00",
+    comment_count: 1,
+  };
+}
+
+function reviewSummary(): ReviewSummary {
+  return {
+    platform: "autohome",
+    review_id: "review-1",
+    series_id: "5769",
+    series_name: "Model Y",
+    source_url: "https://k.autohome.com.cn/5769/#review-1",
+    content_hash: "a".repeat(64),
+    first_collected_at: "2026-10-08T08:02:00+00:00",
+    last_confirmed_at: "2026-10-08T08:02:00+00:00",
+  };
 }
 
 describe("collection workspace", () => {
@@ -205,5 +235,85 @@ describe("collection workspace", () => {
     expect(workspace.jobs.value.rows[0]?.saved_count).toBe(37);
     await workspace.pause("job-1");
     expect(workspace.error.value).toBe("当前任务不能暂停");
+  });
+
+  it("resets series pagination and searches after a 250ms debounce", async () => {
+    const client = api({
+      listSeries: vi.fn().mockResolvedValue({
+        rows: [seriesRow()],
+        total: 1,
+        page: 1,
+        page_size: 20,
+      }),
+    });
+    const workspace = createCollectionWorkspace(client, false);
+    workspace.seriesPage.value = 3;
+    workspace.seriesQuery.value = "Model Y";
+
+    workspace.searchSeries();
+    expect(workspace.seriesPage.value).toBe(1);
+    await vi.advanceTimersByTimeAsync(249);
+    expect(client.listSeries).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(client.listSeries).toHaveBeenCalledWith("Model Y", 1, 20);
+  });
+
+  it("selects a named series and filters reviews only by series_id", async () => {
+    const client = api({
+      listReviews: vi.fn().mockResolvedValue({
+        rows: [reviewSummary()],
+        total: 1,
+        page: 1,
+        page_size: 20,
+      }),
+    });
+    const workspace = createCollectionWorkspace(client, false);
+
+    await workspace.selectSeries(seriesRow());
+
+    expect(client.listReviews).toHaveBeenCalledWith("5769", 1, 20);
+    expect(workspace.selectedSeries.value?.series_name).toBe("Model Y");
+    expect(workspace.page.value).toBe("reviews");
+  });
+
+  it("loads full review details separately from summary rows", async () => {
+    const detail: ReviewDetail = {
+      ...reviewSummary(),
+      original_review: {
+        Koubeiid: "review-1",
+        contents: [{ content: "完整评论" }],
+      },
+    };
+    const client = api({
+      listReviews: vi.fn().mockResolvedValue({
+        rows: [reviewSummary()],
+        total: 1,
+        page: 1,
+        page_size: 20,
+      }),
+      getReview: vi.fn().mockResolvedValue(detail),
+    });
+    const workspace = createCollectionWorkspace(client, false);
+    await workspace.selectSeries(seriesRow());
+
+    expect("original_review" in workspace.reviews.value.rows[0]!).toBe(false);
+    await workspace.openReview("review-1");
+
+    expect(client.getReview).toHaveBeenCalledWith("review-1");
+    expect(workspace.reviewDetail.value?.original_review).toEqual(
+      detail.original_review,
+    );
+  });
+
+  it("builds export URLs only from the selected persisted series", () => {
+    const workspace = createCollectionWorkspace(api(), false);
+    expect(workspace.selectedSeriesExportUrl.value).toBe("");
+
+    workspace.selectedSeries.value = seriesRow();
+
+    expect(workspace.selectedSeriesExportUrl.value).toBe(
+      "/api/collection/export?series_id=5769",
+    );
   });
 });
