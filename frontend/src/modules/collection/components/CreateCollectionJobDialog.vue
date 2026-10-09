@@ -44,6 +44,26 @@ const externalConflict = computed(
     props.collectionConflict ||
     Boolean(activeRun.value && nonTerminal.has(activeRun.value.status)),
 );
+const runStatusText = computed(() => {
+  switch (activeRun.value?.status) {
+    case "queued":
+    case "discovering":
+    case "publishing":
+      return "正在生成新目录";
+    case "cancelling":
+      return "正在取消发现";
+    case "completed":
+      return "车系发现已完成";
+    case "completed_short":
+      return "车系发现已完成，数据源不足 1000 个";
+    case "cancelled":
+      return "车系发现已取消";
+    case "failed":
+      return "车系发现失败";
+    default:
+      return "";
+  }
+});
 const selectionInvalid = computed(
   () =>
     selectedSeriesIds.value.length === 0 ||
@@ -165,14 +185,10 @@ watch(isOpen, async (open) => {
 
       <div v-if="activeRun" class="catalog-progress" role="status">
         <div class="catalog-progress__title">
-          <strong>
-            {{
-              activeRun.status === "cancelling"
-                ? "正在取消发现"
-                : "正在生成新目录"
-            }}
-          </strong>
-          <span>旧目录在新目录发布前仍可查看</span>
+          <strong>{{ runStatusText }}</strong>
+          <span v-if="nonTerminal.has(activeRun.status)"
+            >旧目录在新目录发布前仍可查看</span
+          >
         </div>
         <dl>
           <div>

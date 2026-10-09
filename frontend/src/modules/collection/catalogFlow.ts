@@ -120,7 +120,9 @@ export function createCatalogFlow(
       ]);
       if (token !== requestId || !isOpen.value) return;
       catalogStatus.value = nextStatus;
-      discoveryRun.value = nextStatus.active_run;
+      if (nextStatus.active_run !== null) {
+        discoveryRun.value = nextStatus.active_run;
+      }
       catalog.value = nextCatalog;
       await reconcileSelection(previousBatchId);
     } catch (cause) {

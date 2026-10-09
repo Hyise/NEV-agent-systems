@@ -167,6 +167,7 @@ describe("catalog flow", () => {
     expect(client.getCatalogRun).toHaveBeenCalledWith("run-1");
     expect(client.getCatalogStatus).toHaveBeenCalledTimes(2);
     expect(client.listCatalog).toHaveBeenCalledWith("", 1, 20);
+    expect(flow.discoveryRun.value?.status).toBe("completed_short");
     expect(vi.getTimerCount()).toBe(0);
   });
 
