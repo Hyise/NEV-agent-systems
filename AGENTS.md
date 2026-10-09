@@ -6,7 +6,7 @@
 
 - 当前软件主体是“观衡研究平台”，面向汽车企业分析人员和研究人员，提供评论数据采集、多准则决策和自适应评估三个平级功能入口。
 - 阶段一展示原研究归档并提供项目、准则版本、数据导入和结果浏览；不把归档结果表述成系统重新训练所得。
-- 评论采集系统只保存汽车之家车系和完整原始口碑，不拆分、拼接、改写评论；研究模块只读选择采集资产，不直接调用汽车之家适配器。
+- 评论采集系统先独立发现并发布版本化车系目录，再由用户显式选择车系创建评论任务；只保存汽车之家车系和完整原始口碑，不拆分、拼接、改写评论。研究模块只读选择采集资产，不直接调用汽车之家适配器。
 - 第二项“自适应评估”当前只有入口与规划说明页。研究材料未接入前，不添加评估表单、模拟数据、业务模型或 API。
 
 ## 不可破坏的约束
@@ -21,9 +21,12 @@
 ## 代码边界
 
 - `backend/app.py`：HTTP 路由、请求编排与响应；`domain.py`：模型、校验和纯业务规则；`store.py`：SQLite 持久化；`research.py`：只读研究归档适配。
-- `backend/collection/`：评论采集领域、SQLite 仓储、汽车之家适配器、单线程任务服务和独立 `APIRouter`；适配器不写库，仓储不发网络请求。
+- `backend/collection/catalog_domain.py`、`catalog_repository.py`、`catalog_service.py`、`catalog_api.py`：版本化车系目录的状态、暂存/原子发布、后台发现和 HTTP 边界；不得把目录刷新重新塞回评论任务。
+- `backend/collection/coordination.py`：目录发现与评论采集共享的单一外部访问预约；所有终态和异常路径都必须释放预约。
+- `backend/collection/domain.py`、`repository.py`、`service.py`、`api.py`：评论任务契约、不可变 `collection_job_series` 快照、采集编排和 HTTP 边界。新任务不得写 `series_manifest`；旧任务只允许通过该字段兼容读取。
+- `backend/collection/autohome.py`：汽车之家目录与评论适配器；适配器不写库，仓储不发网络请求。
 - `frontend/src/App.vue` 与 `router/`：平台路由和模块装配；`platform/`：研究目录与模块元数据；`modules/mcdm/`：多准则工作台、页面、状态与 API；`BaseChart.vue`：通用图表生命周期。
-- `frontend/src/modules/collection/` 独占采集工作区状态和 `/api/collection` 传输；平台层和研究模块不得导入其 workspace/API。
+- `frontend/src/modules/collection/workspace.ts` 独占任务、车系资产和评论查询状态；`catalogFlow.ts` 独占目录发现、轮询、搜索、跨页选择和任务创建；`api.ts` 统一 `/api/collection` 传输。平台层和研究模块不得导入这些内部状态。
 - 平台层和自适应规划页不得导入多准则 `workspace.ts` 或 `api.ts`；多准则与采集 workspace 分别只能由各自模块壳创建一次。
 - 依赖只能从外层流向领域/存储/适配边界；禁止让领域规则依赖 FastAPI、Vue 或页面组件。
 - 文件大小不是拆分指标。按职责、生命周期和复用边界拆分，避免通用工具箱和只转发一行的包装层。
@@ -44,6 +47,7 @@
 - 使用短生命周期主题分支和 `type(scope): summary` 原子提交；提交前执行受影响范围的质量门禁。
 - 不提交运行数据库、研究数据归档、构建产物、依赖目录、凭据或本机临时文件。
 - 不提交采集结果、JSONL 导出、Cookie、浏览器会话或 `output/playwright/` 截图。
+- 日常验证不得启动完整 1000 车系发现后再采集全部评论；真实联网冒烟限制为少量目录记录和 1～3 个车系、每车系最多 2 页，并在验收记录中区分真实来源证据与受控数据库夹具。
 - 不强推或改写共享 `main` 历史；合并、发布和版本标签遵循 [开发与架构规范](docs/开发与架构规范.md#10-git-版本管理)。
 
 ## 常用验证

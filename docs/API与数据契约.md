@@ -61,7 +61,13 @@
 | 方法 | 路径 | 用途 |
 | --- | --- | --- |
 | GET | `/overview` | 车系数、评论数、异常数与活动任务 |
-| GET/POST | `/jobs` | 分页查询任务；创建并启动验证或正式任务 |
+| GET | `/catalog` | 分页读取当前活动目录，支持 `query`、`page`、`page_size` |
+| GET | `/catalog/selection` | 返回当前查询命中的全部车系 ID，供跨页全选 |
+| GET | `/catalog/status` | 当前目录摘要与活动发现运行 |
+| POST | `/catalog/discover` | 启动目标为 1000 个唯一车系的后台发现 |
+| GET | `/catalog/discover/{run_id}` | 查询发现进度和终态错误摘要 |
+| POST | `/catalog/discover/{run_id}/cancel` | 协作式取消指定发现运行 |
+| GET/POST | `/jobs` | 分页查询任务；按选定车系创建并启动验证或正式任务 |
 | GET | `/jobs/{id}` | 任务配置、游标、统计及事件 |
 | POST | `/jobs/{id}/pause` | 协作式请求暂停 |
 | POST | `/jobs/{id}/resume` | 从已提交页的断点继续 |
@@ -76,12 +82,26 @@
 ```json
 {
   "mode": "verification",
-  "max_series": 3,
-  "max_pages_per_series": 2
+  "selected_series_ids": ["5769", "8627"]
 }
 ```
 
-正式模式只提交 `{"mode":"production"}`，服务端固定为前 500 个唯一车系、每车系不限页数。两种模式都使用服务端强制的正数限速范围；任务配置创建后冻结。
+正式模式提交 `{"mode":"production","selected_series_ids":[...]}`。功能验证必须选择 1～3 个车系且每车系最多 2 页；正式采集必须选择 1～1000 个车系且每车系不限页数。ID 必须是唯一数字字符串并属于提交瞬间的活动目录。两种模式都使用服务端强制限速；任务与不可变车系快照在同一事务中创建，新任务的旧 `series_manifest` 字段固定为空。
+
+目录发现先写入暂存批次，只有成功完成后才在同一事务中切换 `active_batch_id`；失败或取消会清理暂存数据并保留旧目录。`completed_short` 表示来源正常耗尽但不足 1000 个，不是错误。目录发现与评论采集共享进程级外部访问协调器，同一时刻只允许其中一个执行，浏览目录和读取历史数据不占用该预约。
+
+创建任务时，目录不存在或外部访问正被占用返回 `409`；空选择、重复、数量越界或格式错误返回 `422`。如果选择已因目录刷新失效，返回对象形态错误：
+
+```json
+{
+  "detail": {
+    "message": "所选车系已不属于当前有效目录",
+    "invalid_series_ids": ["8627"]
+  }
+}
+```
+
+`collection_job_series` 保存 `series_id`、名称、车系/口碑链接、目录批次、发现顺序和选择顺序的不可变快照。升级前没有快照行的历史任务仍可只读解析 `collection_jobs.series_manifest`，但新任务不得回退到任务内发现或写入该 JSON 字段。
 
 评论列表不返回大型 `original_review`。采集时先保留汽车之家列表接口对象，再根据 `showId` 读取口碑详情页 HTML，以 `.space.kb-item` 中的完整正文补齐对应的 `contents[].content`；“最满意/最不满意”分别映射回原结构化名称“满意/不满意”，其他原始字段不拆分、不拼接、不改写。若列表正文已截断但详情页缺少对应分区，任务暂停且不提交该页。详情和 JSONL 中的每条记录包含 `platform`、`review_id`、`series_id`、采集时车系名称快照、可直接访问的口碑详情地址、内容哈希、采集时间和补齐后的完整 `original_review`。JSONL 媒体类型为 `application/x-ndjson; charset=utf-8`，每行是独立 JSON 对象；不生成拼接评论文本，也不把嵌套对象压平为 CSV。
 
