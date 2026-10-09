@@ -49,23 +49,41 @@ class RecordingService:
         self.shutdown_called = True
 
 
+class RecordingCatalogService:
+    def __init__(self, repository, coordinator):
+        self.repository = repository
+        self.coordinator = coordinator
+        self.shutdown_called = False
+
+    def shutdown(self):
+        self.shutdown_called = True
+
+
 @pytest.fixture
 def client(tmp_path):
     services = []
+    catalog_services = []
 
     def factory(repository):
         service = RecordingService(repository)
         services.append(service)
         return service
 
+    def catalog_factory(repository, coordinator):
+        service = RecordingCatalogService(repository, coordinator)
+        catalog_services.append(service)
+        return service
+
     app = create_app(
         tmp_path / "test.sqlite3",
         ROOT / "backend/data/research",
         collection_service_factory=factory,
+        catalog_service_factory=catalog_factory,
     )
     with TestClient(app) as test_client:
         yield test_client
     assert services[0].shutdown_called is True
+    assert catalog_services[0].shutdown_called is True
 
 
 def make_series(index=1):

@@ -14,9 +14,20 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from .collection.api import create_collection_router
+from .collection.catalog_api import create_catalog_router
+from .collection.catalog_repository import SeriesCatalogRepository
+from .collection.catalog_service import SeriesCatalogService
+from .collection.coordination import ExternalAccessCoordinator
 from .collection.repository import CollectionRepository
 from .collection.service import CollectionService
-from .domain import ImportBody, ProjectBody, RevisionBody, SchemaBody, parse_dataset, preset_criteria
+from .domain import (
+    ImportBody,
+    ProjectBody,
+    RevisionBody,
+    SchemaBody,
+    parse_dataset,
+    preset_criteria,
+)
 from .research import NOTES, Research
 from .store import Store
 
@@ -35,23 +46,33 @@ def create_app(
     db_path: Path | None = None,
     research_dir: Path | None = None,
     collection_service_factory=None,
+    catalog_service_factory=None,
 ):
     database_path = db_path or Path(os.environ.get('NEV_DB_PATH', ROOT / '.runtime/platform.sqlite3'))
     store = Store(database_path)
     research = Research(research_dir or ROOT / 'backend/data/research')
     collection_repository = CollectionRepository(database_path)
+    external_access_coordinator = ExternalAccessCoordinator()
+    catalog_repository = SeriesCatalogRepository(database_path)
     collection_service = (
         collection_service_factory(collection_repository)
         if collection_service_factory is not None
         else CollectionService(collection_repository)
     )
+    catalog_service = (
+        catalog_service_factory(catalog_repository, external_access_coordinator)
+        if catalog_service_factory is not None
+        else SeriesCatalogService(catalog_repository, external_access_coordinator)
+    )
 
     @asynccontextmanager
     async def lifespan(application):
         collection_repository.pause_interrupted_jobs(now())
+        catalog_repository.fail_interrupted_runs(now())
         try:
             yield
         finally:
+            catalog_service.shutdown()
             collection_service.shutdown()
 
     app = FastAPI(
@@ -62,6 +83,9 @@ def create_app(
     app.state.store = store
     app.state.collection_repository = collection_repository
     app.state.collection_service = collection_service
+    app.state.catalog_repository = catalog_repository
+    app.state.catalog_service = catalog_service
+    app.state.external_access_coordinator = external_access_coordinator
     with store.connect() as conn:
         conn.execute('INSERT OR IGNORE INTO projects VALUES (?,?,?,?)',
                      ('research-archive', '新能源汽车消费者决策研究', 'preset', now()))
@@ -103,6 +127,7 @@ def create_app(
         return {'status': 'ok', 'version': '0.1.0', 'app_id': 'nev-mcdm-platform'}
 
     app.include_router(create_collection_router(collection_repository, collection_service))
+    app.include_router(create_catalog_router(catalog_repository, catalog_service))
 
     @app.get('/api/projects')
     def projects():
@@ -224,7 +249,7 @@ def create_app(
 
     @app.get('/api/projects/{project_id}/export')
     def export(project_id: str, kind: Literal['dataset', 'report', 'template'] = 'report', schema_id: str | None = None):
-        project, schema, records, dataset, months = context(project_id, schema_id)
+        project, schema, records, _dataset, _months = context(project_id, schema_id)
         if kind == 'report':
             payload = {'exported_at': now(), **overview(project_id, schema_id),
                        'curves': research.curves('weights') if project['mode'] == 'preset' else [],
