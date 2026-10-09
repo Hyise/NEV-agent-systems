@@ -57,7 +57,7 @@ def create_app(
     collection_service = (
         collection_service_factory(collection_repository)
         if collection_service_factory is not None
-        else CollectionService(collection_repository)
+        else CollectionService(collection_repository, external_access_coordinator)
     )
     catalog_service = (
         catalog_service_factory(catalog_repository, external_access_coordinator)
@@ -126,7 +126,14 @@ def create_app(
     def health():
         return {'status': 'ok', 'version': '0.1.0', 'app_id': 'nev-mcdm-platform'}
 
-    app.include_router(create_collection_router(collection_repository, collection_service))
+    app.include_router(
+        create_collection_router(
+            collection_repository,
+            collection_service,
+            catalog_repository,
+            external_access_coordinator,
+        )
+    )
     app.include_router(create_catalog_router(catalog_repository, catalog_service))
 
     @app.get('/api/projects')

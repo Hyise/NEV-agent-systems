@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
+from .catalog_domain import CatalogRunConflict, CatalogSelectionError
 from .domain import (
     CollectedReview,
     JobConfig,
@@ -191,6 +192,165 @@ class CollectionRepository:
                     "SELECT * FROM collection_jobs WHERE id=?", (job_id,)
                 ).fetchone()
             )
+
+    def create_job_from_catalog(
+        self,
+        job_id: str,
+        config: JobConfig,
+        selected_series_ids: list[str],
+        created_at: str,
+    ) -> dict[str, Any]:
+        if not selected_series_ids:
+            raise CatalogSelectionError("请至少选择一个车系")
+        if len(selected_series_ids) != len(set(selected_series_ids)):
+            raise CatalogSelectionError("车系 ID 不能重复")
+        if config.max_series != len(selected_series_ids):
+            raise CatalogSelectionError("任务范围与所选车系数量不一致")
+
+        values = config.model_dump(mode="json")
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            placeholders = ",".join("?" for _ in CONTROLLABLE_STATUSES)
+            if connection.execute(
+                f"SELECT 1 FROM collection_jobs WHERE status IN ({placeholders}) LIMIT 1",
+                CONTROLLABLE_STATUSES,
+            ).fetchone():
+                raise TaskControlError("已有活动采集任务")
+
+            state = connection.execute(
+                "SELECT active_batch_id FROM series_catalog_state WHERE singleton=1"
+            ).fetchone()
+            if state is None or state["active_batch_id"] is None:
+                raise CatalogRunConflict("尚未建立可用车系目录")
+            batch_id = str(state["active_batch_id"])
+            id_placeholders = ",".join("?" for _ in selected_series_ids)
+            rows = connection.execute(
+                f"""
+                SELECT platform,series_id,series_name,series_url,review_url,
+                       discovery_rank
+                FROM series_catalog_entries
+                WHERE batch_id=? AND series_id IN ({id_placeholders})
+                """,
+                (batch_id, *selected_series_ids),
+            ).fetchall()
+            by_id = {str(row["series_id"]): row for row in rows}
+            invalid = [
+                series_id
+                for series_id in selected_series_ids
+                if series_id not in by_id
+            ]
+            if invalid:
+                raise CatalogSelectionError(
+                    "所选车系已不在当前目录中，请刷新后重试", invalid
+                )
+
+            connection.execute(
+                """
+                INSERT INTO collection_jobs (
+                    id, mode, source_url, max_series, max_pages_per_series,
+                    request_delay_min_seconds, request_delay_max_seconds,
+                    series_delay_min_seconds, series_delay_max_seconds,
+                    status, series_manifest, discovered_count, created_at, updated_at
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    job_id,
+                    values["mode"],
+                    AUTOHOME_CATALOG_URL,
+                    values["max_series"],
+                    values["max_pages_per_series"],
+                    values["request_delay_min_seconds"],
+                    values["request_delay_max_seconds"],
+                    values["series_delay_min_seconds"],
+                    values["series_delay_max_seconds"],
+                    JobStatus.QUEUED.value,
+                    "[]",
+                    len(selected_series_ids),
+                    created_at,
+                    created_at,
+                ),
+            )
+            for selection_order, series_id in enumerate(selected_series_ids):
+                row = by_id[series_id]
+                connection.execute(
+                    """
+                    INSERT INTO collection_job_series (
+                        job_id,platform,series_id,series_name_snapshot,
+                        series_url_snapshot,review_url_snapshot,catalog_batch_id,
+                        catalog_rank,selection_order
+                    ) VALUES (?,?,?,?,?,?,?,?,?)
+                    """,
+                    (
+                        job_id,
+                        row["platform"],
+                        row["series_id"],
+                        row["series_name"],
+                        row["series_url"],
+                        row["review_url"],
+                        batch_id,
+                        row["discovery_rank"],
+                        selection_order,
+                    ),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO vehicle_series (
+                        platform,series_id,series_name,series_url,review_url,
+                        discovery_rank,first_discovered_at,last_confirmed_at
+                    ) VALUES (?,?,?,?,?,?,?,?)
+                    ON CONFLICT(platform,series_id) DO UPDATE SET
+                        series_name=excluded.series_name,
+                        series_url=excluded.series_url,
+                        review_url=excluded.review_url,
+                        discovery_rank=MIN(vehicle_series.discovery_rank,excluded.discovery_rank),
+                        last_confirmed_at=excluded.last_confirmed_at
+                    """,
+                    (
+                        row["platform"],
+                        row["series_id"],
+                        row["series_name"],
+                        row["series_url"],
+                        row["review_url"],
+                        row["discovery_rank"],
+                        created_at,
+                        created_at,
+                    ),
+                )
+            job = connection.execute(
+                "SELECT * FROM collection_jobs WHERE id=?", (job_id,)
+            ).fetchone()
+        return self._job(job)
+
+    def job_series(self, job_id: str) -> list[VehicleSeries]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT platform,series_id,series_name_snapshot,
+                       series_url_snapshot,review_url_snapshot,catalog_rank
+                FROM collection_job_series
+                WHERE job_id=?
+                ORDER BY selection_order
+                """,
+                (job_id,),
+            ).fetchall()
+            if rows:
+                return [
+                    VehicleSeries(
+                        platform=row["platform"],
+                        series_id=row["series_id"],
+                        series_name=row["series_name_snapshot"],
+                        series_url=row["series_url_snapshot"],
+                        review_url=row["review_url_snapshot"],
+                        discovery_rank=row["catalog_rank"],
+                    )
+                    for row in rows
+                ]
+            job = connection.execute(
+                "SELECT series_manifest FROM collection_jobs WHERE id=?", (job_id,)
+            ).fetchone()
+        if job is None:
+            raise KeyError(job_id)
+        return [VehicleSeries.model_validate(item) for item in json.loads(job[0])]
 
     def get_job(self, job_id: str):
         with self.connect() as connection:

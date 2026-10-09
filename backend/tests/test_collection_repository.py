@@ -5,6 +5,8 @@ from threading import Barrier
 
 import pytest
 
+from backend.collection.catalog_domain import CatalogSelectionError
+from backend.collection.catalog_repository import SeriesCatalogRepository
 from backend.collection.domain import (
     CollectedReview,
     CreateJobBody,
@@ -48,9 +50,113 @@ def make_review(content="空间充足"):
 def create_job(repository, job_id="job-1"):
     return repository.create_job(
         job_id,
-        CreateJobBody(mode="verification").to_config(),
+        CreateJobBody(mode="verification", selected_series_ids=["5769"]).to_config(),
         "2026-10-08T08:00:00+00:00",
     )
+
+
+def publish_catalog(repository, batch_id, series, minute=0):
+    catalog = SeriesCatalogRepository(repository.path)
+    run_id = f"run-{batch_id}"
+    created_at = f"2026-10-09T09:{minute:02d}:00+00:00"
+    catalog.create_run(run_id, batch_id, created_at)
+    catalog.append_entries(
+        run_id,
+        series,
+        scanned_count=len(series),
+        skipped_count=0,
+        current_page=1,
+        updated_at=created_at,
+    )
+    catalog.publish_run(run_id, created_at, source_exhausted=True)
+    return catalog
+
+
+def test_create_job_snapshots_selected_active_catalog_in_submitted_order(tmp_path):
+    repository = make_repository(tmp_path)
+    first = make_series(name="Model Y", rank=1)
+    second = VehicleSeries(
+        series_id="526",
+        series_name="汉",
+        series_url="https://www.autohome.com.cn/526/",
+        review_url="https://k.autohome.com.cn/526/",
+        discovery_rank=2,
+    )
+    publish_catalog(repository, "batch-1", [first, second])
+    config = CreateJobBody(
+        mode="verification", selected_series_ids=["526", "5769"]
+    ).to_config()
+
+    job = repository.create_job_from_catalog(
+        "job-selected",
+        config,
+        ["526", "5769"],
+        "2026-10-09T10:00:00+00:00",
+    )
+
+    assert job["series_manifest"] == []
+    assert job["discovered_count"] == 2
+    assert [item.series_id for item in repository.job_series("job-selected")] == [
+        "526",
+        "5769",
+    ]
+    assert [item.series_name for item in repository.job_series("job-selected")] == [
+        "汉",
+        "Model Y",
+    ]
+
+
+def test_stale_batch_ids_return_all_invalid_ids_and_create_no_job(tmp_path):
+    repository = make_repository(tmp_path)
+    publish_catalog(repository, "batch-1", [make_series()], minute=1)
+    newer = VehicleSeries(
+        series_id="999",
+        series_name="新目录车系",
+        series_url="https://www.autohome.com.cn/999/",
+        review_url="https://k.autohome.com.cn/999/",
+        discovery_rank=1,
+    )
+    publish_catalog(repository, "batch-2", [newer], minute=2)
+    config = CreateJobBody(
+        mode="verification", selected_series_ids=["5769", "123"]
+    ).to_config()
+
+    with pytest.raises(CatalogSelectionError) as error:
+        repository.create_job_from_catalog(
+            "job-stale",
+            config,
+            ["5769", "123"],
+            "2026-10-09T10:00:00+00:00",
+        )
+
+    assert error.value.invalid_series_ids == ["5769", "123"]
+    assert repository.get_job("job-stale") is None
+
+
+@pytest.mark.parametrize("selected", [[], ["5769", "5769"]])
+def test_empty_or_duplicate_selection_creates_no_job(tmp_path, selected):
+    repository = make_repository(tmp_path)
+    publish_catalog(repository, "batch-1", [make_series()])
+    config = CreateJobBody(
+        mode="verification", selected_series_ids=["5769"]
+    ).to_config()
+
+    with pytest.raises(CatalogSelectionError):
+        repository.create_job_from_catalog(
+            "job-invalid", config, selected, "2026-10-09T10:00:00+00:00"
+        )
+
+    assert repository.get_job("job-invalid") is None
+
+
+def test_legacy_json_manifest_remains_readable(tmp_path):
+    repository = make_repository(tmp_path)
+    create_job(repository)
+    repository.save_discovery(
+        "job-1", [make_series()], "2026-10-08T08:01:00+00:00"
+    )
+
+    assert repository.job_series("job-1") == [make_series()]
 
 
 def test_repository_creates_collection_tables(tmp_path):
@@ -203,7 +309,7 @@ def test_paused_job_remains_controllable_and_blocks_a_second_job(tmp_path):
     with pytest.raises(TaskControlError, match="已有活动采集任务"):
         repository.create_job(
             "job-2",
-            CreateJobBody(mode="verification").to_config(),
+            CreateJobBody(mode="verification", selected_series_ids=["5769"]).to_config(),
             "2026-10-08T08:02:00+00:00",
         )
 
@@ -217,7 +323,9 @@ def test_concurrent_job_creation_preserves_single_controllable_job(tmp_path):
         try:
             repository.create_job(
                 job_id,
-                CreateJobBody(mode="verification").to_config(),
+                CreateJobBody(
+                    mode="verification", selected_series_ids=["5769"]
+                ).to_config(),
                 "2026-10-08T08:00:00+00:00",
             )
             return "created"
