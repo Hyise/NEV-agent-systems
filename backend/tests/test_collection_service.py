@@ -87,11 +87,16 @@ class FakeReviewAdapter:
     def __init__(self, responder):
         self.responder = responder
         self.calls = []
+        self.detail_calls = []
         self.closed = False
 
     def fetch_page(self, series, page_index, page_size=20):
         self.calls.append((series.series_id, page_index))
         return self.responder(series, page_index, len(self.calls))
+
+    def fetch_detail(self, review):
+        self.detail_calls.append(review.review_id)
+        return review
 
     def close(self):
         self.closed = True
@@ -200,7 +205,7 @@ def test_repeated_page_stops_series_without_looping(tmp_path):
     service.shutdown()
 
 
-def test_page_commit_advances_resume_cursor(tmp_path):
+def test_incomplete_page_is_not_committed_when_pause_arrives_before_detail(tmp_path):
     item = make_series(1)
     repository = CollectionRepository(tmp_path / "collection.sqlite3")
     config = CreateJobBody(mode="production").to_config()
@@ -226,8 +231,9 @@ def test_page_commit_advances_resume_cursor(tmp_path):
 
     job = repository.get_job("job-1")
     assert job["status"] == "paused"
-    assert job["current_page"] == 2
-    assert job["saved_count"] == 1
+    assert job["current_page"] == 1
+    assert job["saved_count"] == 0
+    assert review.detail_calls == []
     assert catalog.open_count == 1
     service.shutdown()
 
@@ -405,8 +411,82 @@ def test_page_and_series_delays_use_configured_ranges(tmp_path):
 
     service.run_job("job-1")
 
-    assert ranges == [(2, 4), (5, 10), (2, 4)]
-    assert sleeps == [3, 7.5, 3]
+    assert ranges == [
+        (2, 4),
+        (2, 4),
+        (2, 4),
+        (5, 10),
+        (2, 4),
+        (2, 4),
+        (2, 4),
+    ]
+    assert sleeps == [3, 3, 3, 7.5, 3, 3, 3]
+    service.shutdown()
+
+
+def test_complete_review_detail_is_fetched_after_request_delay_before_commit(tmp_path):
+    item = make_series(1)
+    sleeps = []
+
+    class DetailReviewAdapter(FakeReviewAdapter):
+        def __init__(self):
+            super().__init__(
+                lambda series, page, call: make_page(
+                    series, page, total=1, page_count=1
+                )
+            )
+            self.detail_calls = []
+
+        def fetch_detail(self, review):
+            self.detail_calls.append(review.review_id)
+            original = {
+                **review.original_review,
+                "contents": [
+                    {
+                        "structuredname": "满意",
+                        "content": "详情页中的完整评论",
+                    }
+                ],
+            }
+            return CollectedReview(
+                review_id=review.review_id,
+                series_id=review.series_id,
+                series_name=review.series_name,
+                source_url="https://k.autohome.com.cn/detail/view_complete.html",
+                original_review=original,
+            )
+
+    repository = CollectionRepository(tmp_path / "collection.sqlite3")
+    repository.create_job(
+        "job-1",
+        CreateJobBody(
+            mode="verification",
+            max_series=1,
+            max_pages_per_series=1,
+            request_delay_min_seconds=2,
+            request_delay_max_seconds=4,
+        ).to_config(),
+        NOW.isoformat(),
+    )
+    catalog = FakeCatalogAdapter([item])
+    review = DetailReviewAdapter()
+    service = CollectionService(
+        repository,
+        catalog_adapter_factory=lambda: catalog,
+        review_adapter_factory=lambda session: review,
+        sleeper=sleeps.append,
+        clock=lambda: NOW,
+        rng=SimpleNamespace(uniform=lambda low, high: (low + high) / 2),
+    )
+
+    service.run_job("job-1")
+
+    saved = repository.get_review(f"{item.series_id}-1")
+    assert review.detail_calls == [f"{item.series_id}-1"]
+    assert sleeps == [3]
+    assert saved["original_review"]["contents"][0]["content"] == (
+        "详情页中的完整评论"
+    )
     service.shutdown()
 
 
@@ -428,7 +508,7 @@ def test_transient_error_retries_after_5_15_45_seconds(tmp_path):
 
     service.run_job("job-1")
 
-    assert sleeps == [5, 15, 45]
+    assert sleeps == [5, 15, 45, 2]
     assert len(review.calls) == 4
     assert repository.get_job("job-1")["status"] == "completed"
     assert all(

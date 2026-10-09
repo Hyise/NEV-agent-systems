@@ -201,11 +201,17 @@ class CollectionService:
             last_error=message,
         )
 
-    def _fetch_page(self, job_id: str, adapter: Any, series: VehicleSeries, page: int):
+    def _request_with_retry(
+        self,
+        job_id: str,
+        series: VehicleSeries,
+        request: Callable[[], Any],
+        details: dict[str, Any],
+    ) -> Any:
         for attempt in range(len(RETRY_DELAYS) + 1):
             self._apply_control(job_id)
             try:
-                return adapter.fetch_page(series, page)
+                return request()
             except (AutohomeAccessPaused, AutohomeStructureError):
                 raise
             except Exception as error:
@@ -220,9 +226,31 @@ class CollectionService:
                     series_id=series.series_id,
                     error_class=type(error).__name__,
                     retryable=True,
-                    details={"page": page, "attempt": attempt + 1, "delay_seconds": delay},
+                    details={
+                        **details,
+                        "attempt": attempt + 1,
+                        "delay_seconds": delay,
+                    },
                 )
                 self._wait(delay)
+
+    def _fetch_page(self, job_id: str, adapter: Any, series: VehicleSeries, page: int):
+        return self._request_with_retry(
+            job_id,
+            series,
+            lambda: adapter.fetch_page(series, page),
+            {"page": page},
+        )
+
+    def _fetch_detail(
+        self, job_id: str, adapter: Any, series: VehicleSeries, review: Any
+    ):
+        return self._request_with_retry(
+            job_id,
+            series,
+            lambda: adapter.fetch_detail(review),
+            {"review_id": review.review_id},
+        )
 
     @staticmethod
     def _is_last_page(page: ReviewPage) -> bool:
@@ -255,6 +283,17 @@ class CollectionService:
                 while True:
                     try:
                         page = self._fetch_page(job_id, adapter, series, page_index)
+                        complete_reviews = []
+                        for review in page.reviews:
+                            delay = self.rng.uniform(
+                                job["request_delay_min_seconds"],
+                                job["request_delay_max_seconds"],
+                            )
+                            self._wait(delay)
+                            complete_reviews.append(
+                                self._fetch_detail(job_id, adapter, series, review)
+                            )
+                        page = page.model_copy(update={"reviews": complete_reviews})
                     except _JobInterrupted:
                         return
                     except AutohomeAccessPaused as error:

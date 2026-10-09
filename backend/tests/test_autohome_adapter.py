@@ -189,6 +189,88 @@ def test_review_page_keeps_complete_original_objects():
     assert page.page_count == 1
 
 
+def test_review_detail_html_replaces_truncated_contents_with_complete_text():
+    payload = fixture_json("reviews-page-1.json")
+    item = payload["result"]["list"][0]
+    item["contents"] = [
+        {"structuredid": 1, "structuredname": "满意", "content": "第一段完整..."},
+        {"structuredid": 2, "structuredname": "不满意", "content": "完整的不..."},
+    ]
+    review = parse_review_page(model_y(), payload, page_index=1).reviews[0]
+
+    def handler(request):
+        assert request.method == "GET"
+        assert request.url.path == "/detail/view_show-2024.html"
+        return httpx.Response(
+            200,
+            text=(FIXTURES / "review-detail.html").read_text(encoding="utf-8"),
+            headers={"content-type": "text/html; charset=utf-8"},
+        )
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    adapter = AutohomeReviewAdapter(BrowserSession({}, "test-agent"), client=client)
+
+    complete = adapter.fetch_detail(review)
+
+    assert complete.source_url == (
+        "https://k.autohome.com.cn/detail/view_show-2024.html"
+    )
+    assert complete.original_review["contents"] == [
+        {
+            "structuredid": 1,
+            "structuredname": "满意",
+            "content": "第一段完整内容。\n第二段 & 后续内容。",
+        },
+        {
+            "structuredid": 2,
+            "structuredname": "不满意",
+            "content": "完整的不满意内容。",
+        },
+    ]
+    assert complete.content_hash != review.content_hash
+
+
+def test_review_detail_requires_a_valid_show_id():
+    payload = fixture_json("reviews-page-1.json")
+    payload["result"]["list"][0].pop("showId")
+    review = parse_review_page(model_y(), payload, page_index=1).reviews[0]
+    client = httpx.Client(
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(
+                200,
+                text=(FIXTURES / "review-detail.html").read_text(encoding="utf-8"),
+                headers={"content-type": "text/html"},
+            )
+        )
+    )
+    adapter = AutohomeReviewAdapter(BrowserSession({}, "test-agent"), client=client)
+
+    with pytest.raises(AutohomeStructureError, match="showId"):
+        adapter.fetch_detail(review)
+
+
+def test_truncated_section_missing_from_detail_html_fails_explicitly():
+    payload = fixture_json("reviews-page-1.json")
+    item = payload["result"]["list"][0]
+    item["contents"] = [
+        {"structuredid": 3, "structuredname": "动力", "content": "加速很..."}
+    ]
+    review = parse_review_page(model_y(), payload, page_index=1).reviews[0]
+    client = httpx.Client(
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(
+                200,
+                text=(FIXTURES / "review-detail.html").read_text(encoding="utf-8"),
+                headers={"content-type": "text/html"},
+            )
+        )
+    )
+    adapter = AutohomeReviewAdapter(BrowserSession({}, "test-agent"), client=client)
+
+    with pytest.raises(AutohomeStructureError, match="动力"):
+        adapter.fetch_detail(review)
+
+
 def test_review_page_validates_server_pagination_and_series_identity():
     payload = fixture_json("reviews-page-1.json")
     payload["result"]["seriesid"] = 9999

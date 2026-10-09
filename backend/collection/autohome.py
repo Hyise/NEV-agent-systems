@@ -1,7 +1,10 @@
 """Automotive Home source adapters with a fixed, auditable access boundary."""
 
+import re
 from collections.abc import Callable, Iterable
+from copy import deepcopy
 from dataclasses import dataclass
+from html.parser import HTMLParser
 from typing import Any
 from urllib.parse import urlparse
 
@@ -16,6 +19,7 @@ from .domain import (
 
 AUTOHOME_CATALOG_URL = "https://www.autohome.com.cn/price/ev#pvareaid=3311257"
 AUTOHOME_REVIEW_API_URL = "https://koubeiipv6.app.autohome.com.cn/pc/series/list"
+AUTOHOME_REVIEW_DETAIL_URL = "https://k.autohome.com.cn/detail/view_{show_id}.html"
 CATALOG_LINK_SELECTOR = (
     "main a[href], article a[href], [data-series-id] a[href], "
     "[class*='series'] a[href], [class*='car-list'] a[href]"
@@ -57,6 +61,103 @@ class CatalogLink:
 class CatalogDiscoveryResult:
     series: list[VehicleSeries]
     session: BrowserSession
+
+
+class _ReviewDetailParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.sections: dict[str, str] = {}
+        self._section_depth = 0
+        self._title_parts: list[str] = []
+        self._content_parts: list[str] = []
+        self._in_title = False
+        self._in_content = False
+
+    @staticmethod
+    def _classes(attrs: list[tuple[str, str | None]]) -> set[str]:
+        values = dict(attrs).get("class") or ""
+        return set(values.split())
+
+    @staticmethod
+    def _section_name(value: str) -> str:
+        compact = "".join(value.split())
+        compact = re.sub(r"\d+(?:\.\d+)?$", "", compact)
+        return {"最满意": "满意", "最不满意": "不满意"}.get(compact, compact)
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        classes = self._classes(attrs)
+        if tag == "div":
+            if self._section_depth:
+                self._section_depth += 1
+            elif {"space", "kb-item"}.issubset(classes):
+                self._section_depth = 1
+                self._title_parts = []
+                self._content_parts = []
+        if not self._section_depth:
+            return
+        if tag == "h1":
+            self._in_title = True
+        elif tag == "p" and "kb-item-msg" in classes:
+            self._in_content = True
+        elif tag == "br" and self._in_content:
+            self._content_parts.append("\n")
+
+    def handle_endtag(self, tag: str) -> None:
+        if not self._section_depth:
+            return
+        if tag == "h1":
+            self._in_title = False
+        elif tag == "p":
+            self._in_content = False
+        if tag == "div":
+            self._section_depth -= 1
+            if self._section_depth == 0:
+                name = self._section_name("".join(self._title_parts))
+                content = "".join(self._content_parts).replace("\r\n", "\n").strip()
+                if name and content:
+                    self.sections[name] = content
+
+    def handle_data(self, data: str) -> None:
+        if self._in_title:
+            self._title_parts.append(data)
+        if self._in_content:
+            self._content_parts.append(data)
+
+
+def _review_detail_url(review: CollectedReview) -> str:
+    show_id = str(review.original_review.get("showId") or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", show_id):
+        raise AutohomeStructureError("汽车之家口碑记录缺少有效showId")
+    return ensure_allowed_url(AUTOHOME_REVIEW_DETAIL_URL.format(show_id=show_id))
+
+
+def _complete_review_from_html(
+    review: CollectedReview, detail_url: str, html: str
+) -> CollectedReview:
+    parser = _ReviewDetailParser()
+    parser.feed(html)
+    original = deepcopy(review.original_review)
+    contents = original.get("contents")
+    if not isinstance(contents, list):
+        raise AutohomeStructureError("汽车之家口碑记录缺少contents列表")
+    for section in contents:
+        if not isinstance(section, dict):
+            raise AutohomeStructureError("汽车之家口碑contents包含无效分区")
+        name = str(section.get("structuredname") or "").strip()
+        complete = parser.sections.get(name)
+        current = str(section.get("content") or "").rstrip()
+        if complete:
+            section["content"] = complete
+        elif current.endswith(("...", "…")):
+            raise AutohomeStructureError(f"详情页缺少完整的{name or '评论'}正文")
+    return CollectedReview(
+        platform=review.platform,
+        review_id=review.review_id,
+        series_id=review.series_id,
+        series_name=review.series_name,
+        source_url=detail_url,
+        original_review=original,
+    )
 
 
 def ensure_allowed_url(url: str) -> str:
@@ -305,6 +406,19 @@ class AutohomeReviewAdapter:
     def close(self) -> None:
         if self._owns_client:
             self._client.close()
+
+    def fetch_detail(self, review: CollectedReview) -> CollectedReview:
+        detail_url = _review_detail_url(review)
+        response = self._client.get(detail_url)
+        if response.status_code in (403, 429):
+            raise AutohomeAccessPaused(
+                f"汽车之家返回HTTP {response.status_code}，任务已暂停"
+            )
+        response.raise_for_status()
+        content_type = response.headers.get("content-type", "")
+        if "html" not in content_type.casefold():
+            raise AutohomeAccessPaused("汽车之家口碑详情返回了非HTML验证页面，任务已暂停")
+        return _complete_review_from_html(review, detail_url, response.text)
 
     def fetch_page(
         self, series: VehicleSeries, page_index: int, page_size: int = 20

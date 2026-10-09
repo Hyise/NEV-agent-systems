@@ -83,7 +83,7 @@
 
 正式模式只提交 `{"mode":"production"}`，服务端固定为前 500 个唯一车系、每车系不限页数。两种模式都使用服务端强制的正数限速范围；任务配置创建后冻结。
 
-评论列表不返回大型 `original_review`。详情和 JSONL 中的每条记录包含 `platform`、`review_id`、`series_id`、采集时车系名称快照、来源地址、内容哈希、采集时间和完整 `original_review`。JSONL 媒体类型为 `application/x-ndjson; charset=utf-8`，每行是独立 JSON 对象；不生成拼接评论文本，也不把嵌套对象压平为 CSV。
+评论列表不返回大型 `original_review`。采集时先保留汽车之家列表接口对象，再根据 `showId` 读取口碑详情页 HTML，以 `.space.kb-item` 中的完整正文补齐对应的 `contents[].content`；“最满意/最不满意”分别映射回原结构化名称“满意/不满意”，其他原始字段不拆分、不拼接、不改写。若列表正文已截断但详情页缺少对应分区，任务暂停且不提交该页。详情和 JSONL 中的每条记录包含 `platform`、`review_id`、`series_id`、采集时车系名称快照、可直接访问的口碑详情地址、内容哈希、采集时间和补齐后的完整 `original_review`。JSONL 媒体类型为 `application/x-ndjson; charset=utf-8`，每行是独立 JSON 对象；不生成拼接评论文本，也不把嵌套对象压平为 CSV。
 
 车系唯一键为 `platform + series_id`；评论唯一键为 `platform + review_id`。来源存在 `Koubeiid` 或 `showId` 时直接使用；两者都缺失时，回退 ID 为 `sha256-{series_id}-{原始对象规范哈希}`，避免相同无 ID 对象在不同车系间碰撞。不同年款、改款和配置保留在原始对象字段中，但不形成独立车系任务。每页评论和下一页游标在同一事务提交；重复请求依靠唯一键幂等，同一评论 ID 内容变化会写入采集事件。
 
