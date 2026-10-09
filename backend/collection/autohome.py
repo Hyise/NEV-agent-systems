@@ -45,6 +45,10 @@ class AutohomeAccessPaused(AutohomeSourceError):
     """The source asked the collector to stop or verify access."""
 
 
+class CatalogDiscoveryCancelled(AutohomeSourceError):
+    """Catalog discovery was cancelled at a source-operation boundary."""
+
+
 @dataclass(frozen=True)
 class BrowserSession:
     cookies: dict[str, str]
@@ -61,6 +65,9 @@ class CatalogLink:
 class CatalogDiscoveryResult:
     series: list[VehicleSeries]
     session: BrowserSession
+    scanned_count: int = 0
+    skipped_count: int = 0
+    source_exhausted: bool = False
 
 
 class _ReviewDetailParser(HTMLParser):
@@ -343,7 +350,13 @@ class AutohomeCatalogAdapter:
         user_agent = str(page.evaluate("() => navigator.userAgent"))
         return BrowserSession(cookies=cookies, user_agent=user_agent)
 
-    def discover(self, max_series: int) -> CatalogDiscoveryResult:
+    def discover_series(
+        self,
+        max_series: int,
+        on_batch: Callable[[list[VehicleSeries], int, int, int], None]
+        | None = None,
+        should_cancel: Callable[[], bool] | None = None,
+    ) -> CatalogDiscoveryResult:
         ensure_allowed_url(AUTOHOME_CATALOG_URL)
         with self._factory()() as playwright:
             browser = playwright.chromium.launch(headless=True)
@@ -357,21 +370,91 @@ class AutohomeCatalogAdapter:
                     timeout=20_000,
                 )
                 self._validate_catalog_page(page, response)
+                if should_cancel is not None and should_cancel():
+                    raise CatalogDiscoveryCancelled("车系发现已取消")
                 found: list[VehicleSeries] = []
+                seen_series: set[str] = set()
+                seen_candidates: set[tuple[str, str]] = set()
+                scanned_count = 0
+                skipped_count = 0
                 unchanged_rounds = 0
+                load_round = 1
                 while len(found) < max_series and unchanged_rounds < 5:
-                    next_found = extract_catalog_series(self._read_links(page), max_series)
-                    unchanged_rounds = unchanged_rounds + 1 if len(next_found) == len(found) else 0
-                    found = next_found
-                    if len(found) >= max_series:
+                    if should_cancel is not None and should_cancel():
+                        raise CatalogDiscoveryCancelled("车系发现已取消")
+                    new_entries: list[VehicleSeries] = []
+                    links = self._read_links(page)
+                    structurally_valid = sum(
+                        1
+                        for link in links
+                        if _series_id_from_href(link.href)
+                        and " ".join(link.name.split())
+                    )
+                    if links and structurally_valid == 0:
+                        raise AutohomeStructureError(
+                            "新能源汽车目录非空但没有有效车系"
+                        )
+                    for link in links:
+                        name = " ".join(link.name.split())
+                        candidate_key = (link.href.strip(), name)
+                        if candidate_key in seen_candidates:
+                            continue
+                        seen_candidates.add(candidate_key)
+                        scanned_count += 1
+                        series_id = _series_id_from_href(link.href)
+                        if not series_id or not name:
+                            skipped_count += 1
+                            continue
+                        if series_id in seen_series:
+                            continue
+                        seen_series.add(series_id)
+                        item = VehicleSeries(
+                            series_id=series_id,
+                            series_name=name,
+                            series_url=f"https://www.autohome.com.cn/{series_id}/",
+                            review_url=f"https://k.autohome.com.cn/{series_id}/",
+                            discovery_rank=len(found) + 1,
+                        )
+                        found.append(item)
+                        new_entries.append(item)
+                        if len(found) >= max_series:
+                            break
+                    if new_entries and on_batch is not None:
+                        on_batch(
+                            new_entries,
+                            scanned_count,
+                            skipped_count,
+                            load_round,
+                        )
+                    if (
+                        scanned_count >= 100
+                        and skipped_count / scanned_count > 0.05
+                    ):
+                        raise AutohomeStructureError(
+                            "新能源汽车目录必填字段缺失率超过5%"
+                        )
+                    if should_cancel is not None and should_cancel():
+                        raise CatalogDiscoveryCancelled("车系发现已取消")
+                    unchanged_rounds = 0 if new_entries else unchanged_rounds + 1
+                    if len(found) >= max_series or unchanged_rounds >= 5:
                         break
                     page.evaluate("() => window.scrollTo(0, document.body.scrollHeight)")
                     page.wait_for_timeout(800)
+                    load_round += 1
                 if not found:
                     raise AutohomeStructureError("新能源汽车目录中没有发现有效车系")
-                return CatalogDiscoveryResult(found, self._session(context, page))
+                return CatalogDiscoveryResult(
+                    found,
+                    self._session(context, page),
+                    scanned_count=scanned_count,
+                    skipped_count=skipped_count,
+                    source_exhausted=len(found) < max_series,
+                )
             finally:
                 browser.close()
+
+    def discover(self, max_series: int) -> CatalogDiscoveryResult:
+        return self.discover_series(max_series)
 
     def open_session(self) -> BrowserSession:
         ensure_allowed_url(AUTOHOME_CATALOG_URL)
