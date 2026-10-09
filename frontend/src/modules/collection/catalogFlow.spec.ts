@@ -10,6 +10,14 @@ import {
 } from "./api";
 import { createCatalogFlow } from "./catalogFlow";
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
 function run(status: CatalogRun["status"] = "discovering"): CatalogRun {
   return {
     id: "run-1",
@@ -268,6 +276,115 @@ describe("catalog flow", () => {
 
     expect(flow.selectedSeriesIds.value).toEqual(["5702"]);
     expect(flow.removedSelectionCount.value).toBe(1);
+  });
+
+  it("ignores_an_older_reconciliation_after_a_newer_catalog_generation", async () => {
+    const oldSelection = deferred<{
+      batch_id: string;
+      series_ids: string[];
+      total: number;
+    }>();
+    const client = api({
+      getCatalogStatus: vi
+        .fn()
+        .mockResolvedValueOnce(status(null, "batch-1"))
+        .mockResolvedValueOnce(status(null, "batch-2"))
+        .mockResolvedValueOnce(status(null, "batch-3")),
+      listCatalog: vi
+        .fn()
+        .mockResolvedValueOnce({
+          rows: [row(1, "batch-2")],
+          total: 1,
+          page: 1,
+          page_size: 20,
+        })
+        .mockResolvedValueOnce({
+          rows: [row(2, "batch-3")],
+          total: 1,
+          page: 1,
+          page_size: 20,
+        }),
+      listCatalogSelection: vi
+        .fn()
+        .mockReturnValueOnce(oldSelection.promise)
+        .mockResolvedValueOnce({
+          batch_id: "batch-3",
+          series_ids: ["5702"],
+          total: 1,
+        }),
+    });
+    const flow = createCatalogFlow(client, vi.fn(), false);
+    await flow.open();
+    flow.toggleSeries("5701");
+    flow.toggleSeries("5702");
+
+    const olderLoad = flow.loadCatalog();
+    while (vi.mocked(client.listCatalogSelection).mock.calls.length === 0) {
+      await Promise.resolve();
+    }
+    const newerLoad = flow.loadCatalog();
+    await newerLoad;
+    oldSelection.resolve({
+      batch_id: "batch-2",
+      series_ids: ["5701"],
+      total: 1,
+    });
+    await olderLoad;
+
+    expect(flow.catalogStatus.value?.active_batch_id).toBe("batch-3");
+    expect(flow.selectedSeriesIds.value).toEqual(["5702"]);
+  });
+
+  it("ignores_select_all_result_for_a_superseded_query", async () => {
+    const oldSelection = deferred<{
+      batch_id: string;
+      series_ids: string[];
+      total: number;
+    }>();
+    const client = api({
+      listCatalogSelection: vi
+        .fn()
+        .mockReturnValueOnce(oldSelection.promise)
+        .mockResolvedValueOnce({
+          batch_id: "batch-1",
+          series_ids: ["5702"],
+          total: 1,
+        }),
+    });
+    const flow = createCatalogFlow(client, vi.fn(), false);
+    await flow.open();
+    flow.query.value = "旧查询";
+    const older = flow.selectFiltered();
+    flow.query.value = "新查询";
+    await flow.selectFiltered();
+    oldSelection.resolve({
+      batch_id: "batch-1",
+      series_ids: ["5701"],
+      total: 1,
+    });
+    await older;
+
+    expect(flow.selectedSeriesIds.value).toEqual(["5702"]);
+  });
+
+  it("a_previous_submission_cannot_close_a_reopened_dialog", async () => {
+    const submission = deferred<CollectionJob>();
+    const refresh = vi.fn().mockResolvedValue(undefined);
+    const client = api({
+      createJob: vi.fn().mockReturnValue(submission.promise),
+    });
+    const flow = createCatalogFlow(client, refresh, false);
+    await flow.open();
+    flow.toggleSeries("5701");
+
+    const pending = flow.createJob();
+    flow.close();
+    await flow.open();
+    submission.resolve(queuedJob());
+    await pending;
+
+    expect(flow.isOpen.value).toBe(true);
+    expect(refresh).toHaveBeenCalledOnce();
   });
 
   it("successful_job_creation_closes_and_refreshes_workspace", async () => {

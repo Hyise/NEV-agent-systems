@@ -47,13 +47,19 @@ class SeriesCatalogService:
             return self._future
         except Exception:
             if created:
-                self.repository.fail_run(
-                    run_id,
-                    "schedule_error",
-                    "车系发现任务调度失败，请重试",
-                    self._now(),
-                )
-            self.coordinator.release("catalog", run_id)
+                try:
+                    self.repository.fail_run(
+                        run_id,
+                        "schedule_error",
+                        "车系发现任务调度失败，请重试",
+                        self._now(),
+                    )
+                except Exception:  # noqa: BLE001 - preserve scheduling failure
+                    pass
+            try:
+                self.coordinator.release("catalog", run_id)
+            except Exception:  # noqa: BLE001 - preserve scheduling failure
+                pass
             raise
 
     def run_discovery(self, run_id: str) -> None:
@@ -97,11 +103,12 @@ class SeriesCatalogService:
                 self.repository.cancel_run(run_id, self._now())
         except Exception:  # noqa: BLE001 - sanitize the external source boundary
             run = self.repository.get_run(run_id)
-            if run is not None and run["status"] in {
+            if run is not None and run["status"] == CatalogRunStatus.CANCELLING.value:
+                self.repository.cancel_run(run_id, self._now())
+            elif run is not None and run["status"] in {
                 CatalogRunStatus.QUEUED.value,
                 CatalogRunStatus.DISCOVERING.value,
                 CatalogRunStatus.PUBLISHING.value,
-                CatalogRunStatus.CANCELLING.value,
             }:
                 self.repository.fail_run(
                     run_id,
@@ -116,7 +123,20 @@ class SeriesCatalogService:
         self.repository.request_cancel(run_id, self._now())
 
     def shutdown(self) -> None:
-        run = self.repository.active_run()
-        if run is not None and run["status"] != CatalogRunStatus.CANCELLING.value:
-            self.repository.request_cancel(run["id"], self._now())
-        self._executor.shutdown(wait=True)
+        try:
+            run = self.repository.active_run()
+            if run is not None and run["status"] != CatalogRunStatus.CANCELLING.value:
+                try:
+                    self.repository.request_cancel(run["id"], self._now())
+                except CatalogRunConflict:
+                    latest = self.repository.get_run(run["id"])
+                    terminal = {
+                        CatalogRunStatus.COMPLETED.value,
+                        CatalogRunStatus.COMPLETED_SHORT.value,
+                        CatalogRunStatus.CANCELLED.value,
+                        CatalogRunStatus.FAILED.value,
+                    }
+                    if latest is not None and latest["status"] not in terminal:
+                        raise
+        finally:
+            self._executor.shutdown(wait=True)

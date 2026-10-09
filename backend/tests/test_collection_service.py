@@ -876,6 +876,72 @@ def test_resume_scheduling_failure_restores_paused_state(tmp_path):
     service.shutdown()
 
 
+def test_resume_prepare_failure_releases_external_reservation(tmp_path, monkeypatch):
+    repository = CollectionRepository(tmp_path / "collection.sqlite3")
+    repository.create_job("job-1", make_config(), NOW.isoformat())
+    repository.set_status(
+        "job-1",
+        JobStatus.PAUSED,
+        NOW.isoformat(),
+        resume_status=JobStatus.DISCOVERING,
+    )
+    coordinator = ExternalAccessCoordinator()
+    service = CollectionService(
+        repository,
+        coordinator=coordinator,
+        clock=lambda: NOW,
+    )
+
+    def broken_clear(*args, **kwargs):
+        raise OSError("database unavailable")
+
+    monkeypatch.setattr(repository, "clear_control", broken_clear)
+
+    with pytest.raises(OSError, match="database unavailable"):
+        service.resume("job-1")
+
+    assert coordinator.current() is None
+    service.shutdown()
+
+
+def test_resume_preserves_submit_error_and_releases_when_rollback_fails(
+    tmp_path, monkeypatch
+):
+    class RejectingExecutor:
+        def submit(self, *args, **kwargs):
+            raise RuntimeError("executor unavailable")
+
+        def shutdown(self, wait=True):
+            return None
+
+    repository = CollectionRepository(tmp_path / "collection.sqlite3")
+    repository.create_job("job-1", make_config(), NOW.isoformat())
+    repository.set_status(
+        "job-1",
+        JobStatus.PAUSED,
+        NOW.isoformat(),
+        resume_status=JobStatus.DISCOVERING,
+    )
+    coordinator = ExternalAccessCoordinator()
+    service = CollectionService(repository, coordinator=coordinator, clock=lambda: NOW)
+    service._executor.shutdown(wait=True)
+    service._executor = RejectingExecutor()
+    original_set_status = repository.set_status
+
+    def fail_rollback(job_id, status, *args, **kwargs):
+        if status is JobStatus.PAUSED:
+            raise OSError("rollback unavailable")
+        return original_set_status(job_id, status, *args, **kwargs)
+
+    monkeypatch.setattr(repository, "set_status", fail_rollback)
+
+    with pytest.raises(RuntimeError, match="executor unavailable"):
+        service.resume("job-1")
+
+    assert coordinator.current() is None
+    service.shutdown()
+
+
 def test_discovery_failure_pauses_without_exposing_adapter_internals(tmp_path):
     repository = CollectionRepository(tmp_path / "collection.sqlite3")
     repository.create_job(

@@ -10,6 +10,7 @@ from backend.collection.autohome import (
     CatalogDiscoveryCancelled,
     CatalogDiscoveryResult,
 )
+from backend.collection.catalog_domain import CatalogRunConflict
 from backend.collection.catalog_repository import SeriesCatalogRepository
 from backend.collection.catalog_service import SeriesCatalogService
 from backend.collection.coordination import ExternalAccessCoordinator
@@ -107,6 +108,35 @@ def test_failed_executor_submission_releases_reservation(tmp_path):
 
     assert coordinator.current() is None
     assert repository.get_run("run-1")["status"] == "failed"
+
+
+def test_executor_failure_still_releases_reservation_when_failure_recording_breaks(
+    tmp_path, monkeypatch
+):
+    class RejectingExecutor:
+        def submit(self, *args, **kwargs):
+            raise RuntimeError("executor unavailable")
+
+        def shutdown(self, wait=True):
+            return None
+
+    repository, coordinator = make_dependencies(tmp_path)
+    service = SeriesCatalogService(
+        repository,
+        coordinator,
+        clock=lambda: NOW,
+        executor=RejectingExecutor(),
+    )
+
+    def broken_fail_run(*args, **kwargs):
+        raise OSError("database unavailable")
+
+    monkeypatch.setattr(repository, "fail_run", broken_fail_run)
+
+    with pytest.raises(RuntimeError, match="executor unavailable"):
+        service.start("run-1", "batch-1")
+
+    assert coordinator.current() is None
 
 
 def test_discovery_stages_progress_and_publishes_1000_unique_series(tmp_path):
@@ -225,6 +255,55 @@ def test_cancel_during_request_stops_before_next_batch_and_does_not_publish(tmp_
     service.shutdown()
 
 
+def test_cancellation_between_check_and_stage_finishes_cancelled(tmp_path, monkeypatch):
+    repository, coordinator = make_dependencies(tmp_path)
+    original_append = repository.append_entries
+
+    def cancel_then_append(run_id, entries, **kwargs):
+        repository.request_cancel(run_id, NOW.isoformat())
+        return original_append(run_id, entries, **kwargs)
+
+    monkeypatch.setattr(repository, "append_entries", cancel_then_append)
+    service = SeriesCatalogService(
+        repository,
+        coordinator,
+        adapter_factory=lambda: BatchAdapter([make_series(1)], source_exhausted=True),
+        clock=lambda: NOW,
+    )
+
+    service.start("run-1", "batch-1").result(timeout=5)
+
+    assert repository.get_run("run-1")["status"] == "cancelled"
+    assert coordinator.current() is None
+    service.shutdown()
+
+
+def test_cancellation_between_check_and_publish_finishes_cancelled(
+    tmp_path, monkeypatch
+):
+    repository, coordinator = make_dependencies(tmp_path)
+    original_publish = repository.publish_run
+
+    def cancel_then_publish(run_id, published_at, source_exhausted):
+        repository.request_cancel(run_id, NOW.isoformat())
+        return original_publish(run_id, published_at, source_exhausted)
+
+    monkeypatch.setattr(repository, "publish_run", cancel_then_publish)
+    service = SeriesCatalogService(
+        repository,
+        coordinator,
+        adapter_factory=lambda: BatchAdapter([make_series(1)], source_exhausted=True),
+        clock=lambda: NOW,
+    )
+
+    service.start("run-1", "batch-1").result(timeout=5)
+
+    assert repository.get_run("run-1")["status"] == "cancelled"
+    assert repository.catalog_status()["active_batch_id"] is None
+    assert coordinator.current() is None
+    service.shutdown()
+
+
 def test_shutdown_marks_running_catalog_interrupted(tmp_path):
     entered = Event()
 
@@ -251,3 +330,38 @@ def test_shutdown_marks_running_catalog_interrupted(tmp_path):
     assert repository.get_run("run-1")["status"] == "cancelled"
     assert repository.active_run() is None
     assert coordinator.current() is None
+
+
+def test_shutdown_tolerates_run_finishing_between_lookup_and_cancel(
+    tmp_path, monkeypatch
+):
+    class RecordingExecutor:
+        def __init__(self):
+            self.shutdown_called = False
+
+        def submit(self, *args, **kwargs):
+            raise AssertionError("not used")
+
+        def shutdown(self, wait=True):
+            self.shutdown_called = True
+
+    repository, coordinator = make_dependencies(tmp_path)
+    repository.create_run("run-1", "batch-1", NOW.isoformat())
+    executor = RecordingExecutor()
+    service = SeriesCatalogService(
+        repository,
+        coordinator,
+        clock=lambda: NOW,
+        executor=executor,
+    )
+
+    def finish_then_conflict(run_id, updated_at):
+        repository.cancel_run(run_id, updated_at)
+        raise CatalogRunConflict("发现任务已经结束")
+
+    monkeypatch.setattr(repository, "request_cancel", finish_then_conflict)
+
+    service.shutdown()
+
+    assert repository.get_run("run-1")["status"] == "cancelled"
+    assert executor.shutdown_called is True

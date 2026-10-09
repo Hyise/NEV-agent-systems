@@ -306,7 +306,10 @@ class AutohomeCatalogAdapter:
             })
             """,
         )
-        return [CatalogLink(str(value["href"]), str(value["name"])) for value in values]
+        links = [
+            CatalogLink(str(value["href"]), str(value["name"])) for value in values
+        ]
+        return [link for link in links if _series_id_from_href(link.href)]
 
     @staticmethod
     def _guard_browser_requests(context) -> None:
@@ -358,12 +361,16 @@ class AutohomeCatalogAdapter:
         should_cancel: Callable[[], bool] | None = None,
     ) -> CatalogDiscoveryResult:
         ensure_allowed_url(AUTOHOME_CATALOG_URL)
+        if should_cancel is not None and should_cancel():
+            raise CatalogDiscoveryCancelled("车系发现已取消")
         with self._factory()() as playwright:
             browser = playwright.chromium.launch(headless=True)
             try:
                 context = browser.new_context(locale="zh-CN")
                 self._guard_browser_requests(context)
                 page = context.new_page()
+                if should_cancel is not None and should_cancel():
+                    raise CatalogDiscoveryCancelled("车系发现已取消")
                 response = page.goto(
                     AUTOHOME_CATALOG_URL,
                     wait_until="domcontentloaded",

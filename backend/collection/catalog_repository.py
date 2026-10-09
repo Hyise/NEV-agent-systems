@@ -247,6 +247,7 @@ class SeriesCatalogRepository:
         params = self._search(query)
         where = "lower(e.series_name) LIKE ? OR e.series_id LIKE ?"
         with self.connect() as connection:
+            connection.execute("BEGIN")
             state = connection.execute(
                 "SELECT * FROM series_catalog_state WHERE singleton=1"
             ).fetchone()
@@ -275,24 +276,34 @@ class SeriesCatalogRepository:
             "page_size": page_size,
         }
 
-    def selection_ids(self, query: str = "") -> list[str]:
+    def selection_result(self, query: str = "") -> dict[str, Any]:
         params = self._search(query)
         where = "lower(e.series_name) LIKE ? OR e.series_id LIKE ?"
         with self.connect() as connection:
+            connection.execute("BEGIN")
             state = connection.execute(
                 "SELECT active_batch_id FROM series_catalog_state WHERE singleton=1"
             ).fetchone()
             if state is None or state["active_batch_id"] is None:
-                return []
+                return {"batch_id": None, "series_ids": [], "total": 0}
+            batch_id = str(state["active_batch_id"])
             rows = connection.execute(
                 f"""
                 SELECT e.series_id FROM series_catalog_entries e
                 WHERE e.batch_id=? AND ({where})
                 ORDER BY e.discovery_rank,e.series_id
                 """,
-                (state["active_batch_id"], *params),
+                (batch_id, *params),
             ).fetchall()
-        return [str(row["series_id"]) for row in rows]
+        series_ids = [str(row["series_id"]) for row in rows]
+        return {
+            "batch_id": batch_id,
+            "series_ids": series_ids,
+            "total": len(series_ids),
+        }
+
+    def selection_ids(self, query: str = "") -> list[str]:
+        return self.selection_result(query)["series_ids"]
 
     def publish_run(
         self, run_id: str, published_at: str, source_exhausted: bool

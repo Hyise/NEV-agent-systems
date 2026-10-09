@@ -32,13 +32,7 @@ def create_catalog_router(
 
     @router.get("/selection")
     def catalog_selection(query: CatalogQuery = ""):
-        state = repository.catalog_status()
-        series_ids = repository.selection_ids(query=query)
-        return {
-            "batch_id": state["active_batch_id"],
-            "series_ids": series_ids,
-            "total": len(series_ids),
-        }
+        return repository.selection_result(query=query)
 
     @router.get("/status")
     def catalog_status():

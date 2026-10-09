@@ -60,9 +60,11 @@ class FakePage:
         self.rounds = rounds
         self.round_index = 0
         self.scroll_calls = 0
+        self.goto_calls = 0
         self.url = "https://www.autohome.com.cn/price/ev#pvareaid=3311257"
 
     def goto(self, url, wait_until, timeout):
+        self.goto_calls += 1
         assert url == self.url
         assert wait_until == "domcontentloaded"
         assert timeout == 20_000
@@ -202,9 +204,54 @@ def test_catalog_fixture_exercises_scoped_dom_extraction():
     series = extract_catalog_series(links, max_series=500)
 
     assert [(item.series_id, item.series_name) for item in series] == [
+        ("8627", "传祺越7"),
         ("5769", "Model Y"),
         ("6762", "海鸥"),
     ]
+
+
+def test_catalog_dom_extraction_ignores_non_series_links_before_quality_metrics():
+    class CurrentPage:
+        def eval_on_selector_all(self, selector, script):
+            return [
+                {"href": "/8627/#pvareaid=6861421", "name": "传祺越7"},
+                {"href": "/price/ev#filters", "name": "筛选"},
+                {"href": "https://www.autohome.com.cn/news/", "name": "资讯"},
+                {"href": "/8584/#pvareaid=6861421", "name": "ID.AURA T6"},
+            ]
+
+    links = AutohomeCatalogAdapter._read_links(CurrentPage())
+
+    assert [(link.href, link.name) for link in links] == [
+        ("/8627/#pvareaid=6861421", "传祺越7"),
+        ("/8584/#pvareaid=6861421", "ID.AURA T6"),
+    ]
+
+
+def test_discovery_cancelled_before_start_does_not_launch_browser():
+    factory_called = False
+
+    def factory():
+        nonlocal factory_called
+        factory_called = True
+        raise AssertionError("browser must not launch")
+
+    adapter = AutohomeCatalogAdapter(playwright_factory=factory)
+
+    with pytest.raises(CatalogDiscoveryCancelled):
+        adapter.discover_series(1000, should_cancel=lambda: True)
+
+    assert factory_called is False
+
+
+def test_discovery_cancelled_after_page_creation_does_not_navigate():
+    adapter, page = discovery_adapter([[{"href": "/5769/", "name": "Model Y"}]])
+    checks = iter((False, True))
+
+    with pytest.raises(CatalogDiscoveryCancelled):
+        adapter.discover_series(1000, should_cancel=lambda: next(checks))
+
+    assert page.goto_calls == 0
 
 
 def test_catalog_page_identity_rejects_redirects_and_verification_pages():
@@ -340,7 +387,7 @@ def test_discovery_cancels_before_the_next_scroll():
 def test_nonempty_round_with_zero_valid_entries_fails():
     adapter, page = discovery_adapter(
         [
-            [{"href": "/not-a-series/", "name": "无效条目"}],
+            [{"href": "/5769/", "name": ""}],
             [{"href": "/5769/", "name": "Model Y"}],
         ]
     )
@@ -357,7 +404,7 @@ def test_required_field_failure_rate_over_five_percent_after_one_hundred_items_f
         for index in range(94)
     ]
     candidates.extend(
-        {"href": f"/invalid-{index}/", "name": f"无效 {index}"}
+        {"href": f"/{6000 + index}/", "name": ""}
         for index in range(6)
     )
     adapter, page = discovery_adapter([candidates])

@@ -53,7 +53,13 @@ export function createCatalogFlow(
   );
 
   let requestId = 0;
+  let lifecycleId = 0;
+  let actionId = 0;
   let pollTimer: ReturnType<typeof setTimeout> | undefined;
+
+  function isCurrentAction(token: number, lifecycle: number) {
+    return token === actionId && lifecycle === lifecycleId && isOpen.value;
+  }
 
   function clearPoll() {
     if (pollTimer !== undefined) clearTimeout(pollTimer);
@@ -88,7 +94,10 @@ export function createCatalogFlow(
     return next;
   }
 
-  async function reconcileSelection(previousBatchId: string | null) {
+  async function reconcileSelection(
+    previousBatchId: string | null,
+    token: number,
+  ) {
     const nextBatchId = catalogStatus.value?.active_batch_id ?? null;
     if (
       previousBatchId === null ||
@@ -98,7 +107,13 @@ export function createCatalogFlow(
       return;
     }
     const valid = await client.listCatalogSelection("");
-    if (valid.batch_id !== nextBatchId) return;
+    if (
+      token !== requestId ||
+      !isOpen.value ||
+      catalogStatus.value?.active_batch_id !== nextBatchId ||
+      valid.batch_id !== nextBatchId
+    )
+      return;
     const validIds = new Set(valid.series_ids);
     removedSeriesIds.value = selectedSeriesIds.value.filter(
       (id) => !validIds.has(id),
@@ -124,7 +139,7 @@ export function createCatalogFlow(
         discoveryRun.value = nextStatus.active_run;
       }
       catalog.value = nextCatalog;
-      await reconcileSelection(previousBatchId);
+      await reconcileSelection(previousBatchId, token);
     } catch (cause) {
       if (token === requestId) error.value = (cause as Error).message;
     } finally {
@@ -157,6 +172,7 @@ export function createCatalogFlow(
 
   async function open() {
     isOpen.value = true;
+    lifecycleId += 1;
     step.value = "discovery";
     error.value = "";
     productionConfirmPending.value = false;
@@ -176,6 +192,8 @@ export function createCatalogFlow(
 
   function close() {
     isOpen.value = false;
+    lifecycleId += 1;
+    actionId += 1;
     requestId += 1;
     clearPoll();
     actionBusy.value = false;
@@ -184,31 +202,47 @@ export function createCatalogFlow(
   }
 
   async function startDiscovery() {
+    const actionToken = ++actionId;
+    const lifecycle = lifecycleId;
     actionBusy.value = true;
     error.value = "";
     clearPoll();
     try {
-      discoveryRun.value = await client.startCatalogDiscovery();
+      const next = await client.startCatalogDiscovery();
+      if (!isCurrentAction(actionToken, lifecycle)) return;
+      discoveryRun.value = next;
       schedulePoll();
     } catch (cause) {
-      error.value = (cause as Error).message;
+      if (isCurrentAction(actionToken, lifecycle)) {
+        error.value = (cause as Error).message;
+      }
     } finally {
-      actionBusy.value = false;
+      if (actionToken === actionId && lifecycle === lifecycleId) {
+        actionBusy.value = false;
+      }
     }
   }
 
   async function cancelDiscovery() {
     const activeRun = currentRun();
     if (activeRun === null) return;
+    const actionToken = ++actionId;
+    const lifecycle = lifecycleId;
     actionBusy.value = true;
     error.value = "";
     try {
-      discoveryRun.value = await client.cancelCatalogDiscovery(activeRun.id);
+      const next = await client.cancelCatalogDiscovery(activeRun.id);
+      if (!isCurrentAction(actionToken, lifecycle)) return;
+      discoveryRun.value = next;
       schedulePoll();
     } catch (cause) {
-      error.value = (cause as Error).message;
+      if (isCurrentAction(actionToken, lifecycle)) {
+        error.value = (cause as Error).message;
+      }
     } finally {
-      actionBusy.value = false;
+      if (actionToken === actionId && lifecycle === lifecycleId) {
+        actionBusy.value = false;
+      }
     }
   }
 
@@ -236,11 +270,23 @@ export function createCatalogFlow(
   }
 
   async function selectFiltered() {
+    const actionToken = ++actionId;
+    const lifecycle = lifecycleId;
+    const expectedQuery = query.value;
+    const expectedBatchId = catalogStatus.value?.active_batch_id ?? null;
     actionBusy.value = true;
     error.value = "";
     try {
-      const result = await client.listCatalogSelection(query.value);
-      if (result.batch_id !== catalogStatus.value?.active_batch_id) {
+      const result = await client.listCatalogSelection(expectedQuery);
+      if (
+        !isCurrentAction(actionToken, lifecycle) ||
+        query.value !== expectedQuery
+      )
+        return;
+      if (
+        result.batch_id !== expectedBatchId ||
+        catalogStatus.value?.active_batch_id !== expectedBatchId
+      ) {
         error.value = "车系目录已更新，请刷新后重新选择";
         return;
       }
@@ -251,9 +297,13 @@ export function createCatalogFlow(
       ];
       productionConfirmPending.value = false;
     } catch (cause) {
-      error.value = (cause as Error).message;
+      if (isCurrentAction(actionToken, lifecycle)) {
+        error.value = (cause as Error).message;
+      }
     } finally {
-      actionBusy.value = false;
+      if (actionToken === actionId && lifecycle === lifecycleId) {
+        actionBusy.value = false;
+      }
     }
   }
 
@@ -263,6 +313,8 @@ export function createCatalogFlow(
   }
 
   async function submitJob() {
+    const actionToken = ++actionId;
+    const lifecycle = lifecycleId;
     actionBusy.value = true;
     error.value = "";
     try {
@@ -270,12 +322,16 @@ export function createCatalogFlow(
         mode: mode.value,
         selected_series_ids: [...selectedSeriesIds.value],
       });
-      close();
+      if (isCurrentAction(actionToken, lifecycle)) close();
       await onJobCreated();
     } catch (cause) {
-      error.value = (cause as Error).message;
+      if (isCurrentAction(actionToken, lifecycle)) {
+        error.value = (cause as Error).message;
+      }
     } finally {
-      actionBusy.value = false;
+      if (actionToken === actionId && lifecycle === lifecycleId) {
+        actionBusy.value = false;
+      }
     }
   }
 

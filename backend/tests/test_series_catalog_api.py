@@ -139,6 +139,30 @@ def test_catalog_query_and_selection_share_the_same_filter(catalog_client):
     }
 
 
+def test_catalog_selection_uses_one_repository_snapshot(catalog_client, monkeypatch):
+    client, app, _ = catalog_client
+    repository = app.state.catalog_repository
+    expected = {
+        "batch_id": "batch-stable",
+        "series_ids": ["5001", "5002"],
+        "total": 2,
+    }
+    monkeypatch.setattr(repository, "selection_result", lambda query="": expected)
+
+    def forbidden_split_read(*args, **kwargs):
+        raise AssertionError("selection must not combine separate repository reads")
+
+    monkeypatch.setattr(repository, "selection_ids", forbidden_split_read)
+    monkeypatch.setattr(repository, "catalog_status", forbidden_split_read)
+
+    response = client.get(
+        "/api/collection/catalog/selection", params={"query": "星海"}
+    )
+
+    assert response.status_code == 200
+    assert response.json() == expected
+
+
 def test_catalog_run_detail_cancel_and_missing_run(catalog_client):
     client, _, service = catalog_client
     started = client.post("/api/collection/catalog/discover").json()

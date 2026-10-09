@@ -115,19 +115,27 @@ class CollectionService:
             if not self.coordinator.try_reserve("collection", job_id):
                 raise TaskControlError("汽车之家数据源正被其他任务使用")
             self._shutdown_requested.clear()
-            self.repository.clear_control(job_id, self._now())
-            self.repository.set_status(job_id, target, self._now())
             try:
+                self.repository.clear_control(job_id, self._now())
+                self.repository.set_status(job_id, target, self._now())
                 self._future = self._executor.submit(self._run_reserved, job_id)
             except Exception:
-                self.repository.set_status(
-                    job_id,
-                    JobStatus.PAUSED,
-                    self._now(),
-                    resume_status=target,
-                    last_error="任务调度失败，请重试",
-                )
-                self.coordinator.release("collection", job_id)
+                try:
+                    current = self.repository.get_job(job_id)
+                    if current is not None and JobStatus(current["status"]) is target:
+                        self.repository.set_status(
+                            job_id,
+                            JobStatus.PAUSED,
+                            self._now(),
+                            resume_status=target,
+                            last_error="任务调度失败，请重试",
+                        )
+                except Exception:  # noqa: BLE001 - preserve preparation failure
+                    pass
+                try:
+                    self.coordinator.release("collection", job_id)
+                except Exception:  # noqa: BLE001 - preserve preparation failure
+                    pass
                 raise
             return self._future
 
