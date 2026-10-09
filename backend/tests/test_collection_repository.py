@@ -53,7 +53,7 @@ def create_job(repository, job_id="job-1"):
     )
 
 
-def test_repository_creates_four_collection_tables(tmp_path):
+def test_repository_creates_collection_tables(tmp_path):
     repository = make_repository(tmp_path)
 
     with sqlite3.connect(repository.path) as connection:
@@ -79,6 +79,7 @@ def test_repository_creates_four_collection_tables(tmp_path):
         "vehicle_series",
         "reviews",
         "collection_events",
+        "collection_job_series",
     }
 
 

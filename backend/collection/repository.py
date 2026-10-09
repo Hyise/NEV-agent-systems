@@ -101,6 +101,19 @@ class CollectionRepository:
                     retryable INTEGER NOT NULL DEFAULT 0,
                     created_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS collection_job_series (
+                    job_id TEXT NOT NULL REFERENCES collection_jobs(id),
+                    platform TEXT NOT NULL,
+                    series_id TEXT NOT NULL,
+                    series_name_snapshot TEXT NOT NULL,
+                    series_url_snapshot TEXT NOT NULL,
+                    review_url_snapshot TEXT NOT NULL,
+                    catalog_batch_id TEXT NOT NULL,
+                    catalog_rank INTEGER NOT NULL,
+                    selection_order INTEGER NOT NULL,
+                    PRIMARY KEY (job_id, platform, series_id),
+                    UNIQUE (job_id, selection_order)
+                );
                 CREATE INDEX IF NOT EXISTS ix_reviews_series
                     ON reviews(platform, series_id, first_collected_at);
                 CREATE INDEX IF NOT EXISTS ix_collection_events_job
