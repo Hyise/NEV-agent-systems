@@ -94,10 +94,64 @@ export interface ReviewDetail extends ReviewSummary {
   original_review: Record<string, unknown>;
 }
 
+export type CatalogRunStatus =
+  | "queued"
+  | "discovering"
+  | "publishing"
+  | "completed"
+  | "completed_short"
+  | "cancelling"
+  | "cancelled"
+  | "failed";
+
+export interface CatalogRun {
+  id: string;
+  batch_id: string;
+  status: CatalogRunStatus;
+  target_unique_series: number;
+  scanned_count: number;
+  unique_count: number;
+  skipped_count: number;
+  current_page: number;
+  error_code: string | null;
+  error_message: string | null;
+  source_exhausted: boolean;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  updated_at: string;
+}
+
+export interface CatalogStatus {
+  active_batch_id: string | null;
+  series_count: number;
+  published_at: string | null;
+  source_url: string;
+  source_exhausted: boolean;
+  active_run: CatalogRun | null;
+}
+
+export interface CatalogSeriesRow {
+  batch_id: string;
+  platform: "autohome";
+  series_id: string;
+  series_name: string;
+  series_url: string;
+  review_url: string;
+  discovery_rank: number;
+  discovered_at: string;
+  published_at: string;
+}
+
+export interface CatalogSelectionResult {
+  batch_id: string | null;
+  series_ids: string[];
+  total: number;
+}
+
 export interface CreateJobInput {
   mode: "verification" | "production";
-  max_series?: number;
-  max_pages_per_series?: number;
+  selected_series_ids: string[];
   request_delay_min_seconds?: number;
   request_delay_max_seconds?: number;
   series_delay_min_seconds?: number;
@@ -113,11 +167,18 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     let message = `请求失败（${response.status}）`;
     try {
       const body = (await response.json()) as {
-        detail?: string | Array<{ msg: string }>;
+        detail?:
+          | string
+          | Array<{ msg: string }>
+          | { message?: string; invalid_series_ids?: string[] };
       };
       if (typeof body.detail === "string") message = body.detail;
       else if (Array.isArray(body.detail)) {
         message = body.detail.map((item) => item.msg).join("；") || message;
+      } else if (body.detail && typeof body.detail === "object") {
+        const invalid = body.detail.invalid_series_ids ?? [];
+        message = body.detail.message || message;
+        if (invalid.length) message += `（${invalid.join("、")}）`;
       }
     } catch {
       // Retain the status-based fallback when the response is not JSON.
@@ -152,6 +213,16 @@ export interface CollectionApi {
     pageSize?: number,
   ): Promise<Page<ReviewSummary>>;
   getReview(reviewId: string): Promise<ReviewDetail>;
+  getCatalogStatus(): Promise<CatalogStatus>;
+  listCatalog(
+    query?: string,
+    page?: number,
+    pageSize?: number,
+  ): Promise<Page<CatalogSeriesRow>>;
+  listCatalogSelection(query?: string): Promise<CatalogSelectionResult>;
+  startCatalogDiscovery(): Promise<CatalogRun>;
+  getCatalogRun(runId: string): Promise<CatalogRun>;
+  cancelCatalogDiscovery(runId: string): Promise<CatalogRun>;
 }
 
 export const collectionApi: CollectionApi = {
@@ -172,4 +243,16 @@ export const collectionApi: CollectionApi = {
       `/reviews?${seriesId ? `series_id=${encodeURIComponent(seriesId)}&` : ""}page=${page}&page_size=${pageSize}`,
     ),
   getReview: (reviewId) => request(`/reviews/${encodeURIComponent(reviewId)}`),
+  getCatalogStatus: () => request("/catalog/status"),
+  listCatalog: (query = "", page = 1, pageSize = 20) =>
+    request(
+      `/catalog?query=${encodeURIComponent(query)}&page=${page}&page_size=${pageSize}`,
+    ),
+  listCatalogSelection: (query = "") =>
+    request(`/catalog/selection?query=${encodeURIComponent(query)}`),
+  startCatalogDiscovery: () => post("/catalog/discover"),
+  getCatalogRun: (runId) =>
+    request(`/catalog/discover/${encodeURIComponent(runId)}`),
+  cancelCatalogDiscovery: (runId) =>
+    post(`/catalog/discover/${encodeURIComponent(runId)}/cancel`),
 };

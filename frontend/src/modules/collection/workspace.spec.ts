@@ -68,6 +68,12 @@ function api(overrides: Partial<CollectionApi> = {}): CollectionApi {
     listSeries: vi.fn(),
     listReviews: vi.fn(),
     getReview: vi.fn(),
+    getCatalogStatus: vi.fn(),
+    listCatalog: vi.fn(),
+    listCatalogSelection: vi.fn(),
+    startCatalogDiscovery: vi.fn(),
+    getCatalogRun: vi.fn(),
+    cancelCatalogDiscovery: vi.fn(),
     ...overrides,
   };
 }
@@ -227,31 +233,6 @@ describe("collection workspace", () => {
     workspace.deactivate();
 
     expect(vi.getTimerCount()).toBe(0);
-  });
-
-  it("submits verification defaults and requires a second production confirmation", async () => {
-    const client = api();
-    const workspace = createCollectionWorkspace(client, false);
-
-    await workspace.createJob();
-    expect(client.createJob).toHaveBeenCalledWith({
-      mode: "verification",
-      max_series: 3,
-      max_pages_per_series: 2,
-    });
-
-    workspace.jobMode.value = "production";
-    await workspace.createJob();
-    expect(client.createJob).toHaveBeenCalledTimes(1);
-    expect(workspace.productionConfirmPending.value).toBe(true);
-    expect(workspace.productionConfirmationText).toContain(
-      "前 500 个车系、每车系全部评论",
-    );
-    expect(workspace.productionConfirmationText).toContain("2～4 秒");
-    expect(workspace.productionConfirmationText).toContain("5～10 秒");
-
-    await workspace.confirmProduction();
-    expect(client.createJob).toHaveBeenLastCalledWith({ mode: "production" });
   });
 
   it("keeps saved counts after stop and exposes state errors unchanged", async () => {

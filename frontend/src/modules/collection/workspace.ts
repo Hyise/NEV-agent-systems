@@ -51,11 +51,6 @@ export function createCollectionWorkspace(
   const actionBusy = ref(false);
   const error = ref("");
   const mobileNav = ref(false);
-  const showCreate = ref(false);
-  const jobMode = ref<"verification" | "production">("verification");
-  const productionConfirmPending = ref(false);
-  const productionConfirmationText =
-    "正式采集将处理前 500 个车系、每车系全部评论；分页间隔 2～4 秒、车系间隔 5～10 秒，临时失败按 5/15/45 秒重试，单次请求超时 20 秒。";
   const series = ref<ResultPage<SeriesRow>>(emptyPage());
   const reviews = ref<ResultPage<ReviewSummary>>(emptyPage());
   const selectedSeries = ref<SeriesRow | null>(null);
@@ -273,45 +268,6 @@ export function createCollectionWorkspace(
   const resume = (jobId: string) => runAction(client.resumeJob, jobId);
   const stop = (jobId: string) => runAction(client.stopJob, jobId);
 
-  function openCreate() {
-    jobMode.value = "verification";
-    productionConfirmPending.value = false;
-    showCreate.value = true;
-  }
-
-  function closeCreate() {
-    showCreate.value = false;
-    productionConfirmPending.value = false;
-  }
-
-  async function createJob(productionConfirmed = false) {
-    if (jobMode.value === "production" && !productionConfirmed) {
-      productionConfirmPending.value = true;
-      return;
-    }
-    actionBusy.value = true;
-    error.value = "";
-    try {
-      await client.createJob(
-        jobMode.value === "verification"
-          ? {
-              mode: "verification",
-              max_series: 3,
-              max_pages_per_series: 2,
-            }
-          : { mode: "production" },
-      );
-      closeCreate();
-      await loadWorkspace();
-    } catch (cause) {
-      error.value = (cause as Error).message;
-    } finally {
-      actionBusy.value = false;
-    }
-  }
-
-  const confirmProduction = () => createJob(true);
-
   async function activate() {
     active = true;
     await loadWorkspace();
@@ -350,10 +306,6 @@ export function createCollectionWorkspace(
     actionBusy,
     error,
     mobileNav,
-    showCreate,
-    jobMode,
-    productionConfirmPending,
-    productionConfirmationText,
     series,
     reviews,
     selectedSeries,
@@ -370,10 +322,6 @@ export function createCollectionWorkspace(
     pause,
     resume,
     stop,
-    openCreate,
-    closeCreate,
-    createJob,
-    confirmProduction,
     loadSeries,
     searchSeries,
     loadReviews,
