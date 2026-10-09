@@ -1,13 +1,6 @@
 <script setup lang="ts">
-import {
-  computed,
-  nextTick,
-  onBeforeUnmount,
-  onMounted,
-  ref,
-  watch,
-} from "vue";
-import { Menu, Plus, X } from "lucide-vue-next";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { Menu, Plus } from "lucide-vue-next";
 import { RouterLink } from "vue-router";
 import AppBrand from "../../components/AppBrand.vue";
 import {
@@ -15,6 +8,8 @@ import {
   provideCollectionWorkspace,
   type CollectionPage,
 } from "./workspace";
+import { createCatalogFlow } from "./catalogFlow";
+import CreateCollectionJobDialog from "./components/CreateCollectionJobDialog.vue";
 
 import OverviewView from "./views/OverviewView.vue";
 import JobsView from "./views/JobsView.vue";
@@ -46,29 +41,13 @@ const pages = [
 
 const workspace = createCollectionWorkspace();
 provideCollectionWorkspace(workspace);
-const {
-  page,
-  busy,
-  actionBusy,
-  error,
-  mobileNav,
-  showCreate,
-  jobMode,
-  productionConfirmPending,
-  productionConfirmationText,
-  navigate,
-  loadWorkspace,
-  openCreate,
-  closeCreate,
-  createJob,
-  confirmProduction,
-} = workspace;
+const { page, busy, actionBusy, error, mobileNav, navigate, loadWorkspace } =
+  workspace;
+const catalogFlow = createCatalogFlow(undefined, loadWorkspace);
 const activePage = computed(
   () => pages.find((item) => item.id === page.value)!,
 );
 const mobileMenuButton = ref<HTMLButtonElement>();
-const createDialog = ref<HTMLDialogElement>();
-const restoreFocus = ref<HTMLElement | null>(null);
 
 function closeMobileNavigation() {
   const restore = mobileNav.value;
@@ -91,25 +70,8 @@ function escapeNavigation(event: KeyboardEvent) {
 }
 
 function openCreateDialog() {
-  openCreate();
+  void catalogFlow.open();
 }
-
-function closeCreateDialog() {
-  closeCreate();
-}
-
-watch(showCreate, async (open) => {
-  if (open) {
-    restoreFocus.value = document.activeElement as HTMLElement;
-    await nextTick();
-    createDialog.value?.showModal();
-    return;
-  }
-  createDialog.value?.close();
-  await nextTick();
-  restoreFocus.value?.focus();
-  restoreFocus.value = null;
-});
 
 onMounted(() => document.addEventListener("keydown", escapeNavigation));
 onBeforeUnmount(() =>
@@ -212,95 +174,19 @@ onBeforeUnmount(() =>
         <div v-if="busy" class="loading-line" role="status" aria-live="polite">
           正在读取采集数据…
         </div>
-        <OverviewView v-if="!busy && page === 'overview'" />
+        <OverviewView
+          v-if="!busy && page === 'overview'"
+          @create="openCreateDialog"
+        />
         <JobsView v-else-if="!busy && page === 'jobs'" />
         <SeriesView v-else-if="!busy && page === 'series'" />
         <ReviewsView v-else-if="!busy && page === 'reviews'" />
       </main>
     </div>
 
-    <dialog
-      v-if="showCreate"
-      ref="createDialog"
-      class="project-dialog collection-job-dialog"
-      aria-labelledby="create-collection-job-title"
-      @cancel.prevent="closeCreateDialog"
-    >
-      <form
-        @submit.prevent="
-          productionConfirmPending ? confirmProduction() : createJob()
-        "
-      >
-        <div class="dialog-heading">
-          <div>
-            <p class="collection-eyebrow">汽车之家口碑</p>
-            <h2 id="create-collection-job-title">新建采集任务</h2>
-          </div>
-          <button
-            class="icon-btn"
-            type="button"
-            aria-label="关闭新建任务"
-            :disabled="actionBusy"
-            @click="closeCreateDialog"
-          >
-            <X :size="20" />
-          </button>
-        </div>
-        <fieldset class="mode-options">
-          <legend>运行范围</legend>
-          <label
-            :class="['mode-option', { selected: jobMode === 'verification' }]"
-          >
-            <input
-              v-model="jobMode"
-              name="collection-mode"
-              type="radio"
-              value="verification"
-              :disabled="actionBusy"
-              @change="productionConfirmPending = false"
-            />
-            <span
-              ><strong>功能验证</strong
-              ><small
-                >最多 3 个车系，每个车系 2 页。适合首次运行与功能检查。</small
-              ></span
-            >
-          </label>
-          <label
-            :class="['mode-option', { selected: jobMode === 'production' }]"
-          >
-            <input
-              v-model="jobMode"
-              name="collection-mode"
-              type="radio"
-              value="production"
-              :disabled="actionBusy"
-              @change="productionConfirmPending = false"
-            />
-            <span
-              ><strong>正式采集</strong
-              ><small>前 500 个唯一车系，每个车系采集全部评论。</small></span
-            >
-          </label>
-        </fieldset>
-        <p v-if="productionConfirmPending" class="notice info" role="status">
-          {{ productionConfirmationText }}
-        </p>
-        <p v-if="error" class="form-error" role="alert">{{ error }}</p>
-        <button
-          class="btn primary full-width"
-          type="submit"
-          :disabled="actionBusy"
-        >
-          {{
-            actionBusy
-              ? "正在创建…"
-              : productionConfirmPending
-                ? "确认并开始正式采集"
-                : "创建任务"
-          }}
-        </button>
-      </form>
-    </dialog>
+    <CreateCollectionJobDialog
+      :flow="catalogFlow"
+      :collection-conflict="Boolean(workspace.overview.value?.active_job)"
+    />
   </div>
 </template>

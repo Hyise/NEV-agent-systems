@@ -45,6 +45,7 @@ export function createCatalogFlow(
   const error = ref("");
   const productionConfirmPending = ref(false);
   const removedSelectionCount = ref(0);
+  const removedSeriesIds = ref<string[]>([]);
   const productionConfirmationText = computed(
     () =>
       `正式采集将处理已选 ${selectedSeriesIds.value.length} 个车系，每车系采集全部评论；` +
@@ -99,9 +100,11 @@ export function createCatalogFlow(
     const valid = await client.listCatalogSelection("");
     if (valid.batch_id !== nextBatchId) return;
     const validIds = new Set(valid.series_ids);
+    removedSeriesIds.value = selectedSeriesIds.value.filter(
+      (id) => !validIds.has(id),
+    );
     const retained = selectedSeriesIds.value.filter((id) => validIds.has(id));
-    removedSelectionCount.value =
-      selectedSeriesIds.value.length - retained.length;
+    removedSelectionCount.value = removedSeriesIds.value.length;
     selectedSeriesIds.value = retained;
   }
 
@@ -315,6 +318,7 @@ export function createCatalogFlow(
     productionConfirmPending,
     productionConfirmationText,
     removedSelectionCount,
+    removedSeriesIds,
     open,
     close,
     startDiscovery,

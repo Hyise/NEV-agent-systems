@@ -291,6 +291,8 @@ expectContains("src/styles/platform.css", [
 const collectionShellPath = "src/modules/collection/CollectionWorkbench.vue";
 expectContains(collectionShellPath, [
   "createCollectionWorkspace",
+  "createCatalogFlow",
+  "CreateCollectionJobDialog",
   "provideCollectionWorkspace",
   "评论数据采集系统",
   "总览",
@@ -303,6 +305,8 @@ expectContains(collectionShellPath, [
 ]);
 expectContains("src/styles/collection.css", [
   ".collection-shell",
+  ".catalog-dialog",
+  ".catalog-series-row",
   "font-family: inherit",
   "@media (max-width: 1199px)",
   "@media (max-width: 767px)",
@@ -324,10 +328,25 @@ expectContains("src/modules/collection/views/JobsView.vue", [
   "查看事件",
   "事件与异常",
 ]);
-expectContains("src/modules/collection/workspace.ts", [
+expectContains("src/modules/collection/catalogFlow.ts", [
   "2～4 秒",
   "5～10 秒",
-  "5/15/45 秒",
+  "selected_series_ids",
+]);
+expectContains(
+  "src/modules/collection/components/CreateCollectionJobDialog.vue",
+  [
+    "发现车系",
+    "选择车系并采集",
+    "全选当前筛选结果",
+    "清空已选",
+    "aria-labelledby",
+    "@cancel.prevent",
+  ],
+);
+expectNotContains(collectionShellPath, [
+  'class="mode-options"',
+  "productionConfirmationText",
 ]);
 expectContains("src/modules/collection/views/SeriesView.vue", [
   "车系名称",

@@ -3,6 +3,7 @@ import { useCollectionWorkspace } from "../workspace";
 
 const workspace = useCollectionWorkspace();
 const { overview, navigate } = workspace;
+const emit = defineEmits<{ create: [] }>();
 </script>
 
 <template>
@@ -88,9 +89,7 @@ const { overview, navigate } = workspace;
       <p>
         可先运行最多 3 个车系、每车系 2 页的功能验证，再决定是否开始正式采集。
       </p>
-      <button class="btn primary" @click="workspace.openCreate">
-        新建采集任务
-      </button>
+      <button class="btn primary" @click="emit('create')">新建采集任务</button>
     </div>
   </section>
 </template>
