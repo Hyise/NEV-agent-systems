@@ -195,6 +195,26 @@ def test_pause_queued_job_prevents_worker_claim(tmp_path):
     assert not repository.claim_job(job["id"], "extracting")
 
 
+@pytest.mark.parametrize(
+    ("action", "expected"),
+    [("pause", "paused"), ("cancel", "cancelled")],
+)
+def test_finish_job_honors_control_requested_during_last_call(
+    tmp_path, action, expected
+):
+    path = tmp_path / "app.db"
+    seed(path)
+    repository = ReviewAnalysisRepository(path)
+    job = repository.create_job_with_snapshot(command(), snapshots)
+    assert repository.claim_job(job["id"], "extracting")
+    repository.request_control(job["id"], action)
+
+    finished = repository.finish_job(job["id"], "completed")
+
+    assert finished["status"] == expected
+    assert finished["control_requested"] is None
+
+
 def test_discovery_batch_progress_is_idempotent(tmp_path):
     path = tmp_path / "app.db"
     seed(path)

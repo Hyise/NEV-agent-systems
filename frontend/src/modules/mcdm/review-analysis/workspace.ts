@@ -22,6 +22,13 @@ export function createReviewAnalysisWorkspace(
   schemaId: Ref<string>,
   schemaStatus: Ref<"draft" | "frozen">,
 ) {
+  const emptyFilters = () => ({
+    job_id: "",
+    series_id: "",
+    criterion: "",
+    label: "",
+    status: "",
+  });
   const sources = ref<ReviewSource[]>([]);
   const sourceQuery = ref("");
   const sourcePage = ref(1);
@@ -47,16 +54,11 @@ export function createReviewAnalysisWorkspace(
   });
   const sampleLimit = ref(1500);
   const annotationLimit = ref<number | null>(100);
-  const filters = ref({
-    job_id: "",
-    series_id: "",
-    criterion: "",
-    label: "",
-    status: "",
-  });
+  const filters = ref(emptyFilters());
   const busy = ref(false);
   const error = ref("");
   let generation = 0;
+  let contextGeneration = 0;
   let activated = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const availableReviews = computed(() =>
@@ -81,18 +83,36 @@ export function createReviewAnalysisWorkspace(
     selectedSources.value = next;
   }
 
+  function contextToken() {
+    return {
+      generation: contextGeneration,
+      projectId: projectId.value,
+      schemaId: schemaId.value,
+    };
+  }
+
+  function isCurrentContext(token: ReturnType<typeof contextToken>) {
+    return (
+      token.generation === contextGeneration &&
+      token.projectId === projectId.value &&
+      token.schemaId === schemaId.value
+    );
+  }
+
   async function guarded<T>(
     operation: () => Promise<T>,
   ): Promise<T | undefined> {
+    const token = contextToken();
     busy.value = true;
     error.value = "";
     try {
-      return await operation();
+      const result = await operation();
+      return isCurrentContext(token) ? result : undefined;
     } catch (cause) {
-      error.value = (cause as Error).message;
+      if (isCurrentContext(token)) error.value = (cause as Error).message;
       return undefined;
     } finally {
-      busy.value = false;
+      if (isCurrentContext(token)) busy.value = false;
     }
   }
 
@@ -105,21 +125,6 @@ export function createReviewAnalysisWorkspace(
     rememberSelected(result.rows);
     sourcePage.value = result.page;
     sourceTotal.value = result.total;
-  }
-
-  async function refreshJobs() {
-    const result = await api.listJobs(projectId.value);
-    jobs.value = result.rows;
-    activeJob.value =
-      jobs.value.find((job) =>
-        ["queued", "running", "paused"].includes(job.status),
-      ) ?? null;
-    if (
-      !selectedJobId.value ||
-      !jobs.value.some((job) => job.id === selectedJobId.value)
-    ) {
-      selectedJobId.value = activeJob.value?.id ?? jobs.value[0]?.id ?? "";
-    }
   }
 
   async function activate() {
@@ -158,6 +163,7 @@ export function createReviewAnalysisWorkspace(
   function deactivate() {
     activated = false;
     generation++;
+    contextGeneration++;
     if (timer) clearTimeout(timer);
     timer = undefined;
   }
@@ -182,9 +188,13 @@ export function createReviewAnalysisWorkspace(
     proposal.value = null;
     proposalDraft.value = [];
     annotations.value = [];
+    selectedAnnotation.value = null;
     annotationPage.value = 1;
     annotationTotal.value = 0;
     summary.value = { annotated_reviews: 0, criteria: {}, labels: {} };
+    filters.value = emptyFilters();
+    busy.value = false;
+    error.value = "";
   }
   function reset() {
     deactivate();
@@ -206,22 +216,18 @@ export function createReviewAnalysisWorkspace(
       selectedSources.value = { ...selectedSources.value, [id]: source };
   }
   async function createDiscovery() {
-    busy.value = true;
-    error.value = "";
-    try {
-      activeJob.value = await api.createDiscovery(projectId.value, {
+    const job = await guarded(() =>
+      api.createDiscovery(projectId.value, {
         schema_id: schemaId.value,
         selected_series_ids: selectedSeriesIds.value,
         sample_limit: sampleLimit.value,
-      });
-      selectedJobId.value = activeJob.value.id;
-      jobs.value = [activeJob.value, ...jobs.value];
-      schedule();
-    } catch (cause) {
-      error.value = (cause as Error).message;
-    } finally {
-      busy.value = false;
-    }
+      }),
+    );
+    if (!job) return;
+    activeJob.value = job;
+    selectedJobId.value = job.id;
+    jobs.value = [job, ...jobs.value];
+    schedule();
   }
   async function createAnnotation() {
     if (annotationLimit.value === null) {
@@ -234,22 +240,18 @@ export function createReviewAnalysisWorkspace(
         );
       if (!confirmed) return;
     }
-    busy.value = true;
-    error.value = "";
-    try {
-      activeJob.value = await api.createAnnotation(projectId.value, {
+    const job = await guarded(() =>
+      api.createAnnotation(projectId.value, {
         schema_id: schemaId.value,
         selected_series_ids: selectedSeriesIds.value,
         limit: annotationLimit.value,
-      });
-      selectedJobId.value = activeJob.value.id;
-      jobs.value = [activeJob.value, ...jobs.value];
-      schedule();
-    } catch (cause) {
-      error.value = (cause as Error).message;
-    } finally {
-      busy.value = false;
-    }
+      }),
+    );
+    if (!job) return;
+    activeJob.value = job;
+    selectedJobId.value = job.id;
+    jobs.value = [job, ...jobs.value];
+    schedule();
   }
   async function control(
     action: "pause" | "resume" | "cancel" | "retry-failures",
@@ -261,12 +263,20 @@ export function createReviewAnalysisWorkspace(
       !["queued", "running", "paused"].includes(target.status)
     )
       return;
-    await guarded(async () => {
-      const result = await api.controlJob(projectId.value, target.id, action);
-      selectedJobId.value = result.id;
-      await refreshJobs();
-      schedule();
+    const targetProject = projectId.value;
+    const response = await guarded(async () => {
+      const result = await api.controlJob(targetProject, target.id, action);
+      const jobPage = await api.listJobs(targetProject);
+      return { result, jobPage };
     });
+    if (!response) return;
+    selectedJobId.value = response.result.id;
+    jobs.value = response.jobPage.rows;
+    activeJob.value =
+      jobs.value.find((job) =>
+        ["queued", "running", "paused"].includes(job.status),
+      ) ?? null;
+    schedule();
   }
   async function loadProposal(jobId: string) {
     const result = await guarded(() => api.getProposal(projectId.value, jobId));

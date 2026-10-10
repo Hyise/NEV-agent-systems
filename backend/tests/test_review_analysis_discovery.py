@@ -40,6 +40,7 @@ class Repo:
         if completion: self.usage.append(completion.total_tokens)
     def get_proposal(self, job_id): return self.proposal
     def set_job_state(self, job_id, status, **kwargs): self.states.append(status); self.job["status"] = status
+    def finish_job(self, job_id, status): self.states.append(status); self.job["status"] = status
     def add_usage(self, job_id, completion): self.usage.append(completion.total_tokens)
     def ensure_discovery_batches(self, job_id, batches):
         if not self.checkpoints:

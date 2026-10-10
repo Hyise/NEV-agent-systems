@@ -83,7 +83,7 @@ class CriteriaDiscoveryPipeline:
             all_clues.extend(clues)
         if self._control(job_id, control): return
         if self.repository.get_proposal(job_id) is not None:
-            self.repository.set_job_state(job_id, "completed")
+            self.repository.finish_job(job_id, "completed")
             return
         self.repository.set_job_state(job_id, "running", phase="merging")
         proposal, completion = self.executor.call(
@@ -96,7 +96,7 @@ class CriteriaDiscoveryPipeline:
             job_id, proposal.model_dump(),
             source_review_count=len(rows), sample_review_count=len(rows), completion=completion,
         )
-        self.repository.set_job_state(job_id, "completed")
+        self.repository.finish_job(job_id, "completed")
 
 
 def _validate_clues(payload, texts: list[str]):

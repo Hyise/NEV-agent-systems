@@ -34,6 +34,7 @@ class Repo:
     def mark_review_succeeded(self, job_id, review_id, annotation_id, **values): self.links[review_id] = (annotation_id, values["cached"])
     def mark_review_failed(self, job_id, review_id, code, message): self.failures[review_id] = code; self.job["failed_count"] += 1
     def set_job_state(self, job_id, status, **kwargs): self.states.append(status)
+    def finish_job(self, job_id, status): self.states.append(status)
 
 
 def row(review_id, content_hash="1" * 64, text="后排很宽敞，冬季续航不足"):

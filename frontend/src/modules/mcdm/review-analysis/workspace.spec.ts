@@ -1,6 +1,6 @@
 import { nextTick, ref } from "vue";
 import { describe, expect, it, vi } from "vitest";
-import type { AnalysisJob } from "./api";
+import type { AnalysisJob, AnnotationRow, PageResult } from "./api";
 import { createReviewAnalysisWorkspace } from "./workspace";
 
 function fakeApi() {
@@ -31,7 +31,7 @@ function fakeApi() {
     getProposal: vi.fn(),
     applyProposal: vi.fn(),
     listAnnotations: vi.fn(async () => ({
-      rows: [],
+      rows: [] as AnnotationRow[],
       total: 0,
       page: 1,
       page_size: 20,
@@ -305,6 +305,14 @@ describe("review analysis workspace", () => {
       ref("draft"),
     );
     const oldActivation = workspace.activate();
+    workspace.filters.value.job_id = "old-job";
+    workspace.selectedAnnotation.value = {
+      review_id: "old-review",
+      series_id: "1",
+      series_name: "旧车系",
+      status: "succeeded",
+      annotation_count: 1,
+    };
     project.value = "p2";
     await nextTick();
     await Promise.resolve();
@@ -320,6 +328,53 @@ describe("review analysis workspace", () => {
     expect(api.listSources).toHaveBeenLastCalledWith("p2", "", 1);
     expect(workspace.sources.value[0]?.series_name).toBe("新项目车系");
     expect(workspace.selectedSeriesIds.value).toEqual([]);
+    expect(workspace.filters.value.job_id).toBe("");
+    expect(workspace.selectedAnnotation.value).toBeNull();
+  });
+
+  it("ignores stale result and detail reads after project changes", async () => {
+    const api = fakeApi();
+    let resolveRows!: (value: PageResult<AnnotationRow>) => void;
+    let resolveDetail!: (value: AnnotationRow) => void;
+    api.listAnnotations.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveRows = resolve;
+        }),
+    );
+    api.getAnnotation.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveDetail = resolve;
+        }),
+    );
+    const project = ref("p1");
+    const workspace = createReviewAnalysisWorkspace(
+      api,
+      project,
+      ref("s"),
+      ref("frozen"),
+    );
+    await workspace.activate();
+    workspace.filters.value.job_id = "old-job";
+    const oldRows = workspace.loadAnnotations();
+    const oldDetail = workspace.openAnnotation("old-annotation");
+
+    project.value = "p2";
+    await nextTick();
+    resolveRows({ rows: [], total: 0, page: 1, page_size: 20 });
+    resolveDetail({
+      review_id: "old-review",
+      series_id: "1",
+      series_name: "旧车系",
+      status: "succeeded",
+      annotation_count: 1,
+    });
+    await Promise.all([oldRows, oldDetail]);
+
+    expect(workspace.filters.value.job_id).toBe("");
+    expect(workspace.annotations.value).toEqual([]);
+    expect(workspace.selectedAnnotation.value).toBeNull();
   });
 
   it("surfaces proposal conflicts without discarding local edits", async () => {

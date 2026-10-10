@@ -59,5 +59,8 @@ class ReviewAnnotationPipeline:
                 cached_tokens=completion.cached_tokens,
             )
         final = self.repository.get_job(job_id)
-        self.repository.set_job_state(job_id, "partial_failed" if final["failed_count"] else "completed")
+        self.repository.finish_job(
+            job_id,
+            "partial_failed" if final["failed_count"] else "completed",
+        )
 
