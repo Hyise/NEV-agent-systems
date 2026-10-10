@@ -1,6 +1,6 @@
-# 观衡 · 新能源汽车情景多准则决策分析系统
+# 观衡 · 新能源汽车研究平台
 
-第一阶段可运行版本 `0.1.0`。面向汽车企业分析人员和研究人员。
+面向汽车企业分析人员和研究人员。启动后先进入研究平台，可选择评论数据采集、多准则决策，或查看自适应评估的建设规划。
 
 ## 当前能力
 
@@ -8,10 +8,15 @@
 - 研究总览、数据浏览/搜索/分页、归档权重曲线、条件选择份额比较、基线和消融实验档案。
 - 自定义项目、准则编辑、冻结、派生新版本；SQLite持久化、版本隔离和并发修改保护。
 - 按冻结准则导入UTF-8加工CSV、严格验证概率与月度数据；导出加工CSV和带来源的JSON研究快照。
+- 三个平级功能入口和模块级路由；自适应评估当前仅有规划说明，不提供模拟功能。
+- 评论采集采用“先发现目录、再选择采集”的两步流程：目录独立缓存按 `series_id` 去重后的前 1000 个唯一车系，刷新失败或取消时继续保留上一版可用目录。
+- 两种采集模式都要求显式选择车系：“功能验证”选择 1～3 个车系、每车系最多 2 页；“正式采集”选择 1～1000 个车系并采集全部评论。日常开发和验收只使用功能验证，不运行完整 1000 车系采集。
+- 评论任务保存不可变车系快照，并支持完整原始口碑保存、限速、重试、暂停、继续、停止、断点和 JSONL 导出。
+- 多准则工作台支持从已采集完整评论中发现准则候选，经人工审核并冻结后，使用 DeepSeek `deepseek-flash` 对每条评论提取多项准则、等级、原文证据和简短依据；结果绑定评论哈希、准则指纹、模型和 Prompt 哈希。
 
-**当前图表和指标是原研究归档，不是本系统新训练结果。** 原研究的训练与测试时间存在重叠，界面明确标注。原始评论LLM分析、训练/推理worker、完整矩阵生成、登录协作及Word/PDF报告尚未接入。
+**当前图表和指标是原研究归档，不是本系统新训练结果。** 原研究的训练与测试时间存在重叠，界面明确标注。评论级 LLM 标注已经接入，但标注不会自动生成训练矩阵；模型训练、新预测、登录协作及 Word/PDF 报告尚未接入。
 
-系统设计、后续模块和验收标准见 [系统设计与实施路线](docs/系统设计与实施路线.md)。首次运行前请阅读 [运行须知](docs/运行须知.md)，接口见 [API与数据契约](docs/API与数据契约.md)，本轮结构取舍见 [代码审查记录](docs/代码审查记录.md)。
+系统设计、后续模块和验收标准见 [系统设计与实施路线](docs/系统设计与实施路线.md)。首次运行前请阅读 [运行须知](docs/运行须知.md)，接口见 [API与数据契约](docs/API与数据契约.md)。历史双研究入口决策见 [ADR-0001](docs/ADR/0001-双研究系统平台与模块路由.md)，采集系统独立化取舍见 [ADR-0002](docs/ADR/0002-评论采集作为独立平台子系统.md)，目录与任务解耦见 [ADR-0003](docs/ADR/0003-车系目录发现与评论任务解耦.md)，实际结果见 [评论数据采集系统验收记录](docs/评论数据采集系统验收记录.md)。
 
 ## 工程治理
 
@@ -26,14 +31,33 @@
 
 ## 本机启动
 
-当前机器已经准备了依赖和生产前端，执行：
+如需使用评论语义分析，先复制 `.env.example` 为 `.env`，只在本机填写：
+
+```dotenv
+DEEPSEEK_API_KEY=你的本机密钥
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+DEEPSEEK_MODEL=deepseek-flash
+DEEPSEEK_REQUEST_TIMEOUT_SECONDS=120
+```
+
+`.env` 已被 Git 忽略。未配置 Key 时，评论采集、归档浏览和人工准则编辑仍可使用，仅创建大模型任务会返回明确的 503 提示。选中的公开评论正文会传输给 DeepSeek API，请在授权范围内少量验证并自行管理、轮换密钥。
+
+当前机器已经准备了依赖。Windows 下直接双击项目根目录的 `启动观衡网站.cmd`；脚本会在需要时重新构建前端、启动服务并打开浏览器。停止时双击 `停止观衡网站.cmd`。
+
+命令行等价方式：
 
 ```powershell
 Set-Location 'E:\aaaxz\daima1022\软著\nev-mcdm-platform'
-.\scripts\start-local.ps1 -PythonExe 'E:\anaconda927\envs\py311\python.exe'
+.\scripts\start-site.ps1
 ```
 
-然后打开 <http://127.0.0.1:8018>。接口文档：<http://127.0.0.1:8018/docs>。
+脚本会自动打开 <http://127.0.0.1:8018> 的研究平台入口。接口文档：<http://127.0.0.1:8018/docs>。
+
+仅启动服务、不打开浏览器：
+
+```powershell
+.\scripts\start-site.ps1 -NoBrowser
+```
 
 停止本启动脚本启动的进程：
 
@@ -50,6 +74,7 @@ Set-Location 'E:\aaaxz\daima1022\软著\nev-mcdm-platform'
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r backend/requirements.txt
+.\scripts\install-collection-browser.ps1 -PythonExe '.\.venv\Scripts\python.exe'
 .\.venv\Scripts\python.exe scripts/bootstrap_research.py --archive '原研究压缩包的绝对路径'
 Set-Location frontend
 npm ci
@@ -100,6 +125,7 @@ npm run build
 
 ```text
 backend/           FastAPI、SQLite、数据与准则规则、测试
+backend/collection/ 版本化车系目录、评论采集、共享外部访问协调器、仓储、适配器和API
 frontend/          Vue 3 + TypeScript + ECharts
 algorithms/reference/  原研究代码副本（归档脚本生成）
 backend/data/research/ 原始加工数据和报表（归档脚本生成）
@@ -109,4 +135,4 @@ docs/              设计、接口、验收
 output/playwright/ 浏览器验收截图
 ```
 
-目前的SQLite数据库和研究归档为本机数据，不计入源码仓库。正式迁移需单独备份 `.runtime/platform.sqlite3` 和 `backend/data/research`。
+目前的 SQLite 数据库、采集结果和研究归档为本机数据，不计入源码仓库。采集车系、评论、任务断点与研究项目共用 `.runtime/platform.sqlite3`；正式迁移需单独备份该文件和 `backend/data/research`。正式采集以实验室对汽车之家授权持续有效为前提，系统不会绕过 403、429 或验证页面。

@@ -1,0 +1,40 @@
+{
+  "returncode": 0,
+  "message": "success",
+  "result": {
+    "seriesid": 5769,
+    "seriesname": "Model Y",
+    "pageindex": 1,
+    "pagesize": 20,
+    "pagecount": 1,
+    "rowcount": 2,
+    "list": [
+      {
+        "Koubeiid": "review-2024",
+        "showId": "show-2024",
+        "posttime": "2025-01-01",
+        "specid": 101,
+        "specname": "2024款 后轮驱动版",
+        "syear": 2024,
+        "feeling_summary": "日常通勤",
+        "contents": [
+          {"structuredid": 1, "structuredname": "满意", "content": "空间充足"},
+          {"structuredid": 2, "structuredname": "不满意", "content": "胎噪明显"}
+        ],
+        "unknownField": {"keep": [1, "中文", null]}
+      },
+      {
+        "Koubeiid": "review-2025",
+        "showId": "show-2025",
+        "posttime": "2026-01-02",
+        "specid": 202,
+        "specname": "2025款 长续航版",
+        "syear": 2025,
+        "feeling_summary": "长途使用",
+        "contents": [
+          {"structuredid": 1, "structuredname": "满意", "content": "续航稳定"}
+        ]
+      }
+    ]
+  }
+}

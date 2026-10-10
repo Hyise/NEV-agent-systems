@@ -53,3 +53,73 @@
 名称和标签数量限制见接口自动文档。概率和允许浮点误差1e-5，同月压力允许误差1e-6。导入上限10000行、前端文件上限8MB。CSV版本导出使用UTF-8 BOM。JSON快照包含准则、来源哈希、统计和历史结果，不声称是Word/PDF正式报告。
 
 当前每一准则版本显示最近导入的数据集；数据库保留此前导入记录，历史数据集切换界面列入后续开发。第一版不提供删除API。
+
+## 评论数据采集 API
+
+评论采集路径统一以 `/api/collection` 开头。资源不存在返回 404，当前状态不允许操作或已有活动任务返回 409，输入范围不合法返回 422。本机任一时刻最多运行一个发现/采集任务。
+
+| 方法 | 路径 | 用途 |
+| --- | --- | --- |
+| GET | `/overview` | 车系数、评论数、异常数与活动任务 |
+| GET | `/catalog` | 分页读取当前活动目录，支持 `query`、`page`、`page_size` |
+| GET | `/catalog/selection` | 返回当前查询命中的全部车系 ID，供跨页全选 |
+| GET | `/catalog/status` | 当前目录摘要与活动发现运行 |
+| POST | `/catalog/discover` | 启动目标为 1000 个唯一车系的后台发现 |
+| GET | `/catalog/discover/{run_id}` | 查询发现进度和终态错误摘要 |
+| POST | `/catalog/discover/{run_id}/cancel` | 协作式取消指定发现运行 |
+| GET/POST | `/jobs` | 分页查询任务；按选定车系创建并启动验证或正式任务 |
+| GET | `/jobs/{id}` | 任务配置、游标、统计及事件 |
+| POST | `/jobs/{id}/pause` | 协作式请求暂停 |
+| POST | `/jobs/{id}/resume` | 从已提交页的断点继续 |
+| POST | `/jobs/{id}/stop` | 停止任务并保留已保存数据 |
+| GET | `/series` | 按名称或 `series_id` 分页查询车系 |
+| GET | `/reviews` | 按 `series_id` 分页查询评论摘要 |
+| GET | `/reviews/{id}` | 读取单条完整原始评论 |
+| GET | `/export?series_id=...` | 按已存在车系导出 JSONL |
+
+创建功能验证任务：
+
+```json
+{
+  "mode": "verification",
+  "selected_series_ids": ["5769", "8627"]
+}
+```
+
+正式模式提交 `{"mode":"production","selected_series_ids":[...]}`。功能验证必须选择 1～3 个车系且每车系最多 2 页；正式采集必须选择 1～1000 个车系且每车系不限页数。ID 必须是唯一数字字符串并属于提交瞬间的活动目录。两种模式都使用服务端强制限速；任务与不可变车系快照在同一事务中创建，新任务的旧 `series_manifest` 字段固定为空。
+
+目录发现先写入暂存批次，只有成功完成后才在同一事务中切换 `active_batch_id`；失败或取消会清理暂存数据并保留旧目录。`completed_short` 表示来源正常耗尽但不足 1000 个，不是错误。目录发现与评论采集共享进程级外部访问协调器，同一时刻只允许其中一个执行，浏览目录和读取历史数据不占用该预约。
+
+创建任务时，目录不存在或外部访问正被占用返回 `409`；空选择、重复、数量越界或格式错误返回 `422`。如果选择已因目录刷新失效，返回对象形态错误：
+
+```json
+{
+  "detail": {
+    "message": "所选车系已不属于当前有效目录",
+    "invalid_series_ids": ["8627"]
+  }
+}
+```
+
+`collection_job_series` 保存 `series_id`、名称、车系/口碑链接、目录批次、发现顺序和选择顺序的不可变快照。升级前没有快照行的历史任务仍可只读解析 `collection_jobs.series_manifest`，但新任务不得回退到任务内发现或写入该 JSON 字段。
+
+评论列表不返回大型 `original_review`。采集时先保留汽车之家列表接口对象，再根据 `showId` 读取口碑详情页 HTML，以 `.space.kb-item` 中的完整正文补齐对应的 `contents[].content`；“最满意/最不满意”分别映射回原结构化名称“满意/不满意”，其他原始字段不拆分、不拼接、不改写。若列表正文已截断但详情页缺少对应分区，任务暂停且不提交该页。详情和 JSONL 中的每条记录包含 `platform`、`review_id`、`series_id`、采集时车系名称快照、可直接访问的口碑详情地址、内容哈希、采集时间和补齐后的完整 `original_review`。JSONL 媒体类型为 `application/x-ndjson; charset=utf-8`，每行是独立 JSON 对象；不生成拼接评论文本，也不把嵌套对象压平为 CSV。
+
+车系唯一键为 `platform + series_id`；评论唯一键为 `platform + review_id`。来源存在 `Koubeiid` 或 `showId` 时直接使用；两者都缺失时，回退 ID 为 `sha256-{series_id}-{原始对象规范哈希}`，避免相同无 ID 对象在不同车系间碰撞。不同年款、改款和配置保留在原始对象字段中，但不形成独立车系任务。每页评论和下一页游标在同一事务提交；重复请求依靠唯一键幂等，同一评论 ID 内容变化会写入采集事件。
+
+任务详情返回最近 100 条事件，并按发生时间正序展示；长任务的更早事件仍保留在 SQLite。分页终止以来源响应中已校验的 `pageindex`、`pagesize`、`pagecount` 和 `seriesid` 为准，不假设每页固定返回 20 条。
+# 评论语义分析 API
+
+统一前缀：`/api/projects/{project_id}/review-analysis`。
+
+- `GET /sources`：分页读取已有评论的车系与数量。
+- `POST /discovery-jobs`：`schema_id`、唯一 `selected_series_ids`、`sample_limit(1..5000)`；仅自定义草稿。
+- `POST /annotation-jobs`：`schema_id`、唯一车系列表、`limit=20/100/500/null`；仅自定义冻结版本。
+- `GET /jobs`、`GET /jobs/{id}`：任务、进度、错误摘要与 token 用量。
+- `POST /jobs/{id}/pause|resume|cancel|retry-failures`：协作式控制或为失败项建立新快照。
+- `GET /jobs/{id}/proposal`、`POST /jobs/{id}/proposal/apply`：候选审核与 revision 锁应用；可提交人工编辑后的完整候选准则。
+- `GET /annotations`、`GET /annotations/{id}`、`GET /summary`：评论级结果、详情和基础计数；筛选不调用模型。
+
+未配置 Key 返回 503；项目/版本/任务不存在返回 404；版本状态、活动任务和 revision 冲突返回 409；空/重复选择、无评论或非法范围返回 422。评论标注输出中的 `criterion`、`label` 必须属于任务冻结快照，`evidence` 和 `unmatched_evidence` 必须为 `analysis_text` 原文子串。
+
+持久化表为 `review_analysis_jobs`、`review_analysis_job_reviews`、`review_analysis_discovery_batches`、`criteria_proposals`、`review_annotation_results`。评论快照保存完整派生文本；可复用结果不绑定评论 ID，由任务评论行保存关联以保持追溯。准则发现每个成功批次立即保存线索、进度与 token 用量，暂停或进程重启后跳过成功批次；全局归并结果同样可幂等恢复。任务同时保存创建时的准则草稿 revision、模型和 Prompt 清单，谱系发生变化时拒绝静默套用旧结果。任务最终提交会原子消费请求期间到达的暂停/取消指令；取消请求的优先级高于暂停，工作器也以单事务消费控制并同步写入 `paused` 或 `cancelled` 状态。
