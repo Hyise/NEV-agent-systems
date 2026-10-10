@@ -11,6 +11,47 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS_DIR = PROJECT_ROOT / "scripts"
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows CMD integration test")
+@pytest.mark.parametrize(
+    ("launcher_name", "script_name"),
+    [
+        ("启动观衡网站.cmd", "start-site.ps1"),
+        ("停止观衡网站.cmd", "stop-local.ps1"),
+    ],
+)
+def test_cmd_launcher_executes_its_powershell_script(
+    tmp_path: Path, launcher_name: str, script_name: str
+) -> None:
+    project_root = tmp_path / "project"
+    scripts_dir = project_root / "scripts"
+    scripts_dir.mkdir(parents=True)
+    launcher = project_root / launcher_name
+    shutil.copy2(PROJECT_ROOT / launcher_name, launcher)
+    marker = tmp_path / f"{script_name}.called"
+    (scripts_dir / script_name).write_text(
+        "Set-Content -LiteralPath $env:LAUNCHER_MARKER -Value called\n",
+        encoding="utf-8-sig",
+    )
+    env = os.environ.copy()
+    env["LAUNCHER_MARKER"] = str(marker)
+
+    result = subprocess.run(
+        ["cmd.exe", "/d", "/c", str(launcher)],
+        input="\n",
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        env=env,
+        timeout=10,
+        check=False,
+    )
+
+    assert marker.read_text(encoding="utf-8-sig").strip() == "called", (
+        result.stderr or result.stdout
+    )
+
+
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows PowerShell compatibility test")
 def test_windows_powershell_can_parse_all_launcher_scripts() -> None:
     powershell = shutil.which("powershell.exe")
