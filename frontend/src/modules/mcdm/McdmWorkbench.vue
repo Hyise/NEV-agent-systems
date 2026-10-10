@@ -9,6 +9,11 @@ import {
 import { ArrowRight, Check, Menu, Plus, X } from "lucide-vue-next";
 import { RouterLink } from "vue-router";
 import AppBrand from "../../components/AppBrand.vue";
+import { createReviewAnalysisApi } from "./review-analysis/api";
+import {
+  createReviewAnalysisWorkspace,
+  provideReviewAnalysisWorkspace,
+} from "./review-analysis/workspace";
 import { createWorkspace, provideWorkspace, type Page } from "./workspace";
 
 const OverviewView = defineAsyncComponent(
@@ -93,6 +98,13 @@ const {
   changeMonth,
   loadWorkspace,
 } = workspace;
+const reviewAnalysisWorkspace = createReviewAnalysisWorkspace(
+  createReviewAnalysisApi(),
+  projectId,
+  workspace.schemaId,
+  computed(() => overview.value?.schema.status ?? "draft"),
+);
+provideReviewAnalysisWorkspace(reviewAnalysisWorkspace);
 const activePage = computed(
   () => pages.find((item) => item.id === page.value)!,
 );
