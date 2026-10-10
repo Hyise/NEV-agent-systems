@@ -46,11 +46,25 @@ onBeforeUnmount(workspace.deactivate);
         {{ workspace.selectedJob.value.output_tokens ?? 0 }} tokens
       </p>
       <p v-else>尚无分析任务。</p>
-      <div v-if="workspace.activeJob.value" class="button-group">
-        <button class="btn secondary" @click="workspace.control('pause')">
+      <div
+        v-if="
+          workspace.activeJob.value &&
+          workspace.selectedJobId.value === workspace.activeJob.value.id
+        "
+        class="button-group"
+      >
+        <button
+          v-if="workspace.selectedJob.value?.status !== 'paused'"
+          class="btn secondary"
+          @click="workspace.control('pause')"
+        >
           暂停
         </button>
-        <button class="btn secondary" @click="workspace.control('resume')">
+        <button
+          v-else
+          class="btn secondary"
+          @click="workspace.control('resume')"
+        >
           继续
         </button>
         <button class="text-button" @click="workspace.control('cancel')">

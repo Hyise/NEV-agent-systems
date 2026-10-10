@@ -208,9 +208,13 @@ export function createReviewAnalysisWorkspace(
   async function control(
     action: "pause" | "resume" | "cancel" | "retry-failures",
   ) {
-    const target =
-      action === "retry-failures" ? selectedJob.value : activeJob.value;
+    const target = selectedJob.value;
     if (!target) return;
+    if (
+      action !== "retry-failures" &&
+      !["queued", "running", "paused"].includes(target.status)
+    )
+      return;
     const result = await api.controlJob(projectId.value, target.id, action);
     selectedJobId.value = result.id;
     await refreshJobs();

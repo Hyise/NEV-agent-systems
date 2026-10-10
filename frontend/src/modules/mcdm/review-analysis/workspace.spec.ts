@@ -230,4 +230,29 @@ describe("review analysis workspace", () => {
     );
     expect(workspace.selectedJob.value?.id).toBe("retry");
   });
+
+  it("does not apply active-task controls to a selected completed job", async () => {
+    const api = fakeApi();
+    api.listJobs.mockResolvedValue({
+      rows: [
+        { id: "active", job_type: "review_annotation", status: "paused" },
+        { id: "done", job_type: "criteria_discovery", status: "completed" },
+      ],
+      total: 2,
+      page: 1,
+      page_size: 20,
+    });
+    const workspace = createReviewAnalysisWorkspace(
+      api,
+      ref("p"),
+      ref("s"),
+      ref("draft"),
+    );
+    await workspace.activate();
+    workspace.selectedJobId.value = "done";
+
+    await workspace.control("cancel");
+
+    expect(api.controlJob).not.toHaveBeenCalled();
+  });
 });
