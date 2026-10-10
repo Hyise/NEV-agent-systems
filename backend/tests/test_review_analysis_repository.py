@@ -4,10 +4,13 @@ from pathlib import Path
 
 import pytest
 
+from backend.review_analysis.deepseek import JsonCompletion
 from backend.review_analysis.domain import (
     CreateJobCommand,
+    CriterionSnapshot,
     PromptManifest,
     ReviewSnapshot,
+    schema_fingerprint,
     stable_stratified_sample,
 )
 from backend.review_analysis.repository import ReviewAnalysisRepository
@@ -177,3 +180,76 @@ def test_cancel_paused_job_finishes_immediately(tmp_path):
 
     assert cancelled["status"] == "cancelled"
     assert cancelled["control_requested"] is None
+
+
+def test_pause_queued_job_prevents_worker_claim(tmp_path):
+    path = tmp_path / "app.db"
+    seed(path)
+    repository = ReviewAnalysisRepository(path)
+    job = repository.create_job_with_snapshot(command(), snapshots)
+
+    paused = repository.request_control(job["id"], "pause")
+
+    assert paused["status"] == "paused"
+    assert paused["control_requested"] is None
+    assert not repository.claim_job(job["id"], "extracting")
+
+
+def test_discovery_batch_progress_is_idempotent(tmp_path):
+    path = tmp_path / "app.db"
+    seed(path)
+    repository = ReviewAnalysisRepository(path)
+    job = repository.create_job_with_snapshot(command(), snapshots)
+    rows = repository.pending_review_snapshots(job["id"])
+    batch = repository.ensure_discovery_batches(job["id"], [rows])[0]
+    completion = JsonCompletion({}, 10, 5, 15, 0, "stop")
+
+    assert repository.save_discovery_batch(job["id"], batch["batch_index"], [], completion)
+    assert not repository.save_discovery_batch(job["id"], batch["batch_index"], [], completion)
+    updated = repository.get_job(job["id"])
+    assert updated["processed_count"] == len(rows)
+    assert updated["success_count"] == len(rows)
+    assert updated["input_tokens"] == 10
+
+
+def test_combined_criterion_and_label_filter_matches_same_annotation(tmp_path):
+    path = tmp_path / "app.db"
+    seed(path)
+    repository = ReviewAnalysisRepository(path)
+    criteria = [
+        CriterionSnapshot(name="空间", labels=["好", "差"]),
+        CriterionSnapshot(name="续航", labels=["好", "差"]),
+    ]
+    job = repository.create_job_with_snapshot(
+        command(
+            job_type="review_annotation",
+            criteria=criteria,
+            schema_fingerprint=schema_fingerprint(criteria),
+        ),
+        snapshots,
+    )
+    row = repository.pending_review_snapshots(job["id"])[0]
+    result = repository.save_result(
+        content_hash=row["content_hash"],
+        schema_fingerprint=job["schema_fingerprint"],
+        model=job["model"],
+        prompt_version="v1",
+        prompt_sha256="a" * 64,
+        result={
+            "annotations": [
+                {"criterion": "空间", "label": "好", "evidence": ["空间"], "basis": "依据"},
+                {"criterion": "续航", "label": "差", "evidence": ["续航"], "basis": "依据"},
+            ],
+            "unmatched_evidence": [],
+        },
+        input_tokens=1,
+        output_tokens=1,
+        cached_tokens=0,
+    )
+    repository.mark_review_succeeded(job["id"], row["review_id"], result["id"], cached=False)
+
+    filtered = repository.list_annotations(
+        "p1", job_id=job["id"], criterion="空间", label="差"
+    )
+
+    assert filtered["total"] == 0

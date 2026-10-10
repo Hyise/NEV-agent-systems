@@ -5,7 +5,10 @@ const main = useWorkspace();
 const workspace = useReviewAnalysisWorkspace();
 async function apply() {
   if (!main.overview.value) return;
-  await workspace.applyProposal(main.overview.value.schema.revision);
+  const applied = await workspace.applyProposal(
+    main.overview.value.schema.revision,
+  );
+  if (!applied) return;
   main.navigate("criteria");
   await main.loadWorkspace();
 }

@@ -28,25 +28,36 @@ class ReviewAnalysisService:
     def _run(self, job_id: str) -> None:
         job = self.repository.get_job(job_id)
         pipeline = self.discovery_pipeline if job["job_type"] == "criteria_discovery" else self.annotation_pipeline
+        phase = "extracting" if job["job_type"] == "criteria_discovery" else "annotating"
+        if not self.repository.claim_job(job_id, phase):
+            return
         try:
             pipeline.run(job_id, lambda: self._control(job_id))
         except LlmAuthenticationError:
             self.repository.set_job_state(job_id, "paused", error_code="authentication", error_message="DeepSeek 认证或账户状态异常，请检查本机配置后继续")
-        except LlmConfigurationError:
-            self.repository.set_job_state(job_id, "paused", error_code="configuration", error_message="DeepSeek 本机配置不完整，请修复后继续")
+        except LlmConfigurationError as exc:
+            self.repository.set_job_state(
+                job_id,
+                "paused",
+                error_code="configuration",
+                error_message=str(exc),
+            )
         except Exception as exc:
             self.repository.set_job_state(job_id, "failed", error_code="internal", error_message=f"任务执行失败：{type(exc).__name__}")
 
     def start(self, job_id: str) -> Future[None]:
         with self._lock:
             if self._future is not None and not self._future.done():
-                raise ValueError("已有大模型任务正在执行")
+                current = self.repository.get_job(self._job_id) if self._job_id else None
+                if current and current["status"] in {"queued", "running", "paused"}:
+                    raise ValueError("已有大模型任务正在执行")
             job = self.repository.get_job(job_id)
             if job is None:
                 raise KeyError(job_id)
             if job["status"] not in {"queued", "paused"}:
                 raise ValueError("当前任务状态不能启动")
-            self.repository.set_job_state(job_id, "queued")
+            if job["status"] == "paused" and not self.repository.queue_job(job_id):
+                raise ValueError("当前任务状态不能启动")
             self._job_id = job_id
             self._future = self._executor.submit(self._run, job_id)
             return self._future

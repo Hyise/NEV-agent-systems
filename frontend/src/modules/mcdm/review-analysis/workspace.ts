@@ -27,6 +27,7 @@ export function createReviewAnalysisWorkspace(
   const sourcePage = ref(1);
   const sourceTotal = ref(0);
   const selectedSeriesIds = ref<string[]>([]);
+  const selectedSources = ref<Record<string, ReviewSource>>({});
   const jobs = ref<AnalysisJob[]>([]);
   const activeJob = ref<AnalysisJob | null>(null);
   const selectedJobId = ref("");
@@ -56,11 +57,13 @@ export function createReviewAnalysisWorkspace(
   const busy = ref(false);
   const error = ref("");
   let generation = 0;
+  let activated = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const availableReviews = computed(() =>
-    sources.value
-      .filter((item) => selectedSeriesIds.value.includes(item.series_id))
-      .reduce((sum, item) => sum + item.review_count, 0),
+    Object.values(selectedSources.value).reduce(
+      (sum, item) => sum + item.review_count,
+      0,
+    ),
   );
   watch(selectedJobId, (jobId) => {
     if (proposal.value?.job_id !== jobId) {
@@ -69,13 +72,37 @@ export function createReviewAnalysisWorkspace(
     }
   });
 
+  function rememberSelected(rows: ReviewSource[]) {
+    const next = { ...selectedSources.value };
+    for (const source of rows) {
+      if (selectedSeriesIds.value.includes(source.series_id))
+        next[source.series_id] = source;
+    }
+    selectedSources.value = next;
+  }
+
+  async function guarded<T>(
+    operation: () => Promise<T>,
+  ): Promise<T | undefined> {
+    busy.value = true;
+    error.value = "";
+    try {
+      return await operation();
+    } catch (cause) {
+      error.value = (cause as Error).message;
+      return undefined;
+    } finally {
+      busy.value = false;
+    }
+  }
+
   async function loadSources(page = sourcePage.value) {
-    const result = await api.listSources(
-      projectId.value,
-      sourceQuery.value,
-      page,
+    const result = await guarded(() =>
+      api.listSources(projectId.value, sourceQuery.value, page),
     );
+    if (!result) return;
     sources.value = result.rows;
+    rememberSelected(result.rows);
     sourcePage.value = result.page;
     sourceTotal.value = result.total;
   }
@@ -96,6 +123,7 @@ export function createReviewAnalysisWorkspace(
   }
 
   async function activate() {
+    activated = true;
     const token = ++generation;
     busy.value = true;
     error.value = "";
@@ -106,6 +134,7 @@ export function createReviewAnalysisWorkspace(
       ]);
       if (token !== generation) return;
       sources.value = sourceResult.rows;
+      rememberSelected(sourceResult.rows);
       sourcePage.value = sourceResult.page;
       sourceTotal.value = sourceResult.total;
       jobs.value = jobPage.rows;
@@ -127,6 +156,7 @@ export function createReviewAnalysisWorkspace(
     }
   }
   function deactivate() {
+    activated = false;
     generation++;
     if (timer) clearTimeout(timer);
     timer = undefined;
@@ -139,13 +169,13 @@ export function createReviewAnalysisWorkspace(
     )
       timer = setTimeout(() => void activate(), 1500);
   }
-  function reset() {
-    deactivate();
+  function clearState() {
     sources.value = [];
     sourceQuery.value = "";
     sourcePage.value = 1;
     sourceTotal.value = 0;
     selectedSeriesIds.value = [];
+    selectedSources.value = {};
     jobs.value = [];
     activeJob.value = null;
     selectedJobId.value = "";
@@ -156,13 +186,28 @@ export function createReviewAnalysisWorkspace(
     annotationTotal.value = 0;
     summary.value = { annotated_reviews: 0, criteria: {}, labels: {} };
   }
+  function reset() {
+    deactivate();
+    clearState();
+  }
   function toggleSeries(id: string) {
-    selectedSeriesIds.value = selectedSeriesIds.value.includes(id)
-      ? selectedSeriesIds.value.filter((item) => item !== id)
-      : [...selectedSeriesIds.value, id];
+    if (selectedSeriesIds.value.includes(id)) {
+      selectedSeriesIds.value = selectedSeriesIds.value.filter(
+        (item) => item !== id,
+      );
+      const next = { ...selectedSources.value };
+      delete next[id];
+      selectedSources.value = next;
+      return;
+    }
+    selectedSeriesIds.value = [...selectedSeriesIds.value, id];
+    const source = sources.value.find((item) => item.series_id === id);
+    if (source)
+      selectedSources.value = { ...selectedSources.value, [id]: source };
   }
   async function createDiscovery() {
     busy.value = true;
+    error.value = "";
     try {
       activeJob.value = await api.createDiscovery(projectId.value, {
         schema_id: schemaId.value,
@@ -190,6 +235,7 @@ export function createReviewAnalysisWorkspace(
       if (!confirmed) return;
     }
     busy.value = true;
+    error.value = "";
     try {
       activeJob.value = await api.createAnnotation(projectId.value, {
         schema_id: schemaId.value,
@@ -215,41 +261,61 @@ export function createReviewAnalysisWorkspace(
       !["queued", "running", "paused"].includes(target.status)
     )
       return;
-    const result = await api.controlJob(projectId.value, target.id, action);
-    selectedJobId.value = result.id;
-    await refreshJobs();
-    schedule();
+    await guarded(async () => {
+      const result = await api.controlJob(projectId.value, target.id, action);
+      selectedJobId.value = result.id;
+      await refreshJobs();
+      schedule();
+    });
   }
   async function loadProposal(jobId: string) {
-    proposal.value = await api.getProposal(projectId.value, jobId);
+    const result = await guarded(() => api.getProposal(projectId.value, jobId));
+    if (!result) return;
+    proposal.value = result;
     proposalDraft.value = JSON.parse(
-      JSON.stringify(proposal.value.proposal.criteria),
+      JSON.stringify(result.proposal.criteria),
     ) as ProposalCriterion[];
   }
-  async function applyProposal(revision: number) {
-    if (!proposal.value) return;
-    await api.applyProposal(
-      projectId.value,
-      proposal.value.job_id,
-      revision,
-      proposalDraft.value,
+  async function applyProposal(revision: number): Promise<boolean> {
+    if (!proposal.value) return false;
+    const applied = await guarded(() =>
+      api.applyProposal(
+        projectId.value,
+        proposal.value!.job_id,
+        revision,
+        proposalDraft.value,
+      ),
     );
+    return applied !== undefined;
   }
   async function loadAnnotations(page = 1) {
-    annotationPage.value = page;
     const params = Object.fromEntries(
       Object.entries(filters.value).filter(([, value]) => value),
     );
     params.page = String(page);
     params.page_size = "20";
-    const result = await api.listAnnotations(projectId.value, params);
-    annotations.value = result.rows;
-    annotationTotal.value = result.total;
-    summary.value = await api.getSummary(projectId.value, filters.value.job_id);
+    const result = await guarded(() =>
+      Promise.all([
+        api.listAnnotations(projectId.value, params),
+        api.getSummary(projectId.value, filters.value.job_id),
+      ]),
+    );
+    if (!result) return;
+    annotationPage.value = page;
+    annotations.value = result[0].rows;
+    annotationTotal.value = result[0].total;
+    summary.value = result[1];
   }
   async function openAnnotation(id: string) {
-    selectedAnnotation.value = await api.getAnnotation(projectId.value, id);
+    const result = await guarded(() => api.getAnnotation(projectId.value, id));
+    if (result) selectedAnnotation.value = result;
   }
+  watch([projectId, schemaId], () => {
+    const reload = activated;
+    deactivate();
+    clearState();
+    if (reload) void activate();
+  });
   return {
     projectId,
     schemaId,
@@ -259,6 +325,7 @@ export function createReviewAnalysisWorkspace(
     sourcePage,
     sourceTotal,
     selectedSeriesIds,
+    selectedSources,
     jobs,
     activeJob,
     selectedJobId,

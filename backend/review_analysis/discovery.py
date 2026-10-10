@@ -58,7 +58,6 @@ class CriteriaDiscoveryPipeline:
         if any(expected.get(item.version) != item.sha256 for item in current):
             raise LlmConfigurationError("任务 Prompt 版本已变化，请新建任务")
         rows = self.repository.pending_review_snapshots(job_id)
-        self.repository.set_job_state(job_id, "running", phase="extracting")
         all_clues: list[dict] = []
         grouped = list(_batches(rows, self.character_budget, self.max_reviews_per_batch))
         batch_rows, offset = [], 0
@@ -83,6 +82,9 @@ class CriteriaDiscoveryPipeline:
             self.repository.save_discovery_batch(job_id, checkpoint["batch_index"], clues, completion)
             all_clues.extend(clues)
         if self._control(job_id, control): return
+        if self.repository.get_proposal(job_id) is not None:
+            self.repository.set_job_state(job_id, "completed")
+            return
         self.repository.set_job_state(job_id, "running", phase="merging")
         proposal, completion = self.executor.call(
             self.renderer.criteria_merge(all_clues),
@@ -99,16 +101,22 @@ class CriteriaDiscoveryPipeline:
 
 def _validate_clues(payload, texts: list[str]):
     result = _Clues.model_validate(payload)
-    corpus = "\n".join(texts)
-    if any(evidence not in corpus for clue in result.clues for evidence in clue.evidence):
+    if any(
+        not evidence or not any(evidence in text for text in texts)
+        for clue in result.clues
+        for evidence in clue.evidence
+    ):
         raise ValueError("准则线索证据必须来自评论原文")
     return result
 
 
 def _validate_proposal(payload, texts: list[str]):
     result = parse_criteria_proposal(payload)
-    corpus = "\n".join(texts)
-    if any(evidence not in corpus for criterion in result.criteria for evidence in criterion.evidence):
+    if any(
+        not evidence or not any(evidence in text for text in texts)
+        for criterion in result.criteria
+        for evidence in criterion.evidence
+    ):
         raise ValueError("候选方案证据必须来自样本原文")
     return result
 

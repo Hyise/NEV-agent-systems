@@ -35,16 +35,9 @@ const workspace = useReviewAnalysisWorkspace();
           </option>
         </select></label
       ><label
-        >车系<select v-model="workspace.filters.value.series_id">
-          <option value="">全部车系</option>
-          <option
-            v-for="source in workspace.sources.value"
-            :key="source.series_id"
-            :value="source.series_id"
-          >
-            {{ source.series_name }}
-          </option>
-        </select></label
+        >车系 ID<input
+          v-model="workspace.filters.value.series_id"
+          placeholder="留空表示全部" /></label
       ><label>准则<input v-model="workspace.filters.value.criterion" /></label
       ><label>等级<input v-model="workspace.filters.value.label" /></label
       ><label

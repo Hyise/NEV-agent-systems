@@ -1,4 +1,4 @@
-import { ref } from "vue";
+import { nextTick, ref } from "vue";
 import { describe, expect, it, vi } from "vitest";
 import type { AnalysisJob } from "./api";
 import { createReviewAnalysisWorkspace } from "./workspace";
@@ -254,5 +254,104 @@ describe("review analysis workspace", () => {
     await workspace.control("cancel");
 
     expect(api.controlJob).not.toHaveBeenCalled();
+  });
+
+  it("keeps selected review counts across source pages", async () => {
+    const api = fakeApi();
+    const workspace = createReviewAnalysisWorkspace(
+      api,
+      ref("p"),
+      ref("s"),
+      ref("draft"),
+    );
+    await workspace.activate();
+    workspace.toggleSeries("1");
+    api.listSources.mockResolvedValueOnce({
+      rows: [{ series_id: "2", series_name: "车系二", review_count: 5 }],
+      total: 2,
+      page: 2,
+      page_size: 20,
+    });
+    await workspace.loadSources(2);
+    workspace.toggleSeries("2");
+
+    expect(workspace.availableReviews.value).toBe(8);
+    expect(workspace.selectedSeriesIds.value).toEqual(["1", "2"]);
+  });
+
+  it("resets state and ignores stale responses after project changes", async () => {
+    const api = fakeApi();
+    let resolveOld!: (
+      value: Awaited<ReturnType<typeof api.listSources>>,
+    ) => void;
+    api.listSources
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveOld = resolve;
+          }),
+      )
+      .mockResolvedValueOnce({
+        rows: [{ series_id: "2", series_name: "新项目车系", review_count: 7 }],
+        total: 1,
+        page: 1,
+        page_size: 20,
+      });
+    const project = ref("p1");
+    const workspace = createReviewAnalysisWorkspace(
+      api,
+      project,
+      ref("s"),
+      ref("draft"),
+    );
+    const oldActivation = workspace.activate();
+    project.value = "p2";
+    await nextTick();
+    await Promise.resolve();
+    resolveOld({
+      rows: [{ series_id: "1", series_name: "旧项目车系", review_count: 3 }],
+      total: 1,
+      page: 1,
+      page_size: 20,
+    });
+    await oldActivation;
+    await nextTick();
+
+    expect(api.listSources).toHaveBeenLastCalledWith("p2", "", 1);
+    expect(workspace.sources.value[0]?.series_name).toBe("新项目车系");
+    expect(workspace.selectedSeriesIds.value).toEqual([]);
+  });
+
+  it("surfaces proposal conflicts without discarding local edits", async () => {
+    const api = fakeApi();
+    api.applyProposal.mockRejectedValue(new Error("准则草稿 revision 已变化"));
+    const workspace = createReviewAnalysisWorkspace(
+      api,
+      ref("p"),
+      ref("s"),
+      ref("draft"),
+    );
+    workspace.proposal.value = {
+      job_id: "j",
+      proposal: {
+        criteria: [
+          {
+            name: "空间",
+            labels: ["好", "差"],
+            similar_terms: [],
+            basis: "依据",
+            evidence: [],
+          },
+        ],
+      },
+    };
+    workspace.proposalDraft.value = JSON.parse(
+      JSON.stringify(workspace.proposal.value.proposal.criteria),
+    );
+    workspace.proposalDraft.value[0].name = "空间实用性";
+
+    expect(await workspace.applyProposal(2)).toBe(false);
+    expect(workspace.error.value).toContain("revision");
+    expect(workspace.proposalDraft.value[0].name).toBe("空间实用性");
   });
 });

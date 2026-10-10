@@ -38,6 +38,7 @@ class Repo:
     def save_proposal(self, job_id, proposal, completion=None, **counts):
         self.proposal = proposal; self.counts = counts
         if completion: self.usage.append(completion.total_tokens)
+    def get_proposal(self, job_id): return self.proposal
     def set_job_state(self, job_id, status, **kwargs): self.states.append(status); self.job["status"] = status
     def add_usage(self, job_id, completion): self.usage.append(completion.total_tokens)
     def ensure_discovery_batches(self, job_id, batches):
@@ -122,6 +123,39 @@ def test_rejects_fabricated_discovery_evidence():
     with pytest.raises(LlmInvalidResponseError):
         CriteriaDiscoveryPipeline(repo, PromptRenderer(), StructuredCallExecutor(client, sleep=lambda _: None)).run("j", lambda: None)
     assert repo.proposal is None
+
+
+def test_evidence_cannot_cross_review_boundaries():
+    repo = Repo(["评论尾", "评论头"])
+    payload = {"clues": [{"name": "空间", "terms": [], "evidence": ["尾\n评论"]}]}
+    client = Client([payload, payload, payload])
+
+    with pytest.raises(LlmInvalidResponseError):
+        CriteriaDiscoveryPipeline(
+            repo,
+            PromptRenderer(),
+            StructuredCallExecutor(client, sleep=lambda _: None),
+            character_budget=100,
+        ).run("j", lambda: None)
+
+
+def test_resume_after_saved_proposal_skips_merge_call():
+    repo = Repo(["真实评论"])
+    first = Client([
+        {"clues": []},
+        {"criteria": [{"name": "空间", "labels": ["好", "差"], "similar_terms": [], "basis": "依据", "evidence": ["真实评论"]}]},
+    ])
+    pipeline = CriteriaDiscoveryPipeline(repo, PromptRenderer(), StructuredCallExecutor(first))
+    pipeline.run("j", lambda: None)
+    repo.job["status"] = "paused"
+    second = Client([])
+
+    CriteriaDiscoveryPipeline(
+        repo, PromptRenderer(), StructuredCallExecutor(second)
+    ).run("j", lambda: None)
+
+    assert second.calls == []
+    assert repo.states[-1] == "completed"
 
 
 def test_resume_rejects_changed_model_lineage():

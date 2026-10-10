@@ -248,7 +248,13 @@ class ReviewAnalysisRepository:
                     updated_at=? WHERE id=? AND status IN ('queued','running','paused')""",
                     (_now(), _now(), job_id)).rowcount
             else:
-                count = connection.execute("UPDATE review_analysis_jobs SET control_requested=?,updated_at=? WHERE id=? AND status IN ('queued','running')", (action, _now(), job_id)).rowcount
+                count = connection.execute(
+                    """UPDATE review_analysis_jobs SET
+                       status=CASE WHEN status='queued' THEN 'paused' ELSE status END,
+                       control_requested=CASE WHEN status='running' THEN 'pause' ELSE NULL END,
+                       updated_at=? WHERE id=? AND status IN ('queued','running')""",
+                    (_now(), job_id),
+                ).rowcount
             if count != 1:
                 raise ValueError("任务状态不允许控制")
         return self.get_job(job_id)
@@ -259,6 +265,28 @@ class ReviewAnalysisRepository:
         if row is None:
             raise KeyError(job_id)
         return row["control_requested"]
+
+    def queue_job(self, job_id: str) -> bool:
+        with self.connect() as connection:
+            count = connection.execute(
+                """UPDATE review_analysis_jobs
+                   SET status='queued',control_requested=NULL,updated_at=?
+                   WHERE id=? AND status='paused'""",
+                (_now(), job_id),
+            ).rowcount
+        return bool(count)
+
+    def claim_job(self, job_id: str, phase: str) -> bool:
+        timestamp = _now()
+        with self.connect() as connection:
+            count = connection.execute(
+                """UPDATE review_analysis_jobs
+                   SET status='running',phase=?,started_at=COALESCE(started_at,?),
+                       updated_at=?
+                   WHERE id=? AND status='queued' AND control_requested IS NULL""",
+                (phase, timestamp, timestamp, job_id),
+            ).rowcount
+        return bool(count)
 
     def pause_interrupted_jobs(self):
         timestamp = _now()
@@ -396,8 +424,13 @@ class ReviewAnalysisRepository:
         result=[]
         for row in rows:
             item=self._snapshot(row); payload=json.loads(item.pop("result_json")) if item.get("result_json") else None
-            if criterion and not any(x["criterion"]==criterion for x in (payload or {}).get("annotations",[])): continue
-            if label and not any(x["label"]==label for x in (payload or {}).get("annotations",[])): continue
+            annotations = (payload or {}).get("annotations", [])
+            if (criterion or label) and not any(
+                (not criterion or x["criterion"] == criterion)
+                and (not label or x["label"] == label)
+                for x in annotations
+            ):
+                continue
             item["result"]=payload; item["annotation_count"]=len((payload or {}).get("annotations",[])); result.append(item)
         total=len(result); start=(page-1)*page_size
         return {"rows":result[start:start+page_size],"total":total,"page":page,"page_size":page_size}
@@ -415,9 +448,24 @@ class ReviewAnalysisRepository:
     def save_discovery_batch(self, job_id: str, batch_index: int, clues: list[dict[str, Any]], completion):
         with self.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
+            batch = connection.execute(
+                """SELECT review_ids_json FROM review_analysis_discovery_batches
+                   WHERE job_id=? AND batch_index=? AND status='pending'""",
+                (job_id, batch_index),
+            ).fetchone()
             count = connection.execute("UPDATE review_analysis_discovery_batches SET status='succeeded',clues_json=? WHERE job_id=? AND batch_index=? AND status='pending'", (_json(clues),job_id,batch_index)).rowcount
-            if count:
-                connection.execute("UPDATE review_analysis_jobs SET input_tokens=input_tokens+?,output_tokens=output_tokens+?,cached_tokens=cached_tokens+?,updated_at=? WHERE id=?", (completion.input_tokens,completion.output_tokens,completion.cached_tokens,_now(),job_id))
+            if count and batch is not None:
+                review_count = len(json.loads(batch["review_ids_json"]))
+                connection.execute(
+                    """UPDATE review_analysis_jobs
+                       SET processed_count=processed_count+?,success_count=success_count+?,
+                           input_tokens=input_tokens+?,output_tokens=output_tokens+?,
+                           cached_tokens=cached_tokens+?,updated_at=? WHERE id=?""",
+                    (
+                        review_count, review_count, completion.input_tokens,
+                        completion.output_tokens, completion.cached_tokens, _now(), job_id,
+                    ),
+                )
         return bool(count)
 
     def get_annotation(self, project_id: str, annotation_id: str):

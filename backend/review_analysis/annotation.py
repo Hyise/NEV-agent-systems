@@ -20,7 +20,6 @@ class ReviewAnnotationPipeline:
         expected = job["prompt_manifests"][0]
         if expected["version"] != current.version or expected["sha256"] != current.sha256:
             raise LlmConfigurationError("任务 Prompt 版本已变化，请新建任务")
-        self.repository.set_job_state(job_id, "running", phase="annotating")
         for row in self.repository.pending_review_snapshots(job_id):
             action = control()
             if action is ControlAction.PAUSE:
