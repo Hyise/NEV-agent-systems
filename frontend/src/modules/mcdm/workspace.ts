@@ -23,6 +23,7 @@ export type Page =
   | "overview"
   | "data"
   | "criteria"
+  | "review-analysis"
   | "scenario"
   | "shares"
   | "experiments";

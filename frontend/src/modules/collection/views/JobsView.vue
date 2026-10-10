@@ -17,8 +17,8 @@ const {
 } = workspace;
 
 const labels: Record<CollectionJob["status"], string> = {
-  queued: "等待启动",
-  discovering: "发现车系",
+  queued: "等待采集",
+  discovering: "发现车系（旧任务）",
   collecting: "采集评论",
   paused: "已暂停",
   completed: "已完成",
@@ -30,6 +30,16 @@ function displayStatus(job: CollectionJob) {
   if (job.control_requested === "pause") return "正在暂停";
   if (job.control_requested === "stop") return "正在停止";
   return labels[job.status];
+}
+
+function totalSeries(job: CollectionJob) {
+  return job.discovered_count || job.max_series;
+}
+
+function currentSeriesProgress(job: CollectionJob) {
+  const total = totalSeries(job);
+  const started = job.current_series_id ? 1 : 0;
+  return Math.min(job.current_series_index + started, total);
 }
 
 function dateTime(value: string | null) {
@@ -108,17 +118,19 @@ function dateTime(value: string | null) {
         <div>
           <dt>车系进度</dt>
           <dd>
-            {{ overview.active_job.current_series_index + 1 }} /
-            {{
-              overview.active_job.discovered_count ||
-              overview.active_job.max_series
-            }}
+            {{ currentSeriesProgress(overview.active_job) }} /
+            {{ totalSeries(overview.active_job) }}
           </dd>
         </div>
         <div>
           <dt>当前车系</dt>
           <dd>
-            {{ overview.active_job.current_series_name || "等待发现" }}
+            {{
+              overview.active_job.current_series_name ||
+              (overview.active_job.status === "discovering"
+                ? "等待发现（旧任务）"
+                : "等待采集")
+            }}
             <span v-if="overview.active_job.current_series_id" class="mono"
               >({{ overview.active_job.current_series_id }})</span
             >
@@ -168,7 +180,7 @@ function dateTime(value: string | null) {
                 {{ item.mode === "verification" ? "功能验证" : "正式采集" }}
               </td>
               <td>{{ displayStatus(item) }}</td>
-              <td class="numeric mono">{{ item.discovered_count }}</td>
+              <td class="numeric mono">{{ totalSeries(item) }}</td>
               <td class="numeric mono">{{ item.saved_count }}</td>
               <td class="numeric mono">{{ item.failed_count }}</td>
               <td>

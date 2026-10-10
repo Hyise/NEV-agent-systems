@@ -4,6 +4,9 @@
 )
 $ErrorActionPreference = 'Stop'
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+$envLoader = Join-Path $PSScriptRoot 'import-local-env.ps1'
+. $envLoader
+Import-LocalEnv -Path (Join-Path $projectRoot '.env')
 $runtimeDir = Join-Path $projectRoot '.runtime'
 if (-not (Test-Path (Join-Path $projectRoot 'frontend/dist/index.html'))) {
     throw '请先在frontend目录运行 npm ci 和 npm run build。'

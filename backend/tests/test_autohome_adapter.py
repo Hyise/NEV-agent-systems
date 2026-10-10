@@ -12,6 +12,7 @@ from backend.collection.autohome import (
     AutohomeReviewAdapter,
     AutohomeStructureError,
     BrowserSession,
+    CatalogDiscoveryCancelled,
     CatalogLink,
     ensure_allowed_url,
     extract_catalog_series,
@@ -46,6 +47,104 @@ class FixtureLinkParser(HTMLParser):
             self.current["name"] = self.current["name"].strip()
             self.links.append(self.current)
             self.current = None
+
+
+class FakeBody:
+    def inner_text(self, timeout):
+        assert timeout == 5_000
+        return "新能源汽车"
+
+
+class FakePage:
+    def __init__(self, rounds):
+        self.rounds = rounds
+        self.round_index = 0
+        self.scroll_calls = 0
+        self.goto_calls = 0
+        self.url = "https://www.autohome.com.cn/price/ev#pvareaid=3311257"
+
+    def goto(self, url, wait_until, timeout):
+        self.goto_calls += 1
+        assert url == self.url
+        assert wait_until == "domcontentloaded"
+        assert timeout == 20_000
+        return type("Response", (), {"status": 200})()
+
+    def locator(self, selector):
+        assert selector == "body"
+        return FakeBody()
+
+    def eval_on_selector_all(self, selector, script):
+        assert selector != "a[href]"
+        assert "data-series-name" in script
+        return self.rounds[min(self.round_index, len(self.rounds) - 1)]
+
+    def evaluate(self, script):
+        if "navigator.userAgent" in script:
+            return "test-agent"
+        assert "scrollTo" in script
+        self.scroll_calls += 1
+        self.round_index += 1
+
+    def wait_for_timeout(self, milliseconds):
+        assert milliseconds == 800
+
+
+class FakeContext:
+    def __init__(self, page):
+        self.page = page
+
+    def route(self, pattern, handler):
+        assert pattern == "**/*"
+        assert callable(handler)
+
+    def new_page(self):
+        return self.page
+
+    def cookies(self):
+        return [{"name": "session", "value": "fixture"}]
+
+
+class FakeBrowser:
+    def __init__(self, page):
+        self.page = page
+        self.closed = False
+
+    def new_context(self, locale):
+        assert locale == "zh-CN"
+        return FakeContext(self.page)
+
+    def close(self):
+        self.closed = True
+
+
+class FakePlaywright:
+    def __init__(self, page):
+        self.chromium = self
+        self.page = page
+
+    def launch(self, headless):
+        assert headless is True
+        return FakeBrowser(self.page)
+
+
+class FakePlaywrightManager:
+    def __init__(self, page):
+        self.playwright = FakePlaywright(page)
+
+    def __enter__(self):
+        return self.playwright
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        return False
+
+
+def discovery_adapter(rounds):
+    page = FakePage(rounds)
+    adapter = AutohomeCatalogAdapter(
+        playwright_factory=lambda: FakePlaywrightManager(page)
+    )
+    return adapter, page
 
 
 def model_y():
@@ -105,9 +204,54 @@ def test_catalog_fixture_exercises_scoped_dom_extraction():
     series = extract_catalog_series(links, max_series=500)
 
     assert [(item.series_id, item.series_name) for item in series] == [
+        ("8627", "传祺越7"),
         ("5769", "Model Y"),
         ("6762", "海鸥"),
     ]
+
+
+def test_catalog_dom_extraction_ignores_non_series_links_before_quality_metrics():
+    class CurrentPage:
+        def eval_on_selector_all(self, selector, script):
+            return [
+                {"href": "/8627/#pvareaid=6861421", "name": "传祺越7"},
+                {"href": "/price/ev#filters", "name": "筛选"},
+                {"href": "https://www.autohome.com.cn/news/", "name": "资讯"},
+                {"href": "/8584/#pvareaid=6861421", "name": "ID.AURA T6"},
+            ]
+
+    links = AutohomeCatalogAdapter._read_links(CurrentPage())
+
+    assert [(link.href, link.name) for link in links] == [
+        ("/8627/#pvareaid=6861421", "传祺越7"),
+        ("/8584/#pvareaid=6861421", "ID.AURA T6"),
+    ]
+
+
+def test_discovery_cancelled_before_start_does_not_launch_browser():
+    factory_called = False
+
+    def factory():
+        nonlocal factory_called
+        factory_called = True
+        raise AssertionError("browser must not launch")
+
+    adapter = AutohomeCatalogAdapter(playwright_factory=factory)
+
+    with pytest.raises(CatalogDiscoveryCancelled):
+        adapter.discover_series(1000, should_cancel=lambda: True)
+
+    assert factory_called is False
+
+
+def test_discovery_cancelled_after_page_creation_does_not_navigate():
+    adapter, page = discovery_adapter([[{"href": "/5769/", "name": "Model Y"}]])
+    checks = iter((False, True))
+
+    with pytest.raises(CatalogDiscoveryCancelled):
+        adapter.discover_series(1000, should_cancel=lambda: next(checks))
+
+    assert page.goto_calls == 0
 
 
 def test_catalog_page_identity_rejects_redirects_and_verification_pages():
@@ -142,6 +286,133 @@ def test_catalog_page_identity_rejects_redirects_and_verification_pages():
         AutohomeCatalogAdapter._validate_catalog_page(
             Page("https://www.autohome.com.cn/price/ev", "请完成安全检查"), response
         )
+
+
+def test_discovery_reports_new_unique_series_in_first_seen_order():
+    adapter, _ = discovery_adapter(
+        [
+            [
+                {"href": "/5769/", "name": "Model Y"},
+                {"href": "/5769/", "name": "Model Y 2025款"},
+            ],
+            [
+                {"href": "/5769/", "name": "Model Y"},
+                {"href": "/5769/", "name": "Model Y 2025款"},
+                {"href": "/6762/", "name": "海鸥"},
+            ],
+        ]
+    )
+    batches = []
+
+    result = adapter.discover_series(
+        2,
+        on_batch=lambda items, scanned, skipped, page: batches.append(
+            ([item.series_id for item in items], scanned, skipped, page)
+        ),
+    )
+
+    assert [(item.series_id, item.discovery_rank) for item in result.series] == [
+        ("5769", 1),
+        ("6762", 2),
+    ]
+    assert batches == [(["5769"], 2, 0, 1), (["6762"], 3, 0, 2)]
+    assert result.scanned_count == 3
+    assert result.skipped_count == 0
+    assert result.source_exhausted is False
+
+
+def test_discovery_scans_past_duplicates_until_1000_unique_series():
+    first = [
+        {"href": f"/{5000 + index}/", "name": f"车系 {index}"}
+        for index in range(500)
+    ]
+    second = [
+        *first,
+        {"href": "/5000/", "name": "车系 0 另一个年款"},
+        *[
+            {"href": f"/{5500 + index}/", "name": f"车系 {500 + index}"}
+            for index in range(500)
+        ],
+    ]
+    adapter, page = discovery_adapter([first, second])
+
+    result = adapter.discover_series(1000)
+
+    assert len(result.series) == 1000
+    assert result.series[-1].discovery_rank == 1000
+    assert result.series[-1].series_id == "5999"
+    assert result.scanned_count == 1001
+    assert page.scroll_calls == 1
+    assert result.source_exhausted is False
+
+
+def test_discovery_marks_normal_source_exhaustion():
+    adapter, page = discovery_adapter(
+        [[{"href": "/5769/", "name": "Model Y"}]]
+    )
+
+    result = adapter.discover_series(1000)
+
+    assert [item.series_id for item in result.series] == ["5769"]
+    assert result.source_exhausted is True
+    assert page.scroll_calls == 5
+
+
+def test_discovery_cancels_before_the_next_scroll():
+    adapter, page = discovery_adapter(
+        [
+            [{"href": "/5769/", "name": "Model Y"}],
+            [
+                {"href": "/5769/", "name": "Model Y"},
+                {"href": "/6762/", "name": "海鸥"},
+            ],
+        ]
+    )
+    cancelled = False
+
+    def on_batch(items, scanned, skipped, load_round):
+        nonlocal cancelled
+        assert [item.series_id for item in items] == ["5769"]
+        assert (scanned, skipped, load_round) == (1, 0, 1)
+        cancelled = True
+
+    with pytest.raises(CatalogDiscoveryCancelled):
+        adapter.discover_series(
+            1000, on_batch=on_batch, should_cancel=lambda: cancelled
+        )
+
+    assert page.scroll_calls == 0
+
+
+def test_nonempty_round_with_zero_valid_entries_fails():
+    adapter, page = discovery_adapter(
+        [
+            [{"href": "/5769/", "name": ""}],
+            [{"href": "/5769/", "name": "Model Y"}],
+        ]
+    )
+
+    with pytest.raises(AutohomeStructureError, match="没有有效车系"):
+        adapter.discover_series(1000)
+
+    assert page.scroll_calls == 0
+
+
+def test_required_field_failure_rate_over_five_percent_after_one_hundred_items_fails():
+    candidates = [
+        {"href": f"/{5000 + index}/", "name": f"车系 {index}"}
+        for index in range(94)
+    ]
+    candidates.extend(
+        {"href": f"/{6000 + index}/", "name": ""}
+        for index in range(6)
+    )
+    adapter, page = discovery_adapter([candidates])
+
+    with pytest.raises(AutohomeStructureError, match="缺失率"):
+        adapter.discover_series(1000)
+
+    assert page.scroll_calls == 0
 
 
 def test_review_request_uses_series_id_yearid_zero_and_page_size_twenty():

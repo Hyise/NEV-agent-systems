@@ -540,4 +540,3 @@ git commit -m "docs(collection): document selectable series workflow"
 - [ ] **Step 10: Request whole-branch code review**
 
 Review the branch against `docs/superpowers/specs/2026-10-09-series-catalog-selection-design.md`, with special attention to transaction boundaries, reservation release paths, legacy job compatibility, complete review text, and frontend stale-response handling. Resolve all Critical and Important findings, rerun affected gates, and commit fixes before integration.
-

@@ -5,7 +5,7 @@ import json
 from enum import StrEnum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class StrictModel(BaseModel):
@@ -68,31 +68,25 @@ def transition_status(current: JobStatus, action: JobAction) -> JobStatus:
 
 class CreateJobBody(StrictModel):
     mode: JobMode
-    max_series: int | None = Field(default=None, ge=1)
-    max_pages_per_series: int | None = Field(default=None, ge=1)
+    selected_series_ids: list[str] = Field(min_length=1, max_length=1000)
     request_delay_min_seconds: float = Field(default=2, ge=2)
     request_delay_max_seconds: float = Field(default=4, ge=2)
     series_delay_min_seconds: float = Field(default=5, ge=5)
     series_delay_max_seconds: float = Field(default=10, ge=5)
 
+    @field_validator("selected_series_ids")
+    @classmethod
+    def validate_selected_series_ids(cls, values: list[str]) -> list[str]:
+        if any(not value.isdigit() for value in values):
+            raise ValueError("车系 ID 必须是数字")
+        if len(values) != len(set(values)):
+            raise ValueError("车系 ID 不能重复")
+        return values
+
     @model_validator(mode="after")
-    def apply_scope_and_validate_delays(self):
-        if self.mode is JobMode.PRODUCTION:
-            if self.max_series not in (None, 500):
-                raise ValueError("正式采集固定为前500个车系")
-            if self.max_pages_per_series is not None:
-                raise ValueError("正式采集必须采集每个车系的全部评论")
-            self.max_series = 500
-            self.max_pages_per_series = None
-        else:
-            self.max_series = 3 if self.max_series is None else self.max_series
-            self.max_pages_per_series = (
-                2 if self.max_pages_per_series is None else self.max_pages_per_series
-            )
-            if self.max_series > 3:
-                raise ValueError("功能验证最多采集3个车系")
-            if self.max_pages_per_series > 2:
-                raise ValueError("功能验证每个车系最多采集2页")
+    def validate_scope_and_delays(self):
+        if self.mode is JobMode.VERIFICATION and len(self.selected_series_ids) > 3:
+            raise ValueError("功能验证最多选择3个车系")
         if self.request_delay_min_seconds > self.request_delay_max_seconds:
             raise ValueError("分页请求最小间隔不能大于最大间隔")
         if self.series_delay_min_seconds > self.series_delay_max_seconds:
@@ -100,14 +94,22 @@ class CreateJobBody(StrictModel):
         return self
 
     def to_config(self) -> "JobConfig":
-        return JobConfig(**self.model_dump())
+        return JobConfig(
+            mode=self.mode,
+            max_series=len(self.selected_series_ids),
+            max_pages_per_series=2 if self.mode is JobMode.VERIFICATION else None,
+            request_delay_min_seconds=self.request_delay_min_seconds,
+            request_delay_max_seconds=self.request_delay_max_seconds,
+            series_delay_min_seconds=self.series_delay_min_seconds,
+            series_delay_max_seconds=self.series_delay_max_seconds,
+        )
 
 
 class JobConfig(StrictModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     mode: JobMode
-    max_series: int = Field(ge=1, le=500)
+    max_series: int = Field(ge=1, le=1000)
     max_pages_per_series: int | None = Field(default=None, ge=1)
     request_delay_min_seconds: float = Field(ge=2)
     request_delay_max_seconds: float = Field(ge=2)

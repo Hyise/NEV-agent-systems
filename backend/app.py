@@ -14,10 +14,30 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from .collection.api import create_collection_router
+from .collection.catalog_api import create_catalog_router
+from .collection.catalog_repository import SeriesCatalogRepository
+from .collection.catalog_service import SeriesCatalogService
+from .collection.coordination import ExternalAccessCoordinator
 from .collection.repository import CollectionRepository
 from .collection.service import CollectionService
-from .domain import ImportBody, ProjectBody, RevisionBody, SchemaBody, parse_dataset, preset_criteria
+from .domain import (
+    ImportBody,
+    ProjectBody,
+    RevisionBody,
+    SchemaBody,
+    parse_dataset,
+    preset_criteria,
+)
 from .research import NOTES, Research
+from .review_analysis.annotation import ReviewAnnotationPipeline
+from .review_analysis.api import create_review_analysis_router
+from .review_analysis.config import DeepSeekSettings, LlmConfigurationError
+from .review_analysis.deepseek import DeepSeekClient
+from .review_analysis.discovery import CriteriaDiscoveryPipeline
+from .review_analysis.prompting import PromptRenderer
+from .review_analysis.repository import ReviewAnalysisRepository
+from .review_analysis.service import ReviewAnalysisService
+from .review_analysis.structured_calls import StructuredCallExecutor
 from .store import Store
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -35,24 +55,56 @@ def create_app(
     db_path: Path | None = None,
     research_dir: Path | None = None,
     collection_service_factory=None,
+    catalog_service_factory=None,
+    review_analysis_service_factory=None,
 ):
     database_path = db_path or Path(os.environ.get('NEV_DB_PATH', ROOT / '.runtime/platform.sqlite3'))
     store = Store(database_path)
     research = Research(research_dir or ROOT / 'backend/data/research')
     collection_repository = CollectionRepository(database_path)
+    external_access_coordinator = ExternalAccessCoordinator()
+    catalog_repository = SeriesCatalogRepository(database_path)
     collection_service = (
         collection_service_factory(collection_repository)
         if collection_service_factory is not None
-        else CollectionService(collection_repository)
+        else CollectionService(collection_repository, external_access_coordinator)
     )
+    catalog_service = (
+        catalog_service_factory(catalog_repository, external_access_coordinator)
+        if catalog_service_factory is not None
+        else SeriesCatalogService(catalog_repository, external_access_coordinator)
+    )
+    review_analysis_repository = ReviewAnalysisRepository(database_path)
+    try:
+        deepseek_settings = DeepSeekSettings.from_environ(os.environ)
+    except LlmConfigurationError:
+        deepseek_settings = None
+    if review_analysis_service_factory is not None:
+        review_analysis_service = review_analysis_service_factory(review_analysis_repository)
+    elif deepseek_settings is not None:
+        renderer = PromptRenderer()
+        executor = StructuredCallExecutor(DeepSeekClient(deepseek_settings))
+        review_analysis_service = ReviewAnalysisService(
+            review_analysis_repository,
+            ReviewAnnotationPipeline(review_analysis_repository, renderer, executor),
+            CriteriaDiscoveryPipeline(review_analysis_repository, renderer, executor),
+        )
+    else:
+        review_analysis_service = None
 
     @asynccontextmanager
     async def lifespan(application):
         collection_repository.pause_interrupted_jobs(now())
+        catalog_repository.fail_interrupted_runs(now())
+        if review_analysis_service is None:
+            review_analysis_repository.pause_interrupted_jobs()
         try:
             yield
         finally:
+            catalog_service.shutdown()
             collection_service.shutdown()
+            if review_analysis_service is not None:
+                review_analysis_service.shutdown()
 
     app = FastAPI(
         title='新能源汽车情景多准则决策分析系统',
@@ -62,6 +114,11 @@ def create_app(
     app.state.store = store
     app.state.collection_repository = collection_repository
     app.state.collection_service = collection_service
+    app.state.catalog_repository = catalog_repository
+    app.state.catalog_service = catalog_service
+    app.state.external_access_coordinator = external_access_coordinator
+    app.state.review_analysis_repository = review_analysis_repository
+    app.state.review_analysis_service = review_analysis_service
     with store.connect() as conn:
         conn.execute('INSERT OR IGNORE INTO projects VALUES (?,?,?,?)',
                      ('research-archive', '新能源汽车消费者决策研究', 'preset', now()))
@@ -102,7 +159,18 @@ def create_app(
     def health():
         return {'status': 'ok', 'version': '0.1.0', 'app_id': 'nev-mcdm-platform'}
 
-    app.include_router(create_collection_router(collection_repository, collection_service))
+    app.include_router(
+        create_collection_router(
+            collection_repository,
+            collection_service,
+            catalog_repository,
+            external_access_coordinator,
+        )
+    )
+    app.include_router(create_catalog_router(catalog_repository, catalog_service))
+    app.include_router(create_review_analysis_router(
+        review_analysis_repository, review_analysis_service, deepseek_settings
+    ))
 
     @app.get('/api/projects')
     def projects():
@@ -224,7 +292,7 @@ def create_app(
 
     @app.get('/api/projects/{project_id}/export')
     def export(project_id: str, kind: Literal['dataset', 'report', 'template'] = 'report', schema_id: str | None = None):
-        project, schema, records, dataset, months = context(project_id, schema_id)
+        project, schema, records, _dataset, _months = context(project_id, schema_id)
         if kind == 'report':
             payload = {'exported_at': now(), **overview(project_id, schema_id),
                        'curves': research.curves('weights') if project['mode'] == 'preset' else [],

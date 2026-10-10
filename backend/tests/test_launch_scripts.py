@@ -1,3 +1,4 @@
+import json
 import os
 import shutil
 import subprocess
@@ -70,6 +71,7 @@ def test_windows_powershell_can_parse_all_launcher_scripts() -> None:
         "start-local.ps1",
         "stop-local.ps1",
         "install-collection-browser.ps1",
+        "import-local-env.ps1",
     ):
         env = os.environ.copy()
         env["SCRIPT_UNDER_TEST"] = str(SCRIPTS_DIR / script_name)
@@ -83,6 +85,47 @@ def test_windows_powershell_can_parse_all_launcher_scripts() -> None:
             check=False,
         )
         assert result.returncode == 0, f"{script_name}: {result.stderr or result.stdout}"
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows PowerShell compatibility test")
+def test_import_local_env_is_literal_and_does_not_override_existing_values(tmp_path: Path) -> None:
+    powershell = shutil.which("powershell.exe")
+    assert powershell is not None
+    env_file = tmp_path / ".env"
+    shutil.copy2(SCRIPTS_DIR / "import-local-env.ps1", tmp_path / "import-local-env.ps1")
+    env_file.write_text(
+        "# comment\nDEEPSEEK_API_KEY=new-value\nEMPTY_VALUE=\nLITERAL_VALUE=$(Set-Content hacked.txt bad)=tail\n",
+        encoding="utf-8",
+    )
+    harness = (
+        "$ErrorActionPreference='Stop'; . .\\import-local-env.ps1; "
+        "$env:DEEPSEEK_API_KEY='existing'; "
+        "Import-LocalEnv -Path .\\.env; "
+        "@{ key=$env:DEEPSEEK_API_KEY; empty=$env:EMPTY_VALUE; literal=$env:LITERAL_VALUE; "
+        "hacked=(Test-Path .\\hacked.txt) } | ConvertTo-Json -Compress"
+    )
+    env = os.environ.copy()
+
+    result = subprocess.run(
+        [powershell, "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", harness],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        env=env,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr or result.stdout
+    values = json.loads(result.stdout.strip())
+    assert values == {
+        "key": "existing",
+        # Windows PowerShell 5.1 represents a process environment blank as absent.
+        "empty": None,
+        "literal": "$(Set-Content hacked.txt bad)=tail",
+        "hacked": False,
+    }
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows launcher integration test")

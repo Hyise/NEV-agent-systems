@@ -13,9 +13,13 @@ from backend.collection.autohome import (
     BrowserSession,
     CatalogDiscoveryResult,
 )
+from backend.collection.catalog_domain import CatalogRunConflict
+from backend.collection.catalog_repository import SeriesCatalogRepository
+from backend.collection.catalog_service import SeriesCatalogService
+from backend.collection.coordination import ExternalAccessCoordinator
 from backend.collection.domain import (
     CollectedReview,
-    CreateJobBody,
+    JobConfig,
     JobStatus,
     ReviewPage,
     TaskControlError,
@@ -25,6 +29,30 @@ from backend.collection.repository import CollectionRepository
 from backend.collection.service import CollectionService
 
 NOW = datetime(2026, 10, 8, 8, 0, tzinfo=timezone.utc)
+
+
+def make_config(
+    mode="verification",
+    max_series=None,
+    max_pages_per_series=None,
+    request_delay_min_seconds=2,
+    request_delay_max_seconds=4,
+    series_delay_min_seconds=5,
+    series_delay_max_seconds=10,
+):
+    if max_series is None:
+        max_series = 3 if mode == "verification" else 500
+    if max_pages_per_series is None and mode == "verification":
+        max_pages_per_series = 2
+    return JobConfig(
+        mode=mode,
+        max_series=max_series,
+        max_pages_per_series=max_pages_per_series,
+        request_delay_min_seconds=request_delay_min_seconds,
+        request_delay_max_seconds=request_delay_max_seconds,
+        series_delay_min_seconds=series_delay_min_seconds,
+        series_delay_max_seconds=series_delay_max_seconds,
+    )
 
 
 def make_series(index: int) -> VehicleSeries:
@@ -118,8 +146,168 @@ def make_service(tmp_path, config, series, responder, *, sleeper=None, rng=None)
     return repository, catalog, review, service
 
 
+def create_selected_job(repository, series, job_id="job-selected"):
+    catalog_repository = SeriesCatalogRepository(repository.path)
+    catalog_repository.create_run("run-seed", "batch-seed", NOW.isoformat())
+    catalog_repository.append_entries(
+        "run-seed",
+        series,
+        scanned_count=len(series),
+        skipped_count=0,
+        current_page=1,
+        updated_at=NOW.isoformat(),
+    )
+    catalog_repository.publish_run("run-seed", NOW.isoformat(), source_exhausted=True)
+    config = make_config(max_series=len(series))
+    repository.create_job_from_catalog(
+        job_id,
+        config,
+        [item.series_id for item in series],
+        NOW.isoformat(),
+    )
+    return catalog_repository
+
+
+def test_selected_job_skips_catalog_discovery_and_opens_review_session(tmp_path):
+    repository = CollectionRepository(tmp_path / "collection.sqlite3")
+    selected = [make_series(2), make_series(1)]
+    create_selected_job(repository, selected)
+    catalog = FakeCatalogAdapter([])
+    review = FakeReviewAdapter(
+        lambda series, page, call: make_page(series, page, total=1, page_count=1)
+    )
+    service = CollectionService(
+        repository,
+        catalog_adapter_factory=lambda: catalog,
+        review_adapter_factory=lambda session: review,
+        sleeper=lambda seconds: None,
+        clock=lambda: NOW,
+    )
+
+    service.run_job("job-selected")
+
+    assert catalog.discover_limits == []
+    assert catalog.open_count == 1
+    assert [series_id for series_id, _page in review.calls] == ["5002", "5001"]
+    assert repository.get_job("job-selected")["status"] == "completed"
+    service.shutdown()
+
+
+def test_catalog_reservation_blocks_collection_start(tmp_path):
+    repository = CollectionRepository(tmp_path / "collection.sqlite3")
+    create_selected_job(repository, [make_series(1)])
+    coordinator = ExternalAccessCoordinator()
+    assert coordinator.try_reserve("catalog", "run-active") is True
+    service = CollectionService(
+        repository,
+        coordinator=coordinator,
+        catalog_adapter_factory=lambda: FakeCatalogAdapter([]),
+        review_adapter_factory=lambda session: FakeReviewAdapter(lambda *_: None),
+        clock=lambda: NOW,
+    )
+
+    with pytest.raises(TaskControlError, match="数据源"):
+        service.start("job-selected")
+
+    assert repository.get_job("job-selected")["status"] == "queued"
+    coordinator.release("catalog", "run-active")
+    service.shutdown()
+
+
+def test_collection_reservation_blocks_catalog_start(tmp_path):
+    repository = CollectionRepository(tmp_path / "collection.sqlite3")
+    catalog_repository = create_selected_job(repository, [make_series(1)])
+    coordinator = ExternalAccessCoordinator()
+    entered = Event()
+    release = Event()
+
+    class BlockingCatalog(FakeCatalogAdapter):
+        def open_session(self):
+            entered.set()
+            release.wait(timeout=5)
+            return super().open_session()
+
+    service = CollectionService(
+        repository,
+        coordinator=coordinator,
+        catalog_adapter_factory=lambda: BlockingCatalog([]),
+        review_adapter_factory=lambda session: FakeReviewAdapter(
+            lambda series, page, call: make_page(series, page, total=0, ids=[])
+        ),
+        sleeper=lambda seconds: None,
+        clock=lambda: NOW,
+    )
+    catalog_service = SeriesCatalogService(
+        catalog_repository,
+        coordinator,
+        adapter_factory=lambda: None,
+        clock=lambda: NOW,
+    )
+
+    future = service.start("job-selected")
+    assert entered.wait(timeout=5)
+    with pytest.raises(CatalogRunConflict, match="数据源"):
+        catalog_service.start("run-blocked", "batch-blocked")
+
+    release.set()
+    future.result(timeout=5)
+    catalog_service.shutdown()
+    service.shutdown()
+
+
+def test_collection_submit_failure_releases_reservation(tmp_path):
+    class RejectingExecutor:
+        def submit(self, *args, **kwargs):
+            raise RuntimeError("executor unavailable")
+
+        def shutdown(self, wait=True):
+            return None
+
+    repository = CollectionRepository(tmp_path / "collection.sqlite3")
+    create_selected_job(repository, [make_series(1)])
+    coordinator = ExternalAccessCoordinator()
+    service = CollectionService(repository, coordinator=coordinator, clock=lambda: NOW)
+    service._executor.shutdown(wait=True)
+    service._executor = RejectingExecutor()
+
+    with pytest.raises(RuntimeError, match="executor unavailable"):
+        service.start("job-selected")
+
+    assert coordinator.current() is None
+    assert repository.get_job("job-selected")["status"] == "queued"
+    service.shutdown()
+
+
+def test_legacy_paused_discovery_can_resume(tmp_path):
+    repository = CollectionRepository(tmp_path / "collection.sqlite3")
+    repository.create_job("job-legacy", make_config(max_series=1), NOW.isoformat())
+    repository.set_status(
+        "job-legacy",
+        JobStatus.PAUSED,
+        NOW.isoformat(),
+        resume_status=JobStatus.DISCOVERING,
+    )
+    catalog = FakeCatalogAdapter([make_series(1)])
+    service = CollectionService(
+        repository,
+        coordinator=ExternalAccessCoordinator(),
+        catalog_adapter_factory=lambda: catalog,
+        review_adapter_factory=lambda session: FakeReviewAdapter(
+            lambda series, page, call: make_page(series, page, total=0, ids=[])
+        ),
+        sleeper=lambda seconds: None,
+        clock=lambda: NOW,
+    )
+
+    service.resume("job-legacy").result(timeout=5)
+
+    assert catalog.discover_limits == [1]
+    assert repository.get_job("job-legacy")["status"] == "completed"
+    service.shutdown()
+
+
 def test_verification_job_stops_at_three_series_and_two_pages(tmp_path):
-    config = CreateJobBody(mode="verification").to_config()
+    config = make_config()
     repository, catalog, review, service = make_service(
         tmp_path,
         config,
@@ -140,7 +328,7 @@ def test_verification_job_stops_at_three_series_and_two_pages(tmp_path):
 
 
 def test_production_job_has_500_series_and_no_page_cap(tmp_path):
-    config = CreateJobBody(mode="production").to_config()
+    config = make_config(mode="production")
     series = [make_series(index) for index in range(1, 501)]
 
     def responder(item, page, call):
@@ -177,7 +365,7 @@ def test_server_page_count_prevents_early_stop_when_page_has_ten_rows(tmp_path):
         )
 
     repository, _catalog, review, service = make_service(
-        tmp_path, CreateJobBody(mode="production").to_config(), [item], responder
+        tmp_path, make_config(mode="production"), [item], responder
     )
 
     service.run_job("job-1")
@@ -192,7 +380,7 @@ def test_repeated_page_stops_series_without_looping(tmp_path):
     item = make_series(1)
     repository, _catalog, review, service = make_service(
         tmp_path,
-        CreateJobBody(mode="production").to_config(),
+        make_config(mode="production"),
         [item],
         lambda series, page, call: make_page(series, page, ids=["same-review"]),
     )
@@ -208,7 +396,7 @@ def test_repeated_page_stops_series_without_looping(tmp_path):
 def test_incomplete_page_is_not_committed_when_pause_arrives_before_detail(tmp_path):
     item = make_series(1)
     repository = CollectionRepository(tmp_path / "collection.sqlite3")
-    config = CreateJobBody(mode="production").to_config()
+    config = make_config(mode="production")
     repository.create_job("job-1", config, NOW.isoformat())
     repository.save_discovery("job-1", [item], NOW.isoformat())
 
@@ -245,7 +433,7 @@ def test_pause_and_stop_take_effect_before_next_request(tmp_path):
         item = make_series(1)
         repository = CollectionRepository(case_dir / "collection.sqlite3")
         repository.create_job(
-            "job-1", CreateJobBody(mode="production").to_config(), NOW.isoformat()
+            "job-1", make_config(mode="production"), NOW.isoformat()
         )
         catalog = FakeCatalogAdapter([item])
 
@@ -280,7 +468,7 @@ def test_shutdown_pauses_running_job_after_current_response(tmp_path):
 
     repository = CollectionRepository(tmp_path / "collection.sqlite3")
     repository.create_job(
-        "job-1", CreateJobBody(mode="production").to_config(), NOW.isoformat()
+        "job-1", make_config(mode="production"), NOW.isoformat()
     )
     catalog = FakeCatalogAdapter([item])
     review = FakeReviewAdapter(responder)
@@ -305,7 +493,7 @@ def test_shutdown_pauses_running_job_after_current_response(tmp_path):
 def test_shutdown_pauses_job_while_worker_is_still_queued(tmp_path):
     repository = CollectionRepository(tmp_path / "collection.sqlite3")
     repository.create_job(
-        "job-1", CreateJobBody(mode="verification").to_config(), NOW.isoformat()
+        "job-1", make_config(), NOW.isoformat()
     )
     catalog = FakeCatalogAdapter([make_series(1)])
     service = CollectionService(
@@ -354,7 +542,7 @@ def test_pause_wins_race_with_terminal_completion(tmp_path):
 
     repository = RacingRepository(tmp_path / "collection.sqlite3")
     repository.create_job(
-        "job-1", CreateJobBody(mode="verification").to_config(), NOW.isoformat()
+        "job-1", make_config(), NOW.isoformat()
     )
     item = make_series(1)
     service = CollectionService(
@@ -391,15 +579,14 @@ def test_page_and_series_delays_use_configured_ranges(tmp_path):
             ranges.append((low, high))
             return (low + high) / 2
 
-    config = CreateJobBody(
-        mode="verification",
+    config = make_config(
         max_series=2,
         max_pages_per_series=2,
         request_delay_min_seconds=2,
         request_delay_max_seconds=4,
         series_delay_min_seconds=5,
         series_delay_max_seconds=10,
-    ).to_config()
+    )
     _repository, _catalog, _review, service = make_service(
         tmp_path,
         config,
@@ -459,13 +646,12 @@ def test_complete_review_detail_is_fetched_after_request_delay_before_commit(tmp
     repository = CollectionRepository(tmp_path / "collection.sqlite3")
     repository.create_job(
         "job-1",
-        CreateJobBody(
-            mode="verification",
+        make_config(
             max_series=1,
             max_pages_per_series=1,
             request_delay_min_seconds=2,
             request_delay_max_seconds=4,
-        ).to_config(),
+        ),
         NOW.isoformat(),
     )
     catalog = FakeCatalogAdapter([item])
@@ -500,7 +686,7 @@ def test_transient_error_retries_after_5_15_45_seconds(tmp_path):
 
     repository, _catalog, review, service = make_service(
         tmp_path,
-        CreateJobBody(mode="verification", max_series=1, max_pages_per_series=1).to_config(),
+        make_config(max_series=1, max_pages_per_series=1),
         [make_series(1)],
         responder,
         sleeper=sleeps.append,
@@ -528,7 +714,7 @@ def test_403_429_and_verification_pause_immediately(tmp_path):
 
         repository, _catalog, review, service = make_service(
             case_dir,
-            CreateJobBody(mode="verification").to_config(),
+            make_config(),
             [make_series(1)],
             responder,
         )
@@ -550,7 +736,7 @@ def test_review_structure_change_pauses_without_retrying_or_skipping(tmp_path):
 
     repository, _catalog, review, service = make_service(
         tmp_path,
-        CreateJobBody(mode="verification", max_series=2).to_config(),
+        make_config(max_series=2),
         [first, second],
         responder,
     )
@@ -576,7 +762,7 @@ def test_single_series_failure_continues_and_finishes_partial_failed(tmp_path):
 
     repository, _catalog, review, service = make_service(
         tmp_path,
-        CreateJobBody(mode="verification", max_series=2, max_pages_per_series=1).to_config(),
+        make_config(max_series=2, max_pages_per_series=1),
         [first, second],
         responder,
     )
@@ -599,7 +785,7 @@ def test_three_consecutive_series_failures_pause_whole_job(tmp_path):
 
     repository, _catalog, review, service = make_service(
         tmp_path,
-        CreateJobBody(mode="production").to_config(),
+        make_config(mode="production"),
         items,
         responder,
     )
@@ -618,7 +804,7 @@ def test_three_consecutive_series_failures_pause_whole_job(tmp_path):
 
 def test_second_active_job_is_rejected(tmp_path):
     repository = CollectionRepository(tmp_path / "collection.sqlite3")
-    config = CreateJobBody(mode="verification").to_config()
+    config = make_config()
     repository.create_job("job-1", config, NOW.isoformat())
     entered = Event()
     release = Event()
@@ -654,7 +840,7 @@ def test_second_active_job_is_rejected(tmp_path):
 def test_resume_scheduling_failure_restores_paused_state(tmp_path):
     repository = CollectionRepository(tmp_path / "collection.sqlite3")
     repository.create_job(
-        "job-1", CreateJobBody(mode="verification").to_config(), NOW.isoformat()
+        "job-1", make_config(), NOW.isoformat()
     )
     repository.set_status(
         "job-1",
@@ -690,10 +876,76 @@ def test_resume_scheduling_failure_restores_paused_state(tmp_path):
     service.shutdown()
 
 
+def test_resume_prepare_failure_releases_external_reservation(tmp_path, monkeypatch):
+    repository = CollectionRepository(tmp_path / "collection.sqlite3")
+    repository.create_job("job-1", make_config(), NOW.isoformat())
+    repository.set_status(
+        "job-1",
+        JobStatus.PAUSED,
+        NOW.isoformat(),
+        resume_status=JobStatus.DISCOVERING,
+    )
+    coordinator = ExternalAccessCoordinator()
+    service = CollectionService(
+        repository,
+        coordinator=coordinator,
+        clock=lambda: NOW,
+    )
+
+    def broken_clear(*args, **kwargs):
+        raise OSError("database unavailable")
+
+    monkeypatch.setattr(repository, "clear_control", broken_clear)
+
+    with pytest.raises(OSError, match="database unavailable"):
+        service.resume("job-1")
+
+    assert coordinator.current() is None
+    service.shutdown()
+
+
+def test_resume_preserves_submit_error_and_releases_when_rollback_fails(
+    tmp_path, monkeypatch
+):
+    class RejectingExecutor:
+        def submit(self, *args, **kwargs):
+            raise RuntimeError("executor unavailable")
+
+        def shutdown(self, wait=True):
+            return None
+
+    repository = CollectionRepository(tmp_path / "collection.sqlite3")
+    repository.create_job("job-1", make_config(), NOW.isoformat())
+    repository.set_status(
+        "job-1",
+        JobStatus.PAUSED,
+        NOW.isoformat(),
+        resume_status=JobStatus.DISCOVERING,
+    )
+    coordinator = ExternalAccessCoordinator()
+    service = CollectionService(repository, coordinator=coordinator, clock=lambda: NOW)
+    service._executor.shutdown(wait=True)
+    service._executor = RejectingExecutor()
+    original_set_status = repository.set_status
+
+    def fail_rollback(job_id, status, *args, **kwargs):
+        if status is JobStatus.PAUSED:
+            raise OSError("rollback unavailable")
+        return original_set_status(job_id, status, *args, **kwargs)
+
+    monkeypatch.setattr(repository, "set_status", fail_rollback)
+
+    with pytest.raises(RuntimeError, match="executor unavailable"):
+        service.resume("job-1")
+
+    assert coordinator.current() is None
+    service.shutdown()
+
+
 def test_discovery_failure_pauses_without_exposing_adapter_internals(tmp_path):
     repository = CollectionRepository(tmp_path / "collection.sqlite3")
     repository.create_job(
-        "job-1", CreateJobBody(mode="verification").to_config(), NOW.isoformat()
+        "job-1", make_config(), NOW.isoformat()
     )
 
     class BrokenCatalog:

@@ -291,6 +291,8 @@ expectContains("src/styles/platform.css", [
 const collectionShellPath = "src/modules/collection/CollectionWorkbench.vue";
 expectContains(collectionShellPath, [
   "createCollectionWorkspace",
+  "createCatalogFlow",
+  "CreateCollectionJobDialog",
   "provideCollectionWorkspace",
   "评论数据采集系统",
   "总览",
@@ -303,6 +305,8 @@ expectContains(collectionShellPath, [
 ]);
 expectContains("src/styles/collection.css", [
   ".collection-shell",
+  ".catalog-dialog",
+  ".catalog-series-row",
   "font-family: inherit",
   "@media (max-width: 1199px)",
   "@media (max-width: 767px)",
@@ -324,10 +328,25 @@ expectContains("src/modules/collection/views/JobsView.vue", [
   "查看事件",
   "事件与异常",
 ]);
-expectContains("src/modules/collection/workspace.ts", [
+expectContains("src/modules/collection/catalogFlow.ts", [
   "2～4 秒",
   "5～10 秒",
-  "5/15/45 秒",
+  "selected_series_ids",
+]);
+expectContains(
+  "src/modules/collection/components/CreateCollectionJobDialog.vue",
+  [
+    "发现车系",
+    "选择车系并采集",
+    "全选当前筛选结果",
+    "清空已选",
+    "aria-labelledby",
+    "@cancel.prevent",
+  ],
+);
+expectNotContains(collectionShellPath, [
+  'class="mode-options"',
+  "productionConfirmationText",
 ]);
 expectContains("src/modules/collection/views/SeriesView.vue", [
   "车系名称",
@@ -381,6 +400,45 @@ if (
 ) {
   failures.push(
     `${collectionShellPath}: must be the only createCollectionWorkspace() owner; found ${collectionWorkspaceOwners.join(", ") || "none"}`,
+  );
+}
+const reviewAnalysisView = "src/modules/mcdm/views/ReviewAnalysisView.vue";
+expectContains(mcdmShellPath, [
+  "createReviewAnalysisWorkspace",
+  "评论语义分析",
+  "ReviewAnalysisView",
+]);
+expectContains(reviewAnalysisView, ["评论语义分析"]);
+expectContains(
+  "src/modules/mcdm/review-analysis/components/SourceScopePanel.vue",
+  ["准则发现", "逐条评论标注"],
+);
+expectContains(
+  "src/modules/mcdm/review-analysis/components/AnnotationResults.vue",
+  ["原文证据", "待补充线索"],
+);
+expectContains("src/styles/pages.css", [
+  ".review-analysis-workspace",
+  "@media (max-width: 1199px)",
+  "@media (max-width: 767px)",
+]);
+for (const path of sourceFiles("src/modules/mcdm/review-analysis")) {
+  expectNotContains(path, [
+    "modules/collection/workspace",
+    "modules/collection/api",
+  ]);
+}
+const reviewWorkspaceOwners = sourceFiles("src").filter((relativePath) =>
+  read(relativePath).includes(
+    "const reviewAnalysisWorkspace = createReviewAnalysisWorkspace(",
+  ),
+);
+if (
+  reviewWorkspaceOwners.length !== 1 ||
+  reviewWorkspaceOwners[0] !== mcdmShellPath
+) {
+  failures.push(
+    `${mcdmShellPath}: must be the only review analysis workspace owner`,
   );
 }
 for (const boundaryPath of ["src/platform/modules.ts", "src/router/index.ts"]) {

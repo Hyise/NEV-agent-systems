@@ -10,6 +10,9 @@ from uuid import uuid4
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
+from .catalog_domain import CatalogRunConflict, CatalogSelectionError
+from .catalog_repository import SeriesCatalogRepository
+from .coordination import ExternalAccessCoordinator
 from .domain import CreateJobBody, JobStatus, TaskControlError
 from .repository import CollectionRepository
 from .service import CollectionService
@@ -36,7 +39,10 @@ def _run_control(action, job_id: str) -> None:
 
 
 def create_collection_router(
-    repository: CollectionRepository, service: CollectionService
+    repository: CollectionRepository,
+    service: CollectionService,
+    catalog_repository: SeriesCatalogRepository,
+    coordinator: ExternalAccessCoordinator,
 ) -> APIRouter:
     router = APIRouter(prefix="/api/collection", tags=["collection"])
 
@@ -52,10 +58,30 @@ def create_collection_router(
     def create_job(body: CreateJobBody):
         if repository.active_job() is not None:
             raise HTTPException(status_code=409, detail="已有活动采集任务")
+        if (
+            catalog_repository.active_run() is not None
+            or coordinator.current() is not None
+        ):
+            raise HTTPException(status_code=409, detail="汽车之家数据源正被其他任务使用")
         job_id = str(uuid4())
         try:
-            job = repository.create_job(job_id, body.to_config(), _now())
+            job = repository.create_job_from_catalog(
+                job_id,
+                body.to_config(),
+                body.selected_series_ids,
+                _now(),
+            )
             service.start(job_id)
+        except CatalogSelectionError as error:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "message": str(error),
+                    "invalid_series_ids": error.invalid_series_ids,
+                },
+            ) from error
+        except CatalogRunConflict as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
         except TaskControlError as error:
             created = repository.get_job(job_id)
             if created is not None and created["status"] == "queued":

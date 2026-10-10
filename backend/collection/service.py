@@ -15,6 +15,7 @@ from .autohome import (
     AutohomeReviewAdapter,
     AutohomeStructureError,
 )
+from .coordination import ExternalAccessCoordinator
 from .domain import JobStatus, ReviewPage, TaskControlError, VehicleSeries
 from .repository import CollectionRepository
 
@@ -30,6 +31,7 @@ class CollectionService:
     def __init__(
         self,
         repository: CollectionRepository,
+        coordinator: ExternalAccessCoordinator | None = None,
         catalog_adapter_factory: Callable[[], Any] = AutohomeCatalogAdapter,
         review_adapter_factory: Callable[[Any], Any] = AutohomeReviewAdapter,
         sleeper: Callable[[float], None] | None = None,
@@ -37,6 +39,7 @@ class CollectionService:
         rng: Any | None = None,
     ):
         self.repository = repository
+        self.coordinator = coordinator or ExternalAccessCoordinator()
         self.catalog_adapter_factory = catalog_adapter_factory
         self.review_adapter_factory = review_adapter_factory
         self.sleeper = sleeper
@@ -55,9 +58,21 @@ class CollectionService:
         with self._lock:
             if self._future is not None and not self._future.done():
                 raise TaskControlError("已有活动采集任务")
+            if not self.coordinator.try_reserve("collection", job_id):
+                raise TaskControlError("汽车之家数据源正被其他任务使用")
             self._shutdown_requested.clear()
-            self._future = self._executor.submit(self.run_job, job_id)
+            try:
+                self._future = self._executor.submit(self._run_reserved, job_id)
+            except Exception:
+                self.coordinator.release("collection", job_id)
+                raise
             return self._future
+
+    def _run_reserved(self, job_id: str) -> None:
+        try:
+            self.run_job(job_id)
+        finally:
+            self.coordinator.release("collection", job_id)
 
     def _wait(self, seconds: float) -> None:
         if self.sleeper is not None:
@@ -97,19 +112,30 @@ class CollectionService:
         with self._lock:
             if self._future is not None and not self._future.done():
                 raise TaskControlError("已有活动采集任务")
+            if not self.coordinator.try_reserve("collection", job_id):
+                raise TaskControlError("汽车之家数据源正被其他任务使用")
             self._shutdown_requested.clear()
-            self.repository.clear_control(job_id, self._now())
-            self.repository.set_status(job_id, target, self._now())
             try:
-                self._future = self._executor.submit(self.run_job, job_id)
+                self.repository.clear_control(job_id, self._now())
+                self.repository.set_status(job_id, target, self._now())
+                self._future = self._executor.submit(self._run_reserved, job_id)
             except Exception:
-                self.repository.set_status(
-                    job_id,
-                    JobStatus.PAUSED,
-                    self._now(),
-                    resume_status=target,
-                    last_error="任务调度失败，请重试",
-                )
+                try:
+                    current = self.repository.get_job(job_id)
+                    if current is not None and JobStatus(current["status"]) is target:
+                        self.repository.set_status(
+                            job_id,
+                            JobStatus.PAUSED,
+                            self._now(),
+                            resume_status=target,
+                            last_error="任务调度失败，请重试",
+                        )
+                except Exception:  # noqa: BLE001 - preserve preparation failure
+                    pass
+                try:
+                    self.coordinator.release("collection", job_id)
+                except Exception:  # noqa: BLE001 - preserve preparation failure
+                    pass
                 raise
             return self._future
 
@@ -268,7 +294,7 @@ class CollectionService:
         job = self.repository.get_job(job_id)
         if job is None:
             raise KeyError(job_id)
-        series_list = [VehicleSeries(**item) for item in job["series_manifest"]]
+        series_list = self.repository.job_series(job_id)
         adapter = self.review_adapter_factory(session)
         consecutive_failures = 0
         try:
@@ -427,8 +453,15 @@ class CollectionService:
         catalog = self.catalog_adapter_factory()
         session = None
         if status is JobStatus.QUEUED:
-            self.repository.set_status(job_id, JobStatus.DISCOVERING, self._now())
-            status = JobStatus.DISCOVERING
+            has_snapshot = bool(self.repository.job_series(job_id)) and not job[
+                "series_manifest"
+            ]
+            if has_snapshot:
+                self.repository.set_status(job_id, JobStatus.COLLECTING, self._now())
+                status = JobStatus.COLLECTING
+            else:
+                self.repository.set_status(job_id, JobStatus.DISCOVERING, self._now())
+                status = JobStatus.DISCOVERING
         if status is JobStatus.DISCOVERING:
             try:
                 self._apply_control(job_id)

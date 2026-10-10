@@ -49,23 +49,41 @@ class RecordingService:
         self.shutdown_called = True
 
 
+class RecordingCatalogService:
+    def __init__(self, repository, coordinator):
+        self.repository = repository
+        self.coordinator = coordinator
+        self.shutdown_called = False
+
+    def shutdown(self):
+        self.shutdown_called = True
+
+
 @pytest.fixture
 def client(tmp_path):
     services = []
+    catalog_services = []
 
     def factory(repository):
         service = RecordingService(repository)
         services.append(service)
         return service
 
+    def catalog_factory(repository, coordinator):
+        service = RecordingCatalogService(repository, coordinator)
+        catalog_services.append(service)
+        return service
+
     app = create_app(
         tmp_path / "test.sqlite3",
         ROOT / "backend/data/research",
         collection_service_factory=factory,
+        catalog_service_factory=catalog_factory,
     )
     with TestClient(app) as test_client:
         yield test_client
     assert services[0].shutdown_called is True
+    assert catalog_services[0].shutdown_called is True
 
 
 def make_series(index=1):
@@ -82,9 +100,29 @@ def make_series(index=1):
 def seed_job(repository, job_id="job-1"):
     return repository.create_job(
         job_id,
-        CreateJobBody(mode="verification").to_config(),
+        CreateJobBody(
+            mode="verification", selected_series_ids=["5701"]
+        ).to_config(),
         f"2026-10-08T08:00:0{job_id[-1]}+00:00",
     )
+
+
+def seed_catalog(app, count=3):
+    repository = app.state.catalog_repository
+    series = [make_series(index) for index in range(1, count + 1)]
+    repository.create_run("run-seed", "batch-seed", "2026-10-09T08:00:00+00:00")
+    repository.append_entries(
+        "run-seed",
+        series,
+        scanned_count=len(series),
+        skipped_count=0,
+        current_page=1,
+        updated_at="2026-10-09T08:01:00+00:00",
+    )
+    repository.publish_run(
+        "run-seed", "2026-10-09T08:02:00+00:00", source_exhausted=True
+    )
+    return series
 
 
 def seed_review(repository):
@@ -110,22 +148,102 @@ def seed_review(repository):
     return series, original
 
 
-def test_create_job_applies_verification_defaults(client):
-    response = client.post("/api/collection/jobs", json={"mode": "verification"})
+def test_create_job_snapshots_selected_series(client):
+    series = seed_catalog(client.app)
+    response = client.post(
+        "/api/collection/jobs",
+        json={
+            "mode": "verification",
+            "selected_series_ids": [series[1].series_id, series[0].series_id],
+        },
+    )
 
     assert response.status_code == 201
     body = response.json()
     assert body["mode"] == "verification"
-    assert body["max_series"] == 3
+    assert body["max_series"] == 2
     assert body["max_pages_per_series"] == 2
+    assert body["discovered_count"] == 2
+    assert body["series_manifest"] == []
     assert body["status"] == "queued"
     assert client.app.state.collection_service.started == [body["id"]]
+    assert [
+        item.series_id
+        for item in client.app.state.collection_repository.job_series(body["id"])
+    ] == [series[1].series_id, series[0].series_id]
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"mode": "verification", "selected_series_ids": []},
+        {
+            "mode": "verification",
+            "selected_series_ids": ["5701", "5701"],
+        },
+        {
+            "mode": "verification",
+            "selected_series_ids": ["1", "2", "3", "4"],
+        },
+        {
+            "mode": "production",
+            "selected_series_ids": [str(index) for index in range(1, 1002)],
+        },
+    ],
+)
+def test_invalid_selection_returns_422(client, payload):
+    assert client.post("/api/collection/jobs", json=payload).status_code == 422
+
+
+def test_stale_series_ids_return_structured_422(client):
+    series = seed_catalog(client.app, count=1)
+
+    response = client.post(
+        "/api/collection/jobs",
+        json={
+            "mode": "verification",
+            "selected_series_ids": [series[0].series_id, "999999"],
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["invalid_series_ids"] == ["999999"]
+    assert client.get("/api/collection/jobs").json()["total"] == 0
+
+
+def test_no_catalog_returns_409(client):
+    response = client.post(
+        "/api/collection/jobs",
+        json={"mode": "verification", "selected_series_ids": ["5701"]},
+    )
+
+    assert response.status_code == 409
+    assert client.get("/api/collection/jobs").json()["total"] == 0
+
+
+def test_active_catalog_discovery_returns_409(client):
+    client.app.state.catalog_repository.create_run(
+        "run-active", "batch-active", "2026-10-09T08:00:00+00:00"
+    )
+
+    response = client.post(
+        "/api/collection/jobs",
+        json={"mode": "verification", "selected_series_ids": ["5701"]},
+    )
+
+    assert response.status_code == 409
+    assert client.get("/api/collection/jobs").json()["total"] == 0
 
 
 def test_second_active_job_returns_409(client):
-    assert client.post("/api/collection/jobs", json={"mode": "verification"}).status_code == 201
+    series = seed_catalog(client.app, count=1)
+    payload = {
+        "mode": "verification",
+        "selected_series_ids": [series[0].series_id],
+    }
+    assert client.post("/api/collection/jobs", json=payload).status_code == 201
 
-    response = client.post("/api/collection/jobs", json={"mode": "verification"})
+    response = client.post("/api/collection/jobs", json=payload)
 
     assert response.status_code == 409
     assert client.get("/api/collection/jobs").json()["total"] == 1
@@ -143,8 +261,13 @@ def test_scheduler_failure_does_not_leave_queued_job(tmp_path):
     )
 
     with TestClient(app) as failing_client:
+        series = seed_catalog(failing_client.app, count=1)
         response = failing_client.post(
-            "/api/collection/jobs", json={"mode": "verification"}
+            "/api/collection/jobs",
+            json={
+                "mode": "verification",
+                "selected_series_ids": [series[0].series_id],
+            },
         )
         jobs = failing_client.get("/api/collection/jobs").json()["rows"]
 

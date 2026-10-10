@@ -12,26 +12,53 @@ from backend.collection.domain import (
 )
 
 
-def test_verification_defaults_to_three_series_and_two_pages():
-    body = CreateJobBody(mode="verification")
+def test_verification_requires_one_to_three_unique_numeric_series_ids():
+    body = CreateJobBody(mode="verification", selected_series_ids=["5769", "526"])
 
-    assert body.max_series == 3
-    assert body.max_pages_per_series == 2
+    assert body.selected_series_ids == ["5769", "526"]
+    assert body.to_config().max_series == 2
+    assert body.to_config().max_pages_per_series == 2
     assert body.request_delay_min_seconds == 2
     assert body.request_delay_max_seconds == 4
     assert body.series_delay_min_seconds == 5
     assert body.series_delay_max_seconds == 10
 
-
-def test_production_is_fixed_to_500_series_and_unlimited_pages():
-    body = CreateJobBody(mode="production")
-
-    assert body.max_series == 500
-    assert body.max_pages_per_series is None
     with pytest.raises(ValidationError):
-        CreateJobBody(mode="production", max_series=499)
+        CreateJobBody(mode="verification", selected_series_ids=[])
     with pytest.raises(ValidationError):
-        CreateJobBody(mode="production", max_pages_per_series=2)
+        CreateJobBody(
+            mode="verification",
+            selected_series_ids=["1", "2", "3", "4"],
+        )
+    with pytest.raises(ValidationError):
+        CreateJobBody(mode="verification", selected_series_ids=["not-a-number"])
+
+
+def test_production_requires_one_to_one_thousand_unique_numeric_series_ids():
+    selected = [str(index) for index in range(1, 1001)]
+    body = CreateJobBody(mode="production", selected_series_ids=selected)
+
+    assert body.selected_series_ids == selected
+    assert body.to_config().max_series == 1000
+    assert body.to_config().max_pages_per_series is None
+    with pytest.raises(ValidationError):
+        CreateJobBody(mode="production", selected_series_ids=[])
+    with pytest.raises(ValidationError):
+        CreateJobBody(
+            mode="production",
+            selected_series_ids=[str(index) for index in range(1, 1002)],
+        )
+
+
+def test_duplicate_series_ids_are_rejected_without_reordering():
+    body = CreateJobBody(
+        mode="verification",
+        selected_series_ids=["200", "10", "3"],
+    )
+
+    assert body.selected_series_ids == ["200", "10", "3"]
+    with pytest.raises(ValidationError, match="不能重复"):
+        CreateJobBody(mode="verification", selected_series_ids=["200", "10", "200"])
 
 
 @pytest.mark.parametrize(
@@ -45,7 +72,7 @@ def test_production_is_fixed_to_500_series_and_unlimited_pages():
 )
 def test_delay_cannot_be_zero_or_reverse(values):
     with pytest.raises(ValidationError):
-        CreateJobBody(mode="verification", **values)
+        CreateJobBody(mode="verification", selected_series_ids=["5769"], **values)
 
 
 @pytest.mark.parametrize(
@@ -59,7 +86,7 @@ def test_delay_cannot_be_zero_or_reverse(values):
 )
 def test_delay_cannot_be_faster_than_approved_policy(values):
     with pytest.raises(ValidationError):
-        CreateJobBody(mode="verification", **values)
+        CreateJobBody(mode="verification", selected_series_ids=["5769"], **values)
 
 
 def test_only_paused_job_can_resume():
