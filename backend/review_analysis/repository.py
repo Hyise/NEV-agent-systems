@@ -227,6 +227,13 @@ class ReviewAnalysisRepository:
                 raise ValueError("任务状态不允许控制")
         return self.get_job(job_id)
 
+    def requested_control(self, job_id: str):
+        with self.connect() as connection:
+            row = connection.execute("SELECT control_requested FROM review_analysis_jobs WHERE id=?", (job_id,)).fetchone()
+        if row is None:
+            raise KeyError(job_id)
+        return row["control_requested"]
+
     def pause_interrupted_jobs(self):
         timestamp = _now()
         with self.connect() as connection:
@@ -315,4 +322,31 @@ class ReviewAnalysisRepository:
         with self.connect() as connection:
             connection.execute("INSERT OR IGNORE INTO review_annotation_results VALUES (?,?,?,?,?,?,?,?,?,?,?)", (result_id, content_hash, schema_fingerprint, model, prompt_version, prompt_sha256, _json(result), input_tokens, output_tokens, cached_tokens, _now()))
         return self.find_cached_result(content_hash, schema_fingerprint, model, prompt_sha256)
+
+    def create_retry_job(self, source_job_id: str):
+        new_id, timestamp = uuid.uuid4().hex, _now()
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            source = connection.execute("SELECT * FROM review_analysis_jobs WHERE id=? AND job_type='review_annotation'", (source_job_id,)).fetchone()
+            if source is None:
+                raise KeyError(source_job_id)
+            failed = connection.execute("SELECT * FROM review_analysis_job_reviews WHERE job_id=? AND status='failed' ORDER BY ordinal", (source_job_id,)).fetchall()
+            if not failed:
+                raise ValueError("原任务没有可重试失败项")
+            marks = ",".join("?" for _ in ACTIVE_STATUSES)
+            if connection.execute(f"SELECT 1 FROM review_analysis_jobs WHERE status IN ({marks}) LIMIT 1", ACTIVE_STATUSES).fetchone():
+                raise ValueError("已有活动大模型任务")
+            connection.execute(
+                """INSERT INTO review_analysis_jobs (
+                    id,project_id,schema_id,job_type,status,phase,model,prompt_manifest_json,
+                    schema_fingerprint,criteria_json,source_config_json,total_count,created_at,updated_at
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (new_id, source["project_id"], source["schema_id"], source["job_type"], "queued", "annotating",
+                 source["model"], source["prompt_manifest_json"], source["schema_fingerprint"], source["criteria_json"],
+                 _json({"retry_of": source_job_id}), len(failed), timestamp, timestamp),
+            )
+            for ordinal, row in enumerate(failed):
+                connection.execute("INSERT INTO review_analysis_job_reviews (job_id,review_id,series_id,series_name_snapshot,content_hash,analysis_text,ordinal) VALUES (?,?,?,?,?,?,?)", (new_id,row["review_id"],row["series_id"],row["series_name_snapshot"],row["content_hash"],row["analysis_text"],ordinal))
+            job = connection.execute("SELECT * FROM review_analysis_jobs WHERE id=?", (new_id,)).fetchone()
+        return self._job(job)
 
