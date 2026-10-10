@@ -5,7 +5,7 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from .domain import CreateJobCommand, CriterionSnapshot, ReviewSnapshot, schema_fingerprint, stable_stratified_sample
+from .domain import CreateJobCommand, CriterionSnapshot, ProposalCriterion, ReviewSnapshot, schema_fingerprint, stable_stratified_sample
 from .prompting import PromptRenderer
 from .text import extract_analysis_text
 
@@ -40,6 +40,7 @@ class AnnotationBody(_Strict):
 
 class ApplyBody(_Strict):
     revision: int = Field(ge=1)
+    criteria: list[ProposalCriterion] | None = Field(default=None, min_length=1, max_length=20)
 
 
 def _snapshots(assets, limit):
@@ -129,7 +130,7 @@ def create_review_analysis_router(repository, service, settings) -> APIRouter:
 
     @router.post("/jobs/{job_id}/proposal/apply")
     def apply_proposal(project_id: str, job_id: str, body: ApplyBody):
-        try: return repository.apply_proposal(job_id, body.revision)
+        try: return repository.apply_proposal(job_id, body.revision, body.criteria)
         except KeyError as exc: raise HTTPException(404, "候选方案不存在") from exc
         except ValueError as exc: raise HTTPException(409, str(exc)) from exc
 

@@ -305,14 +305,15 @@ class ReviewAnalysisRepository:
         if row is None: return None
         result = dict(row); result["proposal"] = json.loads(result.pop("proposal_json")); return result
 
-    def apply_proposal(self, job_id: str, expected_revision: int):
+    def apply_proposal(self, job_id: str, expected_revision: int, edited_criteria=None):
         with self.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute("SELECT p.*,j.schema_id,j.project_id FROM criteria_proposals p JOIN review_analysis_jobs j ON j.id=p.job_id WHERE p.job_id=?", (job_id,)).fetchone()
             if row is None: raise KeyError(job_id)
             if row["applied_at"] is not None: raise ValueError("候选方案已经应用")
             proposal = json.loads(row["proposal_json"])
-            criteria = [{"name": item["name"], "labels": item["labels"]} for item in proposal["criteria"]]
+            items = edited_criteria if edited_criteria is not None else proposal["criteria"]
+            criteria = [{"name": item.name, "labels": item.labels} if hasattr(item, "name") else {"name": item["name"], "labels": item["labels"]} for item in items]
             count = connection.execute("UPDATE schemas SET criteria=?,revision=revision+1 WHERE id=? AND project_id=? AND status='draft' AND revision=?", (_json(criteria), row["schema_id"], row["project_id"], expected_revision)).rowcount
             if count != 1: raise ValueError("准则草稿 revision 冲突或不可编辑")
             schema = connection.execute("SELECT * FROM schemas WHERE id=?", (row["schema_id"],)).fetchone()

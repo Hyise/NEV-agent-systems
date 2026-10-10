@@ -883,6 +883,24 @@
     padding: 23px;
   }
 }
+
+.review-analysis-workspace { display: grid; gap: 18px; }
+.review-analysis-section, .analysis-task-strip { background: var(--surface, #fff); border: 1px solid var(--line, #d9e0e5); padding: 24px; }
+.review-analysis-section > header { display: grid; gap: 5px; margin-bottom: 18px; }
+.review-analysis-section h2, .analysis-task-strip h2 { margin: 0; font-size: 20px; }
+.review-analysis-section header p { margin: 0; color: #647581; }
+.section-kicker { color: #0f7c82; font-size: 11px; letter-spacing: .08em; }
+.source-selector { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-top: 1px solid #d9e0e5; }
+.source-choice { display: flex; gap: 12px; padding: 14px 8px; border-bottom: 1px solid #d9e0e5; }
+.source-choice span { display: grid; gap: 3px; }.source-choice small { color: #647581; }
+.scope-actions, .annotation-filters, .analysis-task-strip { display: flex; flex-wrap: wrap; gap: 14px; align-items: end; justify-content: space-between; }
+.scope-actions label, .annotation-filters label, .proposal-card label { display: grid; gap: 6px; }
+.proposal-list { display: grid; gap: 12px; }.proposal-card { border-left: 3px solid #0f7c82; padding: 14px 16px; background: #f8fafb; display: grid; gap: 10px; }
+.proposal-card input { width: 100%; }.proposal-card p { margin: 0; }
+.annotation-detail { margin-top: 16px; border-top: 1px solid #d9e0e5; padding-top: 18px; }
+.annotation-detail pre { white-space: pre-wrap; overflow-wrap: anywhere; background: #f3f5f6; padding: 14px; font-family: inherit; }
+@media (max-width: 1199px) { .source-selector { grid-template-columns: 1fr; } }
+@media (max-width: 767px) { .review-analysis-section, .analysis-task-strip { padding: 17px; } .scope-actions > *, .annotation-filters > * { width: 100%; } }
 .line-legend {
   display: flex;
   flex-wrap: wrap;

@@ -402,6 +402,37 @@ if (
     `${collectionShellPath}: must be the only createCollectionWorkspace() owner; found ${collectionWorkspaceOwners.join(", ") || "none"}`,
   );
 }
+const reviewAnalysisView = "src/modules/mcdm/views/ReviewAnalysisView.vue";
+expectContains(mcdmShellPath, [
+  "createReviewAnalysisWorkspace",
+  "评论语义分析",
+  "ReviewAnalysisView",
+]);
+expectContains(reviewAnalysisView, [
+  "评论语义分析",
+]);
+expectContains("src/modules/mcdm/review-analysis/components/SourceScopePanel.vue", [
+  "准则发现",
+  "逐条评论标注",
+]);
+expectContains(
+  "src/modules/mcdm/review-analysis/components/AnnotationResults.vue",
+  ["原文证据", "待补充线索"],
+);
+expectContains("src/styles/pages.css", [
+  ".review-analysis-workspace",
+  "@media (max-width: 1199px)",
+  "@media (max-width: 767px)",
+]);
+for (const path of sourceFiles("src/modules/mcdm/review-analysis")) {
+  expectNotContains(path, ["modules/collection/workspace", "modules/collection/api"]);
+}
+const reviewWorkspaceOwners = sourceFiles("src").filter((relativePath) =>
+  read(relativePath).includes("const reviewAnalysisWorkspace = createReviewAnalysisWorkspace("),
+);
+if (reviewWorkspaceOwners.length !== 1 || reviewWorkspaceOwners[0] !== mcdmShellPath) {
+  failures.push(`${mcdmShellPath}: must be the only review analysis workspace owner`);
+}
 for (const boundaryPath of ["src/platform/modules.ts", "src/router/index.ts"]) {
   expectNotContains(boundaryPath, [
     "modules/mcdm/workspace",

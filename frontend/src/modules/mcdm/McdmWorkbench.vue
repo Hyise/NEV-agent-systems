@@ -23,6 +23,9 @@ const DataView = defineAsyncComponent(() => import("./views/DataView.vue"));
 const CriteriaView = defineAsyncComponent(
   () => import("./views/CriteriaView.vue"),
 );
+const ReviewAnalysisView = defineAsyncComponent(
+  () => import("./views/ReviewAnalysisView.vue"),
+);
 const ScenarioView = defineAsyncComponent(
   () => import("./views/ScenarioView.vue"),
 );
@@ -48,6 +51,11 @@ const pages = [
     subtitle: "让评价维度有定义，让研究版本可追溯。",
   },
   {
+    id: "review-analysis" as Page,
+    title: "评论语义分析",
+    subtitle: "从完整评论发现准则，并按冻结体系逐条提取评价证据。",
+  },
+  {
     id: "scenario" as Page,
     title: "情景分析",
     subtitle: "观察时间压力下的权重变化。",
@@ -65,8 +73,8 @@ const pages = [
 ];
 
 const pageGroups = [
-  { label: "研究准备", pages: pages.slice(0, 3) },
-  { label: "分析复核", pages: pages.slice(3) },
+  { label: "研究准备", pages: pages.slice(0, 4) },
+  { label: "分析复核", pages: pages.slice(4) },
 ];
 
 const workspace = createWorkspace();
@@ -254,7 +262,7 @@ onBeforeUnmount(() =>
             {{ isPreset ? "预置准则模式" : "自定义准则模式" }}
           </span>
           <label
-            v-if="overview && page !== 'criteria' && page !== 'experiments'"
+            v-if="overview && !['criteria', 'experiments', 'review-analysis'].includes(page)"
             class="month-control"
           >
             <span>观察月份</span>
@@ -287,6 +295,7 @@ onBeforeUnmount(() =>
           <OverviewView v-if="page === 'overview'" />
           <DataView v-else-if="page === 'data'" />
           <CriteriaView v-else-if="page === 'criteria'" />
+          <ReviewAnalysisView v-else-if="page === 'review-analysis'" />
           <ScenarioView v-else-if="page === 'scenario'" />
           <SharesView v-else-if="page === 'shares'" />
           <ExperimentsView v-else-if="page === 'experiments'" />
