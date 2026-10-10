@@ -29,6 +29,15 @@ from .domain import (
     preset_criteria,
 )
 from .research import NOTES, Research
+from .review_analysis.annotation import ReviewAnnotationPipeline
+from .review_analysis.api import create_review_analysis_router
+from .review_analysis.config import DeepSeekSettings, LlmConfigurationError
+from .review_analysis.deepseek import DeepSeekClient
+from .review_analysis.discovery import CriteriaDiscoveryPipeline
+from .review_analysis.prompting import PromptRenderer
+from .review_analysis.repository import ReviewAnalysisRepository
+from .review_analysis.service import ReviewAnalysisService
+from .review_analysis.structured_calls import StructuredCallExecutor
 from .store import Store
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -47,6 +56,7 @@ def create_app(
     research_dir: Path | None = None,
     collection_service_factory=None,
     catalog_service_factory=None,
+    review_analysis_service_factory=None,
 ):
     database_path = db_path or Path(os.environ.get('NEV_DB_PATH', ROOT / '.runtime/platform.sqlite3'))
     store = Store(database_path)
@@ -64,16 +74,37 @@ def create_app(
         if catalog_service_factory is not None
         else SeriesCatalogService(catalog_repository, external_access_coordinator)
     )
+    review_analysis_repository = ReviewAnalysisRepository(database_path)
+    try:
+        deepseek_settings = DeepSeekSettings.from_environ(os.environ)
+    except LlmConfigurationError:
+        deepseek_settings = None
+    if review_analysis_service_factory is not None:
+        review_analysis_service = review_analysis_service_factory(review_analysis_repository)
+    elif deepseek_settings is not None:
+        renderer = PromptRenderer()
+        executor = StructuredCallExecutor(DeepSeekClient(deepseek_settings))
+        review_analysis_service = ReviewAnalysisService(
+            review_analysis_repository,
+            ReviewAnnotationPipeline(review_analysis_repository, renderer, executor),
+            CriteriaDiscoveryPipeline(review_analysis_repository, renderer, executor),
+        )
+    else:
+        review_analysis_service = None
 
     @asynccontextmanager
     async def lifespan(application):
         collection_repository.pause_interrupted_jobs(now())
         catalog_repository.fail_interrupted_runs(now())
+        if review_analysis_service is None:
+            review_analysis_repository.pause_interrupted_jobs()
         try:
             yield
         finally:
             catalog_service.shutdown()
             collection_service.shutdown()
+            if review_analysis_service is not None:
+                review_analysis_service.shutdown()
 
     app = FastAPI(
         title='新能源汽车情景多准则决策分析系统',
@@ -86,6 +117,8 @@ def create_app(
     app.state.catalog_repository = catalog_repository
     app.state.catalog_service = catalog_service
     app.state.external_access_coordinator = external_access_coordinator
+    app.state.review_analysis_repository = review_analysis_repository
+    app.state.review_analysis_service = review_analysis_service
     with store.connect() as conn:
         conn.execute('INSERT OR IGNORE INTO projects VALUES (?,?,?,?)',
                      ('research-archive', '新能源汽车消费者决策研究', 'preset', now()))
@@ -135,6 +168,9 @@ def create_app(
         )
     )
     app.include_router(create_catalog_router(catalog_repository, catalog_service))
+    app.include_router(create_review_analysis_router(
+        review_analysis_repository, review_analysis_service, deepseek_settings
+    ))
 
     @app.get('/api/projects')
     def projects():

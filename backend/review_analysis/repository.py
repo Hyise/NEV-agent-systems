@@ -139,6 +139,14 @@ class ReviewAnalysisRepository:
             ).fetchall()
         return {"rows": [dict(row) for row in rows], "total": total, "page": page, "page_size": page_size}
 
+    def get_project_schema(self, project_id: str, schema_id: str):
+        with self.connect() as connection:
+            project = connection.execute("SELECT * FROM projects WHERE id=?", (project_id,)).fetchone()
+            schema = connection.execute("SELECT * FROM schemas WHERE id=? AND project_id=?", (schema_id, project_id)).fetchone()
+        if project is None or schema is None: return None
+        schema_value = dict(schema); schema_value["criteria"] = json.loads(schema_value["criteria"])
+        return dict(project), schema_value
+
     def create_job_with_snapshot(
         self,
         command: CreateJobCommand,
@@ -349,4 +357,42 @@ class ReviewAnalysisRepository:
                 connection.execute("INSERT INTO review_analysis_job_reviews (job_id,review_id,series_id,series_name_snapshot,content_hash,analysis_text,ordinal) VALUES (?,?,?,?,?,?,?)", (new_id,row["review_id"],row["series_id"],row["series_name_snapshot"],row["content_hash"],row["analysis_text"],ordinal))
             job = connection.execute("SELECT * FROM review_analysis_jobs WHERE id=?", (new_id,)).fetchone()
         return self._job(job)
+
+    def list_annotations(self, project_id: str, *, job_id=None, series_id=None, criterion=None, label=None, status=None, page=1, page_size=20):
+        clauses, params = ["j.project_id=?"], [project_id]
+        for column, value in (("r.job_id", job_id), ("r.series_id", series_id), ("r.status", status)):
+            if value: clauses.append(f"{column}=?"); params.append(value)
+        where = " AND ".join(clauses)
+        with self.connect() as connection:
+            rows = connection.execute(f"""SELECT r.*,a.result_json,a.created_at AS annotated_at
+                FROM review_analysis_job_reviews r JOIN review_analysis_jobs j ON j.id=r.job_id
+                LEFT JOIN review_annotation_results a ON a.id=r.annotation_id WHERE {where}
+                ORDER BY r.ordinal LIMIT ? OFFSET ?""", (*params,page_size,(page-1)*page_size)).fetchall()
+        result=[]
+        for row in rows:
+            item=self._snapshot(row); payload=json.loads(item.pop("result_json")) if item.get("result_json") else None
+            if criterion and not any(x["criterion"]==criterion for x in (payload or {}).get("annotations",[])): continue
+            if label and not any(x["label"]==label for x in (payload or {}).get("annotations",[])): continue
+            item["result"]=payload; item["annotation_count"]=len((payload or {}).get("annotations",[])); result.append(item)
+        return {"rows":result,"total":len(result),"page":page,"page_size":page_size}
+
+    def get_annotation(self, project_id: str, annotation_id: str):
+        with self.connect() as connection:
+            row=connection.execute("""SELECT a.*,r.review_id,r.series_id,r.series_name_snapshot,r.analysis_text,r.job_id
+                FROM review_annotation_results a JOIN review_analysis_job_reviews r ON r.annotation_id=a.id
+                JOIN review_analysis_jobs j ON j.id=r.job_id WHERE a.id=? AND j.project_id=? LIMIT 1""",(annotation_id,project_id)).fetchone()
+        if row is None:return None
+        result=dict(row);result["series_name"]=result.pop("series_name_snapshot");result["result"]=json.loads(result.pop("result_json"));return result
+
+    def annotation_summary(self, project_id: str, job_id: str | None = None):
+        with self.connect() as connection:
+            params=[project_id]; extra=""
+            if job_id: extra=" AND j.id=?";params.append(job_id)
+            rows=connection.execute("SELECT a.result_json FROM review_annotation_results a JOIN review_analysis_job_reviews r ON r.annotation_id=a.id JOIN review_analysis_jobs j ON j.id=r.job_id WHERE j.project_id=?"+extra,params).fetchall()
+        criteria={};labels={}
+        for row in rows:
+            for item in json.loads(row[0]).get("annotations",[]):
+                criteria[item["criterion"]]=criteria.get(item["criterion"],0)+1
+                key=f'{item["criterion"]}/{item["label"]}';labels[key]=labels.get(key,0)+1
+        return {"annotated_reviews":len(rows),"criteria":criteria,"labels":labels}
 
