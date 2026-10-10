@@ -317,8 +317,15 @@ class ReviewAnalysisRepository:
                 raise KeyError(job_id)
         return self.get_job(job_id)
 
-    def finish_job(self, job_id: str, success_status: str):
-        if success_status not in {"completed", "partial_failed"}:
+    def finish_job(
+        self,
+        job_id: str,
+        default_status: str,
+        *,
+        error_code: str | None = None,
+        error_message: str | None = None,
+    ):
+        if default_status not in {"completed", "partial_failed", "failed", "paused"}:
             raise ValueError("任务完成状态无效")
         timestamp = _now()
         with self.connect() as connection:
@@ -328,12 +335,18 @@ class ReviewAnalysisRepository:
                        WHEN 'cancel' THEN 'cancelled'
                        WHEN 'pause' THEN 'paused'
                        ELSE ? END,
-                   control_requested=NULL,updated_at=?,
+                   control_requested=NULL,last_error_code=?,last_error_message=?,
+                   updated_at=?,
                    finished_at=CASE
                        WHEN control_requested='pause' THEN finished_at
-                       ELSE ? END
+                       WHEN control_requested='cancel' THEN ?
+                       WHEN ? IN ('completed','partial_failed','failed') THEN ?
+                       ELSE finished_at END
                    WHERE id=? AND status='running'""",
-                (success_status, timestamp, timestamp, job_id),
+                (
+                    default_status, error_code, error_message, timestamp,
+                    timestamp, default_status, timestamp, job_id,
+                ),
             ).rowcount
             if count != 1:
                 raise ValueError("任务不在可完成状态")

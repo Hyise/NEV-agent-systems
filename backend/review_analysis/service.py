@@ -34,16 +34,26 @@ class ReviewAnalysisService:
         try:
             pipeline.run(job_id, lambda: self._control(job_id))
         except LlmAuthenticationError:
-            self.repository.set_job_state(job_id, "paused", error_code="authentication", error_message="DeepSeek 认证或账户状态异常，请检查本机配置后继续")
+            self.repository.finish_job(
+                job_id,
+                "paused",
+                error_code="authentication",
+                error_message="DeepSeek 认证或账户状态异常，请检查本机配置后继续",
+            )
         except LlmConfigurationError as exc:
-            self.repository.set_job_state(
+            self.repository.finish_job(
                 job_id,
                 "paused",
                 error_code="configuration",
                 error_message=str(exc),
             )
         except Exception as exc:
-            self.repository.set_job_state(job_id, "failed", error_code="internal", error_message=f"任务执行失败：{type(exc).__name__}")
+            self.repository.finish_job(
+                job_id,
+                "failed",
+                error_code="internal",
+                error_message=f"任务执行失败：{type(exc).__name__}",
+            )
 
     def start(self, job_id: str) -> Future[None]:
         with self._lock:

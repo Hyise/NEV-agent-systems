@@ -209,7 +209,9 @@ def test_finish_job_honors_control_requested_during_last_call(
     assert repository.claim_job(job["id"], "extracting")
     repository.request_control(job["id"], action)
 
-    finished = repository.finish_job(job["id"], "completed")
+    finished = repository.finish_job(
+        job["id"], "failed", error_code="internal", error_message="boom"
+    )
 
     assert finished["status"] == expected
     assert finished["control_requested"] is None

@@ -13,6 +13,12 @@ class Repo:
     def pause_interrupted_jobs(self): self.paused_interrupted += 1; return 0
     def get_job(self, job_id): return self.jobs.get(job_id)
     def set_job_state(self, job_id, status, **kwargs): self.jobs[job_id]["status"] = status; self.controls.pop(job_id, None); self.states.append((job_id, status, kwargs)); return self.jobs[job_id]
+    def finish_job(self, job_id, default_status, **kwargs):
+        action = self.controls.pop(job_id, None)
+        status = "cancelled" if action == "cancel" else "paused" if action == "pause" else default_status
+        self.jobs[job_id]["status"] = status
+        self.states.append((job_id, status, kwargs))
+        return self.jobs[job_id]
     def request_control(self, job_id, action):
         self.controls[job_id] = action
         if action == "cancel" and self.jobs[job_id]["status"] in {"queued", "paused"}:
@@ -33,12 +39,14 @@ class Repo:
 
 
 class Pipeline:
-    def __init__(self, called, gate=None, error=None, started=None): self.called = called; self.gate = gate; self.error = error; self.started = started
+    def __init__(self, called, gate=None, error=None, started=None, before_error=None): self.called = called; self.gate = gate; self.error = error; self.started = started; self.before_error = before_error
     def run(self, job_id, control):
         self.called.append(job_id)
         if self.started: self.started.set()
         if self.gate: self.gate.wait(2)
-        if self.error: raise self.error
+        if self.error:
+            if self.before_error: self.before_error(job_id)
+            raise self.error
 
 
 def test_dispatches_by_type_and_allows_only_one_running_future():
@@ -114,4 +122,23 @@ def test_retry_can_queue_after_terminal_state_before_old_future_returns():
 
     assert retry["id"] == "retry"
     assert called == ["a", "retry"]
+    service.shutdown()
+
+
+@pytest.mark.parametrize(
+    ("action", "expected"),
+    [("pause", "paused"), ("cancel", "cancelled")],
+)
+def test_error_finish_honors_control_received_during_request(action, expected):
+    repo = Repo()
+    pipeline = Pipeline(
+        [],
+        error=RuntimeError("boom"),
+        before_error=lambda job_id: repo.request_control(job_id, action),
+    )
+    service = ReviewAnalysisService(repo, pipeline, Pipeline([]))
+
+    service.start("a").result(timeout=2)
+
+    assert repo.jobs["a"]["status"] == expected
     service.shutdown()
