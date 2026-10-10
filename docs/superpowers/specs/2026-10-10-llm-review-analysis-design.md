@@ -276,13 +276,14 @@ Prompt 参考师姐代码的任务定义、示例和准则语义，但改造成�
 - `review_id`
 - `series_id`、`series_name_snapshot`
 - `content_hash`
+- `analysis_text`：任务创建时从完整原始口碑确定性生成的输入快照
 - `ordinal`
 - `status`：`pending`、`succeeded`、`failed`、`cached`、`skipped`
 - `attempt_count`
 - `annotation_id`
 - `error_code`、`error_message`
 
-唯一约束为 `job_id + review_id`。任务执行不得重新查询可变的“当前评论列表”决定范围。
+唯一约束为 `job_id + review_id`。任务执行只读取快照中的 `analysis_text`，不得重新查询可变的“当前评论列表”决定范围或正文；因此后续重新采集并更新同一评论不会改变已经创建任务的输入。
 
 ### 9.3 `criteria_proposals`
 
