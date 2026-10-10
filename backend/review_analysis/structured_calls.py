@@ -14,6 +14,12 @@ class StructuredCallExecutor:
         self.client = client
         self.sleep = sleep
 
+    @property
+    def model(self) -> str | None:
+        settings = getattr(self.client, "settings", None)
+        value = getattr(settings, "model", None)
+        return value if isinstance(value, str) and value else None
+
     def call(self, prompt: RenderedPrompt, validator: Callable[[object], T], *, max_tokens: int, attempts: int) -> tuple[T, JsonCompletion]:
         last_error: Exception | None = None
         for attempt in range(attempts):

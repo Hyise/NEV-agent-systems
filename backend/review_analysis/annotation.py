@@ -13,6 +13,8 @@ class ReviewAnnotationPipeline:
 
     def run(self, job_id: str, control) -> None:
         job = self.repository.get_job(job_id)
+        if self.executor.model is not None and self.executor.model != job["model"]:
+            raise LlmConfigurationError("任务模型配置已变化，请新建任务")
         criteria = [CriterionSnapshot.model_validate(item) for item in job["criteria"]]
         current = self.renderer.review_annotation(criteria, "占位").manifest
         expected = job["prompt_manifests"][0]

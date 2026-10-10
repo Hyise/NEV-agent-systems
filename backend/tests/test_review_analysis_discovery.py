@@ -1,7 +1,9 @@
 from collections import deque
+from types import SimpleNamespace
 
 import pytest
 
+from backend.review_analysis.config import LlmConfigurationError
 from backend.review_analysis.deepseek import JsonCompletion, LlmInvalidResponseError, LlmTransientError
 from backend.review_analysis.discovery import CriteriaDiscoveryPipeline
 from backend.review_analysis.domain import ControlAction
@@ -24,6 +26,7 @@ class Repo:
         self.job = {
             "id": "j",
             "status": "queued",
+            "model": "deepseek-flash",
             "prompt_manifests": [
                 renderer.discovery_batch([]).manifest.model_dump(),
                 renderer.criteria_merge([]).manifest.model_dump(),
@@ -119,3 +122,16 @@ def test_rejects_fabricated_discovery_evidence():
     with pytest.raises(LlmInvalidResponseError):
         CriteriaDiscoveryPipeline(repo, PromptRenderer(), StructuredCallExecutor(client, sleep=lambda _: None)).run("j", lambda: None)
     assert repo.proposal is None
+
+
+def test_resume_rejects_changed_model_lineage():
+    repo = Repo(["真实评论"])
+    client = Client([])
+    client.settings = SimpleNamespace(model="another-model")
+
+    with pytest.raises(LlmConfigurationError, match="模型配置已变化"):
+        CriteriaDiscoveryPipeline(
+            repo, PromptRenderer(), StructuredCallExecutor(client)
+        ).run("j", lambda: None)
+
+    assert client.calls == []

@@ -51,6 +51,8 @@ class CriteriaDiscoveryPipeline:
 
     def run(self, job_id: str, control) -> None:
         job = self.repository.get_job(job_id)
+        if self.executor.model is not None and self.executor.model != job["model"]:
+            raise LlmConfigurationError("任务模型配置已变化，请新建任务")
         expected = {item["version"]: item["sha256"] for item in job["prompt_manifests"]}
         current = [self.renderer.discovery_batch([]).manifest, self.renderer.criteria_merge([]).manifest]
         if any(expected.get(item.version) != item.sha256 for item in current):
