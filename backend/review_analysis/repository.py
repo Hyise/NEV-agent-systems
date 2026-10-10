@@ -255,6 +255,13 @@ class ReviewAnalysisRepository:
                 raise KeyError(job_id)
         return self.get_job(job_id)
 
+    def add_usage(self, job_id: str, completion):
+        with self.connect() as connection:
+            connection.execute(
+                "UPDATE review_analysis_jobs SET input_tokens=input_tokens+?,output_tokens=output_tokens+?,cached_tokens=cached_tokens+?,updated_at=? WHERE id=?",
+                (completion.input_tokens, completion.output_tokens, completion.cached_tokens, _now(), job_id),
+            )
+
     def mark_review_succeeded(self, job_id: str, review_id: str, annotation_id: str, *, cached: bool, input_tokens: int = 0, output_tokens: int = 0, cached_tokens: int = 0):
         status = "cached" if cached else "succeeded"
         with self.connect() as connection:
