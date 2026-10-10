@@ -26,4 +26,3 @@ __CRITERIA_JSON__
 
 完整评论：
 __REVIEW_TEXT__
-

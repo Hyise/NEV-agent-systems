@@ -127,4 +127,3 @@ def test_review_annotation_rejects_unknown_duplicate_and_fabricated_values():
     for payload in cases:
         with pytest.raises((ValueError, ValidationError)):
             parse_review_annotation(payload, criteria=criteria, review_text=text)
-

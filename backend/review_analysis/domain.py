@@ -200,4 +200,3 @@ def parse_review_annotation(
     if len(result.unmatched_evidence) != len(set(result.unmatched_evidence)):
         raise ValueError("未匹配证据不能重复")
     return result
-

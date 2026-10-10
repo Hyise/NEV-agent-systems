@@ -113,4 +113,3 @@ def _validate_proposal(payload, texts: list[str]):
     ):
         raise ValueError("候选方案证据必须来自样本原文")
     return result
-

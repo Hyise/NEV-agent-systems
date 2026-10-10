@@ -167,4 +167,3 @@ def create_review_analysis_router(repository, service, settings) -> APIRouter:
     @router.get("/summary")
     def summary(project_id: str, job_id: str | None = None): return repository.annotation_summary(project_id, job_id)
     return router
-

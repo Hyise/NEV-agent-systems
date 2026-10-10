@@ -548,4 +548,3 @@ class ReviewAnalysisRepository:
                 criteria[item["criterion"]]=criteria.get(item["criterion"],0)+1
                 key=f'{item["criterion"]}/{item["label"]}';labels[key]=labels.get(key,0)+1
         return {"annotated_reviews":len(rows),"criteria":criteria,"labels":labels}
-

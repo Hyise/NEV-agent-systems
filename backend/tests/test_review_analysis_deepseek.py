@@ -107,4 +107,3 @@ def test_invalid_model_responses_are_rejected_without_response_echo(payload):
         client_for(handler).complete_json(prompt(), max_tokens=20)
     assert SECRET not in str(error.value)
     assert "not-json" not in str(error.value)
-

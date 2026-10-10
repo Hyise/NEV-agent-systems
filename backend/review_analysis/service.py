@@ -91,4 +91,3 @@ class ReviewAnalysisService:
             if self._future is not None and not self._future.done() and self._job_id:
                 self.repository.request_control(self._job_id, "pause")
         self._executor.shutdown(wait=True, cancel_futures=False)
-

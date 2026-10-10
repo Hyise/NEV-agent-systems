@@ -37,4 +37,3 @@ class StructuredCallExecutor:
             raise last_error
         assert last_error is not None
         raise last_error
-

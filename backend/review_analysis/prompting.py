@@ -54,4 +54,3 @@ class PromptRenderer:
             "review-annotation-v1",
             {"CRITERIA_JSON": schema, "REVIEW_TEXT": review_text},
         )
-

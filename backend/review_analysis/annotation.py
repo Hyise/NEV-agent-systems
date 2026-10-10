@@ -59,4 +59,3 @@ class ReviewAnnotationPipeline:
             job_id,
             "partial_failed" if final["failed_count"] else "completed",
         )
-

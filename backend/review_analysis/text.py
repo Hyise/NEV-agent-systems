@@ -32,4 +32,3 @@ def extract_analysis_text(original_review: Mapping[str, Any]) -> str:
     if not parts:
         raise ValueError("原始评论没有可分析文本")
     return "\n".join(parts)
-

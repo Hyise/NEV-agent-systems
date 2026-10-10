@@ -33,4 +33,3 @@ class DeepSeekSettings:
         if not 1 <= timeout <= 600:
             raise LlmConfigurationError("DeepSeek 请求超时必须在1～600秒之间")
         return cls(api_key=api_key, base_url=base_url, model=model, timeout_seconds=timeout)
-
