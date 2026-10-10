@@ -22,11 +22,7 @@ class ReviewAnnotationPipeline:
             raise LlmConfigurationError("任务 Prompt 版本已变化，请新建任务")
         for row in self.repository.pending_review_snapshots(job_id):
             action = control()
-            if action is ControlAction.PAUSE:
-                self.repository.set_job_state(job_id, "paused")
-                return
-            if action is ControlAction.CANCEL:
-                self.repository.set_job_state(job_id, "cancelled")
+            if action in {ControlAction.PAUSE, ControlAction.CANCEL}:
                 return
             prompt = self.renderer.review_annotation(criteria, row["analysis_text"])
             cached = self.repository.find_cached_result(

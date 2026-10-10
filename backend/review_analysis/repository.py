@@ -251,7 +251,10 @@ class ReviewAnalysisRepository:
                 count = connection.execute(
                     """UPDATE review_analysis_jobs SET
                        status=CASE WHEN status='queued' THEN 'paused' ELSE status END,
-                       control_requested=CASE WHEN status='running' THEN 'pause' ELSE NULL END,
+                       control_requested=CASE
+                           WHEN status='running' AND control_requested='cancel' THEN 'cancel'
+                           WHEN status='running' THEN 'pause'
+                           ELSE NULL END,
                        updated_at=? WHERE id=? AND status IN ('queued','running')""",
                     (_now(), job_id),
                 ).rowcount
@@ -265,6 +268,29 @@ class ReviewAnalysisRepository:
         if row is None:
             raise KeyError(job_id)
         return row["control_requested"]
+
+    def consume_control(self, job_id: str) -> str | None:
+        timestamp = _now()
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT status,control_requested FROM review_analysis_jobs WHERE id=?",
+                (job_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(job_id)
+            action = row["control_requested"]
+            if row["status"] != "running" or action not in {"pause", "cancel"}:
+                return None
+            status = "cancelled" if action == "cancel" else "paused"
+            connection.execute(
+                """UPDATE review_analysis_jobs
+                   SET status=?,control_requested=NULL,updated_at=?,
+                       finished_at=CASE WHEN ?='cancelled' THEN ? ELSE finished_at END
+                   WHERE id=? AND status='running'""",
+                (status, timestamp, status, timestamp, job_id),
+            )
+        return action
 
     def queue_job(self, job_id: str) -> bool:
         with self.connect() as connection:

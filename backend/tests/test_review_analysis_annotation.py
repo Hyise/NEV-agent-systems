@@ -79,4 +79,4 @@ def test_invalid_annotation_isolated_and_following_review_continues():
 def test_pause_before_call_does_not_process_item():
     repo = Repo([row("r1")]); client = Client([])
     ReviewAnnotationPipeline(repo, PromptRenderer(), StructuredCallExecutor(client)).run("j", lambda: ControlAction.PAUSE)
-    assert client.calls == 0 and repo.states[-1] == "paused"
+    assert client.calls == 0 and repo.states == []

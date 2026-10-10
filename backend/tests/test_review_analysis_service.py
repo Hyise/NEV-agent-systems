@@ -20,12 +20,18 @@ class Repo:
         self.states.append((job_id, status, kwargs))
         return self.jobs[job_id]
     def request_control(self, job_id, action):
-        self.controls[job_id] = action
+        if not (action == "pause" and self.controls.get(job_id) == "cancel"):
+            self.controls[job_id] = action
         if action == "cancel" and self.jobs[job_id]["status"] in {"queued", "paused"}:
             self.jobs[job_id]["status"] = "cancelled"
         if action == "pause" and self.jobs[job_id]["status"] == "queued":
             self.jobs[job_id]["status"] = "paused"
     def requested_control(self, job_id): return self.controls.get(job_id)
+    def consume_control(self, job_id):
+        action = self.controls.pop(job_id, None)
+        if action in {"pause", "cancel"} and self.jobs[job_id]["status"] == "running":
+            self.jobs[job_id]["status"] = "cancelled" if action == "cancel" else "paused"
+        return action
     def queue_job(self, job_id):
         if self.jobs[job_id]["status"] != "paused": return False
         self.jobs[job_id]["status"] = "queued"; self.controls.pop(job_id, None); return True

@@ -87,7 +87,7 @@ def test_control_stops_before_next_model_call(action):
     client = Client([])
     CriteriaDiscoveryPipeline(repo, PromptRenderer(), StructuredCallExecutor(client), character_budget=1).run("j", lambda: action)
     assert client.calls == []
-    assert repo.states[-1] == ("paused" if action is ControlAction.PAUSE else "cancelled")
+    assert repo.states == []
 
 
 def test_invalid_merge_does_not_save_partial_proposal():

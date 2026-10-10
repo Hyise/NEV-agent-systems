@@ -41,13 +41,7 @@ class CriteriaDiscoveryPipeline:
 
     def _control(self, job_id, control) -> bool:
         action = control()
-        if action is ControlAction.PAUSE:
-            self.repository.set_job_state(job_id, "paused")
-            return True
-        if action is ControlAction.CANCEL:
-            self.repository.set_job_state(job_id, "cancelled")
-            return True
-        return False
+        return action in {ControlAction.PAUSE, ControlAction.CANCEL}
 
     def run(self, job_id: str, control) -> None:
         job = self.repository.get_job(job_id)

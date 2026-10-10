@@ -195,6 +195,38 @@ def test_pause_queued_job_prevents_worker_claim(tmp_path):
     assert not repository.claim_job(job["id"], "extracting")
 
 
+def test_cancel_request_is_not_downgraded_by_later_pause(tmp_path):
+    path = tmp_path / "app.db"
+    seed(path)
+    repository = ReviewAnalysisRepository(path)
+    job = repository.create_job_with_snapshot(command(), snapshots)
+    assert repository.claim_job(job["id"], "extracting")
+
+    repository.request_control(job["id"], "cancel")
+    repository.request_control(job["id"], "pause")
+
+    assert repository.requested_control(job["id"]) == "cancel"
+    assert repository.consume_control(job["id"]) == "cancel"
+    assert repository.get_job(job["id"])["status"] == "cancelled"
+
+
+def test_paused_job_can_still_be_cancelled(tmp_path):
+    path = tmp_path / "app.db"
+    seed(path)
+    repository = ReviewAnalysisRepository(path)
+    job = repository.create_job_with_snapshot(command(), snapshots)
+    assert repository.claim_job(job["id"], "extracting")
+
+    repository.request_control(job["id"], "pause")
+    assert repository.consume_control(job["id"]) == "pause"
+    assert repository.get_job(job["id"])["status"] == "paused"
+
+    cancelled = repository.request_control(job["id"], "cancel")
+
+    assert cancelled["status"] == "cancelled"
+    assert cancelled["control_requested"] is None
+
+
 @pytest.mark.parametrize(
     ("action", "expected"),
     [("pause", "paused"), ("cancel", "cancelled")],

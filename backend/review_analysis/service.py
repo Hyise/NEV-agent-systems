@@ -22,7 +22,7 @@ class ReviewAnalysisService:
         self._job_id: str | None = None
 
     def _control(self, job_id: str):
-        value = self.repository.requested_control(job_id)
+        value = self.repository.consume_control(job_id)
         return ControlAction(value) if value else None
 
     def _run(self, job_id: str) -> None:
