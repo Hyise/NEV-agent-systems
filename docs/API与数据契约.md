@@ -108,3 +108,18 @@
 车系唯一键为 `platform + series_id`；评论唯一键为 `platform + review_id`。来源存在 `Koubeiid` 或 `showId` 时直接使用；两者都缺失时，回退 ID 为 `sha256-{series_id}-{原始对象规范哈希}`，避免相同无 ID 对象在不同车系间碰撞。不同年款、改款和配置保留在原始对象字段中，但不形成独立车系任务。每页评论和下一页游标在同一事务提交；重复请求依靠唯一键幂等，同一评论 ID 内容变化会写入采集事件。
 
 任务详情返回最近 100 条事件，并按发生时间正序展示；长任务的更早事件仍保留在 SQLite。分页终止以来源响应中已校验的 `pageindex`、`pagesize`、`pagecount` 和 `seriesid` 为准，不假设每页固定返回 20 条。
+# 评论语义分析 API
+
+统一前缀：`/api/projects/{project_id}/review-analysis`。
+
+- `GET /sources`：分页读取已有评论的车系与数量。
+- `POST /discovery-jobs`：`schema_id`、唯一 `selected_series_ids`、`sample_limit(1..5000)`；仅自定义草稿。
+- `POST /annotation-jobs`：`schema_id`、唯一车系列表、`limit=20/100/500/null`；仅自定义冻结版本。
+- `GET /jobs`、`GET /jobs/{id}`：任务、进度、错误摘要与 token 用量。
+- `POST /jobs/{id}/pause|resume|cancel|retry-failures`：协作式控制或为失败项建立新快照。
+- `GET /jobs/{id}/proposal`、`POST /jobs/{id}/proposal/apply`：候选审核与 revision 锁应用；可提交人工编辑后的完整候选准则。
+- `GET /annotations`、`GET /annotations/{id}`、`GET /summary`：评论级结果、详情和基础计数；筛选不调用模型。
+
+未配置 Key 返回 503；项目/版本/任务不存在返回 404；版本状态、活动任务和 revision 冲突返回 409；空/重复选择、无评论或非法范围返回 422。评论标注输出中的 `criterion`、`label` 必须属于任务冻结快照，`evidence` 和 `unmatched_evidence` 必须为 `analysis_text` 原文子串。
+
+持久化表为 `review_analysis_jobs`、`review_analysis_job_reviews`、`criteria_proposals`、`review_annotation_results`。评论快照保存完整派生文本；可复用结果不绑定评论 ID，由任务评论行保存关联以保持追溯。
