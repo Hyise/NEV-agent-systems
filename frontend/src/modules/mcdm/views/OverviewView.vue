@@ -176,7 +176,7 @@ const weightOption = computed(() => ({
       <header class="research-process__heading">
         <div>
           <h2>研究流程</h2>
-          <p>本阶段已接入真实归档，下一阶段开放新的算法运行。</p>
+          <p>完整评论采集与语义标注已接入；训练与新预测仍需独立研究设计。</p>
         </div>
       </header>
       <div class="workflow">
@@ -191,13 +191,13 @@ const weightOption = computed(() => ({
           :key="step"
           :class="[
             'workflow-step',
-            { available: index < 2 || (index === 4 && isPreset) },
+            { available: index < 3 || (index === 4 && isPreset) },
           ]"
         >
           <span class="step-number mono">{{ index + 1 }}</span>
           <strong>{{ step }}</strong>
           <small>{{
-            index < 2
+            index < 3
               ? "已开放"
               : index === 4 && isPreset
                 ? "可查看归档"

@@ -262,7 +262,10 @@ onBeforeUnmount(() =>
             {{ isPreset ? "预置准则模式" : "自定义准则模式" }}
           </span>
           <label
-            v-if="overview && !['criteria', 'experiments', 'review-analysis'].includes(page)"
+            v-if="
+              overview &&
+              !['criteria', 'experiments', 'review-analysis'].includes(page)
+            "
             class="month-control"
           >
             <span>观察月份</span>
