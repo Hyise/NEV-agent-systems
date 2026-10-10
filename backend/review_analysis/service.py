@@ -61,7 +61,9 @@ class ReviewAnalysisService:
         return self.start(job_id)
 
     def retry_failures(self, job_id: str):
-        return self.repository.create_retry_job(job_id)
+        job = self.repository.create_retry_job(job_id)
+        self.start(job["id"])
+        return job
 
     def shutdown(self) -> None:
         with self._lock:

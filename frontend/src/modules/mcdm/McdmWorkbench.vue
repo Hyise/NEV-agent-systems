@@ -389,7 +389,7 @@ onBeforeUnmount(() =>
           </label>
         </fieldset>
         <p class="caption">
-          此阶段提供数据与准则工作流；在线评论分析和新模型训练将在后续接入。
+          此阶段已提供数据、准则与评论语义分析工作流；新模型训练将在后续接入。
         </p>
         <p v-if="error" class="form-error" role="alert">{{ error }}</p>
         <button

@@ -36,7 +36,8 @@ class ReviewAnalysisRepository:
                     id TEXT PRIMARY KEY, project_id TEXT NOT NULL, schema_id TEXT,
                     job_type TEXT NOT NULL, status TEXT NOT NULL, phase TEXT NOT NULL,
                     model TEXT NOT NULL, prompt_manifest_json TEXT NOT NULL,
-                    schema_fingerprint TEXT, criteria_json TEXT NOT NULL DEFAULT '[]',
+                    schema_fingerprint TEXT, schema_revision INTEGER,
+                    criteria_json TEXT NOT NULL DEFAULT '[]',
                     source_config_json TEXT NOT NULL,
                     total_count INTEGER NOT NULL DEFAULT 0,
                     processed_count INTEGER NOT NULL DEFAULT 0,
@@ -75,12 +76,21 @@ class ReviewAnalysisRepository:
                     created_at TEXT NOT NULL,
                     UNIQUE(content_hash,schema_fingerprint,model,prompt_sha256)
                 );
+                CREATE TABLE IF NOT EXISTS review_analysis_discovery_batches (
+                    job_id TEXT NOT NULL REFERENCES review_analysis_jobs(id) ON DELETE CASCADE,
+                    batch_index INTEGER NOT NULL, review_ids_json TEXT NOT NULL,
+                    clues_json TEXT, status TEXT NOT NULL DEFAULT 'pending',
+                    PRIMARY KEY(job_id,batch_index)
+                );
                 CREATE INDEX IF NOT EXISTS ix_review_analysis_jobs_project
                     ON review_analysis_jobs(project_id,created_at);
                 CREATE INDEX IF NOT EXISTS ix_review_analysis_job_reviews_pending
                     ON review_analysis_job_reviews(job_id,status,ordinal);
                 """
             )
+            columns = {row[1] for row in connection.execute("PRAGMA table_info(review_analysis_jobs)")}
+            if "schema_revision" not in columns:
+                connection.execute("ALTER TABLE review_analysis_jobs ADD COLUMN schema_revision INTEGER")
 
     @contextmanager
     def connect(self):
@@ -192,11 +202,11 @@ class ReviewAnalysisRepository:
             connection.execute(
                 """INSERT INTO review_analysis_jobs (
                     id,project_id,schema_id,job_type,status,phase,model,prompt_manifest_json,
-                    schema_fingerprint,criteria_json,source_config_json,total_count,created_at,updated_at
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    schema_fingerprint,schema_revision,criteria_json,source_config_json,total_count,created_at,updated_at
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (job_id, command.project_id, command.schema_id, command.job_type, "queued", phase,
                  command.model, _json([item.model_dump() for item in command.prompt_manifests]),
-                 command.schema_fingerprint, _json([item.model_dump() for item in command.criteria]),
+                 command.schema_fingerprint, command.schema_revision, _json([item.model_dump() for item in command.criteria]),
                  _json({"selected_series_ids": command.selected_series_ids, "limit": command.limit,
                         "sampling": "sha256-stratified-round-robin"}), len(snapshots), timestamp, timestamp),
             )
@@ -230,7 +240,15 @@ class ReviewAnalysisRepository:
         if action not in {"pause", "cancel"}:
             raise ValueError("不支持的控制动作")
         with self.connect() as connection:
-            count = connection.execute("UPDATE review_analysis_jobs SET control_requested=?,updated_at=? WHERE id=? AND status IN ('queued','running','paused')", (action, _now(), job_id)).rowcount
+            if action == "cancel":
+                count = connection.execute("""UPDATE review_analysis_jobs SET
+                    status=CASE WHEN status IN ('queued','paused') THEN 'cancelled' ELSE status END,
+                    control_requested=CASE WHEN status='running' THEN 'cancel' ELSE NULL END,
+                    finished_at=CASE WHEN status IN ('queued','paused') THEN ? ELSE finished_at END,
+                    updated_at=? WHERE id=? AND status IN ('queued','running','paused')""",
+                    (_now(), _now(), job_id)).rowcount
+            else:
+                count = connection.execute("UPDATE review_analysis_jobs SET control_requested=?,updated_at=? WHERE id=? AND status IN ('queued','running')", (action, _now(), job_id)).rowcount
             if count != 1:
                 raise ValueError("任务状态不允许控制")
         return self.get_job(job_id)
@@ -260,11 +278,12 @@ class ReviewAnalysisRepository:
         terminal = status in {"completed", "partial_failed", "failed", "cancelled"}
         with self.connect() as connection:
             count = connection.execute(
-                """UPDATE review_analysis_jobs SET status=?,phase=COALESCE(?,phase),control_requested=NULL,
+                """UPDATE review_analysis_jobs SET status=?,phase=COALESCE(?,phase),
                    last_error_code=?,last_error_message=?,started_at=COALESCE(started_at,?),updated_at=?,
+                   control_requested=CASE WHEN ?='running' THEN control_requested ELSE NULL END,
                    finished_at=CASE WHEN ? THEN ? ELSE finished_at END WHERE id=?""",
                 (status, phase, error_code, error_message, timestamp if status == "running" else None,
-                 timestamp, int(terminal), timestamp, job_id),
+                 timestamp, status, int(terminal), timestamp, job_id),
             ).rowcount
             if count != 1:
                 raise KeyError(job_id)
@@ -292,11 +311,14 @@ class ReviewAnalysisRepository:
             if count != 1: raise KeyError(review_id)
             connection.execute("UPDATE review_analysis_jobs SET processed_count=processed_count+1,failed_count=failed_count+1,updated_at=? WHERE id=?", (_now(), job_id))
 
-    def save_proposal(self, job_id: str, proposal: dict[str, Any], *, source_review_count: int, sample_review_count: int):
+    def save_proposal(self, job_id: str, proposal: dict[str, Any], *, source_review_count: int, sample_review_count: int, completion=None):
         canonical = _json(proposal)
         fingerprint = hashlib.sha256(canonical.encode()).hexdigest()
         with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
             connection.execute("INSERT INTO criteria_proposals (job_id,proposal_json,proposal_fingerprint,source_review_count,sample_review_count,created_at) VALUES (?,?,?,?,?,?)", (job_id, canonical, fingerprint, source_review_count, sample_review_count, _now()))
+            if completion is not None:
+                connection.execute("UPDATE review_analysis_jobs SET input_tokens=input_tokens+?,output_tokens=output_tokens+?,cached_tokens=cached_tokens+?,updated_at=? WHERE id=?", (completion.input_tokens,completion.output_tokens,completion.cached_tokens,_now(),job_id))
         return self.get_proposal(job_id)
 
     def get_proposal(self, job_id: str):
@@ -308,9 +330,11 @@ class ReviewAnalysisRepository:
     def apply_proposal(self, job_id: str, expected_revision: int, edited_criteria=None):
         with self.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            row = connection.execute("SELECT p.*,j.schema_id,j.project_id FROM criteria_proposals p JOIN review_analysis_jobs j ON j.id=p.job_id WHERE p.job_id=?", (job_id,)).fetchone()
+            row = connection.execute("SELECT p.*,j.schema_id,j.project_id,j.schema_revision FROM criteria_proposals p JOIN review_analysis_jobs j ON j.id=p.job_id WHERE p.job_id=?", (job_id,)).fetchone()
             if row is None: raise KeyError(job_id)
             if row["applied_at"] is not None: raise ValueError("候选方案已经应用")
+            if row["schema_revision"] is None or expected_revision != row["schema_revision"]:
+                raise ValueError("准则草稿 revision 已变化，请重新执行准则发现")
             proposal = json.loads(row["proposal_json"])
             items = edited_criteria if edited_criteria is not None else proposal["criteria"]
             criteria = [{"name": item.name, "labels": item.labels} if hasattr(item, "name") else {"name": item["name"], "labels": item["labels"]} for item in items]
@@ -348,10 +372,10 @@ class ReviewAnalysisRepository:
             connection.execute(
                 """INSERT INTO review_analysis_jobs (
                     id,project_id,schema_id,job_type,status,phase,model,prompt_manifest_json,
-                    schema_fingerprint,criteria_json,source_config_json,total_count,created_at,updated_at
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    schema_fingerprint,schema_revision,criteria_json,source_config_json,total_count,created_at,updated_at
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (new_id, source["project_id"], source["schema_id"], source["job_type"], "queued", "annotating",
-                 source["model"], source["prompt_manifest_json"], source["schema_fingerprint"], source["criteria_json"],
+                 source["model"], source["prompt_manifest_json"], source["schema_fingerprint"], source["schema_revision"], source["criteria_json"],
                  _json({"retry_of": source_job_id}), len(failed), timestamp, timestamp),
             )
             for ordinal, row in enumerate(failed):
@@ -368,14 +392,33 @@ class ReviewAnalysisRepository:
             rows = connection.execute(f"""SELECT r.*,a.result_json,a.created_at AS annotated_at
                 FROM review_analysis_job_reviews r JOIN review_analysis_jobs j ON j.id=r.job_id
                 LEFT JOIN review_annotation_results a ON a.id=r.annotation_id WHERE {where}
-                ORDER BY r.ordinal LIMIT ? OFFSET ?""", (*params,page_size,(page-1)*page_size)).fetchall()
+                ORDER BY r.ordinal""", params).fetchall()
         result=[]
         for row in rows:
             item=self._snapshot(row); payload=json.loads(item.pop("result_json")) if item.get("result_json") else None
             if criterion and not any(x["criterion"]==criterion for x in (payload or {}).get("annotations",[])): continue
             if label and not any(x["label"]==label for x in (payload or {}).get("annotations",[])): continue
             item["result"]=payload; item["annotation_count"]=len((payload or {}).get("annotations",[])); result.append(item)
-        return {"rows":result,"total":len(result),"page":page,"page_size":page_size}
+        total=len(result); start=(page-1)*page_size
+        return {"rows":result[start:start+page_size],"total":total,"page":page,"page_size":page_size}
+
+    def ensure_discovery_batches(self, job_id: str, batches: list[list[dict[str, Any]]]):
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            existing = connection.execute("SELECT COUNT(*) FROM review_analysis_discovery_batches WHERE job_id=?", (job_id,)).fetchone()[0]
+            if not existing:
+                for index, batch in enumerate(batches):
+                    connection.execute("INSERT INTO review_analysis_discovery_batches (job_id,batch_index,review_ids_json) VALUES (?,?,?)", (job_id,index,_json([row["review_id"] for row in batch])))
+            rows = connection.execute("SELECT * FROM review_analysis_discovery_batches WHERE job_id=? ORDER BY batch_index", (job_id,)).fetchall()
+        return [{**dict(row), "review_ids": json.loads(row["review_ids_json"]), "clues": json.loads(row["clues_json"]) if row["clues_json"] else None} for row in rows]
+
+    def save_discovery_batch(self, job_id: str, batch_index: int, clues: list[dict[str, Any]], completion):
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            count = connection.execute("UPDATE review_analysis_discovery_batches SET status='succeeded',clues_json=? WHERE job_id=? AND batch_index=? AND status='pending'", (_json(clues),job_id,batch_index)).rowcount
+            if count:
+                connection.execute("UPDATE review_analysis_jobs SET input_tokens=input_tokens+?,output_tokens=output_tokens+?,cached_tokens=cached_tokens+?,updated_at=? WHERE id=?", (completion.input_tokens,completion.output_tokens,completion.cached_tokens,_now(),job_id))
+        return bool(count)
 
     def get_annotation(self, project_id: str, annotation_id: str):
         with self.connect() as connection:

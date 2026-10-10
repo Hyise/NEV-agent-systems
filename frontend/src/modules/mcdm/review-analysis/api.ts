@@ -34,6 +34,7 @@ export interface AnnotationRow {
   series_name: string;
   status: string;
   annotation_count: number;
+  annotated_at?: string;
   analysis_text?: string;
   result?: {
     annotations: Array<{
@@ -51,6 +52,11 @@ export interface PageResult<T> {
   page: number;
   page_size: number;
 }
+export interface AnnotationSummary {
+  annotated_reviews: number;
+  criteria: Record<string, number>;
+  labels: Record<string, number>;
+}
 
 const base = (projectId: string) =>
   `/projects/${encodeURIComponent(projectId)}/review-analysis`;
@@ -59,9 +65,9 @@ export function createReviewAnalysisApi(fetcher = api) {
   const request = <T>(path: string, options?: RequestInit) =>
     fetcher<T>(path, options);
   return {
-    listSources: (projectId: string, query = "") =>
+    listSources: (projectId: string, query = "", page = 1) =>
       request<PageResult<ReviewSource>>(
-        `${base(projectId)}/sources?query=${encodeURIComponent(query)}`,
+        `${base(projectId)}/sources?${new URLSearchParams({ query, page: String(page), page_size: "20" })}`,
       ),
     listJobs: (projectId: string) =>
       request<PageResult<AnalysisJob>>(`${base(projectId)}/jobs`),
@@ -97,6 +103,10 @@ export function createReviewAnalysisApi(fetcher = api) {
       ),
     getAnnotation: (projectId: string, id: string) =>
       request<AnnotationRow>(`${base(projectId)}/annotations/${id}`),
+    getSummary: (projectId: string, jobId = "") =>
+      request<AnnotationSummary>(
+        `${base(projectId)}/summary${jobId ? `?job_id=${encodeURIComponent(jobId)}` : ""}`,
+      ),
   };
 }
 

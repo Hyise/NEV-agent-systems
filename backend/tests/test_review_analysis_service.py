@@ -15,7 +15,10 @@ class Repo:
     def set_job_state(self, job_id, status, **kwargs): self.jobs[job_id]["status"] = status; self.controls.pop(job_id, None); self.states.append((job_id, status, kwargs)); return self.jobs[job_id]
     def request_control(self, job_id, action): self.controls[job_id] = action
     def requested_control(self, job_id): return self.controls.get(job_id)
-    def create_retry_job(self, job_id): return {"id": "retry", "source_job_id": job_id}
+    def create_retry_job(self, job_id):
+        job = {"id": "retry", "source_job_id": job_id, "job_type": "review_annotation", "status": "queued"}
+        self.jobs[job["id"]] = job
+        return job
 
 
 class Pipeline:
@@ -49,9 +52,11 @@ def test_authentication_failure_pauses_with_sanitized_error():
 
 
 def test_controls_recovery_and_retry_delegate_to_repository():
-    repo = Repo(); service = ReviewAnalysisService(repo, Pipeline([]), Pipeline([]))
+    repo = Repo(); called = []; service = ReviewAnalysisService(repo, Pipeline(called), Pipeline([]))
     assert repo.paused_interrupted == 1
     service.pause("a"); assert repo.controls["a"] == "pause"
     service.cancel("a"); assert repo.controls["a"] == "cancel"
     assert service.retry_failures("a")["source_job_id"] == "a"
+    service._future.result(timeout=2)
+    assert called == ["retry"]
     service.shutdown()

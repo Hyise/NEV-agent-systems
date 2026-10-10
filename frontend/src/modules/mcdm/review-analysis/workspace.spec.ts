@@ -1,5 +1,6 @@
 import { ref } from "vue";
 import { describe, expect, it, vi } from "vitest";
+import type { AnalysisJob } from "./api";
 import { createReviewAnalysisWorkspace } from "./workspace";
 
 function fakeApi() {
@@ -11,7 +12,7 @@ function fakeApi() {
       page_size: 20,
     })),
     listJobs: vi.fn(async () => ({
-      rows: [],
+      rows: [] as AnalysisJob[],
       total: 0,
       page: 1,
       page_size: 20,
@@ -21,8 +22,12 @@ function fakeApi() {
       status: "queued",
       ...body,
     })),
-    createAnnotation: vi.fn(async () => ({ id: "j2", status: "queued" })),
-    controlJob: vi.fn(async () => ({ id: "j1", status: "paused" })),
+    createAnnotation: vi.fn(
+      async () => ({ id: "j2", status: "queued" }) as AnalysisJob,
+    ),
+    controlJob: vi.fn(
+      async () => ({ id: "j1", status: "paused" }) as AnalysisJob,
+    ),
     getProposal: vi.fn(),
     applyProposal: vi.fn(),
     listAnnotations: vi.fn(async () => ({
@@ -32,6 +37,11 @@ function fakeApi() {
       page_size: 20,
     })),
     getAnnotation: vi.fn(),
+    getSummary: vi.fn(async () => ({
+      annotated_reviews: 0,
+      criteria: {},
+      labels: {},
+    })),
   };
 }
 
@@ -70,6 +80,7 @@ describe("review analysis workspace", () => {
     await workspace.loadAnnotations();
     expect(api.listAnnotations).toHaveBeenCalled();
     expect(api.createAnnotation).not.toHaveBeenCalled();
+    expect(api.getSummary).toHaveBeenCalledWith("p", "");
   });
 
   it("keeps a local editable proposal and applies with revision", async () => {
@@ -106,5 +117,117 @@ describe("review analysis workspace", () => {
       3,
       workspace.proposalDraft.value,
     );
+  });
+
+  it("keeps completed jobs selectable so their proposal remains reachable", async () => {
+    const api = fakeApi();
+    api.listJobs.mockResolvedValue({
+      rows: [
+        {
+          id: "done",
+          job_type: "criteria_discovery",
+          status: "completed",
+        },
+      ],
+      total: 1,
+      page: 1,
+      page_size: 20,
+    });
+    const workspace = createReviewAnalysisWorkspace(
+      api,
+      ref("p"),
+      ref("s"),
+      ref("draft"),
+    );
+
+    await workspace.activate();
+
+    expect(workspace.activeJob.value).toBeNull();
+    expect(workspace.selectedJob.value?.id).toBe("done");
+  });
+
+  it("searches and pages cached review sources", async () => {
+    const api = fakeApi();
+    const workspace = createReviewAnalysisWorkspace(
+      api,
+      ref("p"),
+      ref("s"),
+      ref("draft"),
+    );
+    workspace.sourceQuery.value = "海豹";
+
+    await workspace.loadSources(2);
+
+    expect(api.listSources).toHaveBeenCalledWith("p", "海豹", 2);
+  });
+
+  it("requires confirmation before annotating all selected reviews", async () => {
+    const api = fakeApi();
+    const workspace = createReviewAnalysisWorkspace(
+      api,
+      ref("p"),
+      ref("s"),
+      ref("frozen"),
+    );
+    workspace.annotationLimit.value = null;
+    workspace.selectedSeriesIds.value = ["1"];
+    const confirmation = vi.fn(() => false);
+    vi.stubGlobal("confirm", confirmation);
+
+    await workspace.createAnnotation();
+
+    expect(confirmation).toHaveBeenCalled();
+    expect(api.createAnnotation).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it("starts the retry job returned for a partial failure", async () => {
+    const api = fakeApi();
+    api.listJobs
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            id: "failed",
+            job_type: "review_annotation",
+            status: "partial_failed",
+          },
+        ],
+        total: 1,
+        page: 1,
+        page_size: 20,
+      })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            id: "retry",
+            job_type: "review_annotation",
+            status: "queued",
+          },
+        ],
+        total: 1,
+        page: 1,
+        page_size: 20,
+      });
+    api.controlJob.mockResolvedValue({
+      id: "retry",
+      job_type: "review_annotation",
+      status: "queued",
+    });
+    const workspace = createReviewAnalysisWorkspace(
+      api,
+      ref("p"),
+      ref("s"),
+      ref("frozen"),
+    );
+    await workspace.activate();
+
+    await workspace.control("retry-failures");
+
+    expect(api.controlJob).toHaveBeenCalledWith(
+      "p",
+      "failed",
+      "retry-failures",
+    );
+    expect(workspace.selectedJob.value?.id).toBe("retry");
   });
 });

@@ -1,5 +1,6 @@
 """Closed-schema, one-request-per-review annotation pipeline."""
 
+from .config import LlmConfigurationError
 from .deepseek import LlmInvalidResponseError, LlmTransientError
 from .domain import CriterionSnapshot, ControlAction, parse_review_annotation
 
@@ -13,6 +14,10 @@ class ReviewAnnotationPipeline:
     def run(self, job_id: str, control) -> None:
         job = self.repository.get_job(job_id)
         criteria = [CriterionSnapshot.model_validate(item) for item in job["criteria"]]
+        current = self.renderer.review_annotation(criteria, "占位").manifest
+        expected = job["prompt_manifests"][0]
+        if expected["version"] != current.version or expected["sha256"] != current.sha256:
+            raise LlmConfigurationError("任务 Prompt 版本已变化，请新建任务")
         self.repository.set_job_state(job_id, "running", phase="annotating")
         for row in self.repository.pending_review_snapshots(job_id):
             action = control()

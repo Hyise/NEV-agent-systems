@@ -20,11 +20,12 @@ async function apply() {
     </header>
     <button
       v-if="
-        workspace.activeJob.value?.status === 'completed' &&
+        workspace.selectedJob.value?.job_type === 'criteria_discovery' &&
+        workspace.selectedJob.value?.status === 'completed' &&
         !workspace.proposal.value
       "
       class="btn secondary"
-      @click="workspace.loadProposal(workspace.activeJob.value!.id)"
+      @click="workspace.loadProposal(workspace.selectedJob.value!.id)"
     >
       读取候选方案
     </button>

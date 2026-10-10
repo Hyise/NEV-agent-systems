@@ -122,4 +122,4 @@
 
 未配置 Key 返回 503；项目/版本/任务不存在返回 404；版本状态、活动任务和 revision 冲突返回 409；空/重复选择、无评论或非法范围返回 422。评论标注输出中的 `criterion`、`label` 必须属于任务冻结快照，`evidence` 和 `unmatched_evidence` 必须为 `analysis_text` 原文子串。
 
-持久化表为 `review_analysis_jobs`、`review_analysis_job_reviews`、`criteria_proposals`、`review_annotation_results`。评论快照保存完整派生文本；可复用结果不绑定评论 ID，由任务评论行保存关联以保持追溯。
+持久化表为 `review_analysis_jobs`、`review_analysis_job_reviews`、`review_analysis_discovery_batches`、`criteria_proposals`、`review_annotation_results`。评论快照保存完整派生文本；可复用结果不绑定评论 ID，由任务评论行保存关联以保持追溯。准则发现每个成功批次立即保存线索与 token 用量，暂停或进程重启后跳过成功批次；任务同时保存创建时的准则草稿 revision 与 Prompt 清单，草稿或 Prompt 发生变化时拒绝静默套用旧结果。

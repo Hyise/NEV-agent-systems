@@ -118,6 +118,7 @@ class ReviewSnapshot(StrictModel):
 class CreateJobCommand(StrictModel):
     project_id: str = Field(min_length=1, max_length=100)
     schema_id: str | None = Field(default=None, max_length=100)
+    schema_revision: int | None = Field(default=None, ge=1)
     job_type: Literal["criteria_discovery", "review_annotation"]
     selected_series_ids: list[str] = Field(min_length=1, max_length=1000)
     limit: int | None = Field(default=None, ge=1, le=5000)

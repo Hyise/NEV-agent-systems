@@ -20,12 +20,34 @@ class Client:
 
 class Repo:
     def __init__(self, texts):
-        self.job = {"id": "j", "status": "queued"}; self.texts = texts; self.proposal = None; self.states = []; self.usage = []
+        renderer = PromptRenderer()
+        self.job = {
+            "id": "j",
+            "status": "queued",
+            "prompt_manifests": [
+                renderer.discovery_batch([]).manifest.model_dump(),
+                renderer.criteria_merge([]).manifest.model_dump(),
+            ],
+        }
+        self.texts = texts; self.proposal = None; self.states = []; self.usage = []; self.checkpoints = []
     def get_job(self, job_id): return self.job
     def pending_review_snapshots(self, job_id): return [{"review_id": str(i), "analysis_text": text} for i, text in enumerate(self.texts)]
-    def save_proposal(self, job_id, proposal, **counts): self.proposal = proposal; self.counts = counts
+    def save_proposal(self, job_id, proposal, completion=None, **counts):
+        self.proposal = proposal; self.counts = counts
+        if completion: self.usage.append(completion.total_tokens)
     def set_job_state(self, job_id, status, **kwargs): self.states.append(status); self.job["status"] = status
     def add_usage(self, job_id, completion): self.usage.append(completion.total_tokens)
+    def ensure_discovery_batches(self, job_id, batches):
+        if not self.checkpoints:
+            self.checkpoints = [
+                {"batch_index": index, "review_ids": [row["review_id"] for row in batch], "status": "pending", "clues": None}
+                for index, batch in enumerate(batches)
+            ]
+        return self.checkpoints
+    def save_discovery_batch(self, job_id, batch_index, clues, completion):
+        checkpoint = self.checkpoints[batch_index]
+        checkpoint.update(status="succeeded", clues=clues)
+        self.usage.append(completion.total_tokens)
 
 
 def test_discovery_batches_whole_reviews_and_merges_all_clues():
@@ -66,6 +88,34 @@ def test_control_stops_before_next_model_call(action):
 def test_invalid_merge_does_not_save_partial_proposal():
     repo = Repo(["甲"])
     client = Client([{"clues": []}, {"criteria": []}, {"criteria": []}])
+    with pytest.raises(LlmInvalidResponseError):
+        CriteriaDiscoveryPipeline(repo, PromptRenderer(), StructuredCallExecutor(client, sleep=lambda _: None)).run("j", lambda: None)
+    assert repo.proposal is None
+
+
+def test_resume_reuses_successful_batches_without_repeating_paid_calls():
+    clues1 = {"clues": [{"name": "空间", "terms": ["宽敞"], "evidence": ["甲"]}]}
+    clues2 = {"clues": [{"name": "续航", "terms": ["扎实"], "evidence": ["乙"]}]}
+    proposal = {"criteria": [{"name": "空间", "labels": ["宽敞", "局促"], "similar_terms": [], "basis": "依据", "evidence": ["甲"]}]}
+    repo = Repo(["甲", "乙"])
+    first = Client([clues1])
+    controls = deque([None, ControlAction.PAUSE])
+    pipeline = CriteriaDiscoveryPipeline(repo, PromptRenderer(), StructuredCallExecutor(first), character_budget=1)
+    pipeline.run("j", lambda: controls.popleft() if controls else ControlAction.PAUSE)
+    assert len(first.calls) == 1
+
+    second = Client([clues2, proposal])
+    CriteriaDiscoveryPipeline(repo, PromptRenderer(), StructuredCallExecutor(second), character_budget=1).run("j", lambda: None)
+
+    assert len(second.calls) == 2
+    assert "乙" in second.calls[0].user_prompt
+    assert "甲" not in second.calls[0].user_prompt
+    assert repo.states[-1] == "completed"
+
+
+def test_rejects_fabricated_discovery_evidence():
+    repo = Repo(["真实评论"])
+    client = Client([{"clues": [{"name": "空间", "terms": [], "evidence": ["并不存在的证据"]}]}] * 3)
     with pytest.raises(LlmInvalidResponseError):
         CriteriaDiscoveryPipeline(repo, PromptRenderer(), StructuredCallExecutor(client, sleep=lambda _: None)).run("j", lambda: None)
     assert repo.proposal is None

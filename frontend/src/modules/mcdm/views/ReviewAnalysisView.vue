@@ -22,14 +22,30 @@ onBeforeUnmount(workspace.deactivate);
         <span class="section-kicker">02 · 分析任务</span>
         <h2>任务状态与用量</h2>
       </div>
-      <p v-if="workspace.activeJob.value">
-        状态：{{ workspace.activeJob.value.status }} ·
-        {{ workspace.activeJob.value.processed_count ?? 0 }}/{{
-          workspace.activeJob.value.total_count ?? 0
+      <label v-if="workspace.jobs.value.length" class="job-history-select">
+        历史任务
+        <select v-model="workspace.selectedJobId.value">
+          <option
+            v-for="job in workspace.jobs.value"
+            :key="job.id"
+            :value="job.id"
+          >
+            {{
+              job.job_type === "criteria_discovery" ? "准则发现" : "评论标注"
+            }}
+            · {{ job.status }} · {{ job.id.slice(0, 8) }}
+          </option>
+        </select>
+      </label>
+      <p v-if="workspace.selectedJob.value">
+        状态：{{ workspace.selectedJob.value.status }} ·
+        {{ workspace.selectedJob.value.processed_count ?? 0 }}/{{
+          workspace.selectedJob.value.total_count ?? 0
         }}
-        条
+        条 · 输入 {{ workspace.selectedJob.value.input_tokens ?? 0 }} / 输出
+        {{ workspace.selectedJob.value.output_tokens ?? 0 }} tokens
       </p>
-      <p v-else>当前没有活动任务。</p>
+      <p v-else>尚无分析任务。</p>
       <div v-if="workspace.activeJob.value" class="button-group">
         <button class="btn secondary" @click="workspace.control('pause')">
           暂停
@@ -41,6 +57,13 @@ onBeforeUnmount(workspace.deactivate);
           取消
         </button>
       </div>
+      <button
+        v-if="workspace.selectedJob.value?.status === 'partial_failed'"
+        class="btn secondary"
+        @click="workspace.control('retry-failures')"
+      >
+        重试失败评论
+      </button>
     </section>
     <CriteriaProposalEditor v-if="workspace.schemaStatus.value === 'draft'" />
     <AnnotationResults v-else />

@@ -3,6 +3,7 @@ import {
   inject,
   provide,
   ref,
+  watch,
   type InjectionKey,
   type Ref,
 } from "vue";
@@ -22,13 +23,27 @@ export function createReviewAnalysisWorkspace(
   schemaStatus: Ref<"draft" | "frozen">,
 ) {
   const sources = ref<ReviewSource[]>([]);
+  const sourceQuery = ref("");
+  const sourcePage = ref(1);
+  const sourceTotal = ref(0);
   const selectedSeriesIds = ref<string[]>([]);
   const jobs = ref<AnalysisJob[]>([]);
   const activeJob = ref<AnalysisJob | null>(null);
+  const selectedJobId = ref("");
+  const selectedJob = computed(
+    () => jobs.value.find((job) => job.id === selectedJobId.value) ?? null,
+  );
   const proposal = ref<CriteriaProposal | null>(null);
   const proposalDraft = ref<ProposalCriterion[]>([]);
   const annotations = ref<AnnotationRow[]>([]);
   const selectedAnnotation = ref<AnnotationRow | null>(null);
+  const annotationPage = ref(1);
+  const annotationTotal = ref(0);
+  const summary = ref({
+    annotated_reviews: 0,
+    criteria: {} as Record<string, number>,
+    labels: {} as Record<string, number>,
+  });
   const sampleLimit = ref(1500);
   const annotationLimit = ref<number | null>(100);
   const filters = ref({
@@ -47,23 +62,63 @@ export function createReviewAnalysisWorkspace(
       .filter((item) => selectedSeriesIds.value.includes(item.series_id))
       .reduce((sum, item) => sum + item.review_count, 0),
   );
+  watch(selectedJobId, (jobId) => {
+    if (proposal.value?.job_id !== jobId) {
+      proposal.value = null;
+      proposalDraft.value = [];
+    }
+  });
+
+  async function loadSources(page = sourcePage.value) {
+    const result = await api.listSources(
+      projectId.value,
+      sourceQuery.value,
+      page,
+    );
+    sources.value = result.rows;
+    sourcePage.value = result.page;
+    sourceTotal.value = result.total;
+  }
+
+  async function refreshJobs() {
+    const result = await api.listJobs(projectId.value);
+    jobs.value = result.rows;
+    activeJob.value =
+      jobs.value.find((job) =>
+        ["queued", "running", "paused"].includes(job.status),
+      ) ?? null;
+    if (
+      !selectedJobId.value ||
+      !jobs.value.some((job) => job.id === selectedJobId.value)
+    ) {
+      selectedJobId.value = activeJob.value?.id ?? jobs.value[0]?.id ?? "";
+    }
+  }
 
   async function activate() {
     const token = ++generation;
     busy.value = true;
     error.value = "";
     try {
-      const [sourcePage, jobPage] = await Promise.all([
-        api.listSources(projectId.value),
+      const [sourceResult, jobPage] = await Promise.all([
+        api.listSources(projectId.value, sourceQuery.value, sourcePage.value),
         api.listJobs(projectId.value),
       ]);
       if (token !== generation) return;
-      sources.value = sourcePage.rows;
+      sources.value = sourceResult.rows;
+      sourcePage.value = sourceResult.page;
+      sourceTotal.value = sourceResult.total;
       jobs.value = jobPage.rows;
       activeJob.value =
         jobs.value.find((job) =>
           ["queued", "running", "paused"].includes(job.status),
         ) ?? null;
+      if (
+        !selectedJobId.value ||
+        !jobs.value.some((job) => job.id === selectedJobId.value)
+      ) {
+        selectedJobId.value = activeJob.value?.id ?? jobs.value[0]?.id ?? "";
+      }
       schedule();
     } catch (cause) {
       if (token === generation) error.value = (cause as Error).message;
@@ -87,12 +142,19 @@ export function createReviewAnalysisWorkspace(
   function reset() {
     deactivate();
     sources.value = [];
+    sourceQuery.value = "";
+    sourcePage.value = 1;
+    sourceTotal.value = 0;
     selectedSeriesIds.value = [];
     jobs.value = [];
     activeJob.value = null;
+    selectedJobId.value = "";
     proposal.value = null;
     proposalDraft.value = [];
     annotations.value = [];
+    annotationPage.value = 1;
+    annotationTotal.value = 0;
+    summary.value = { annotated_reviews: 0, criteria: {}, labels: {} };
   }
   function toggleSeries(id: string) {
     selectedSeriesIds.value = selectedSeriesIds.value.includes(id)
@@ -107,6 +169,8 @@ export function createReviewAnalysisWorkspace(
         selected_series_ids: selectedSeriesIds.value,
         sample_limit: sampleLimit.value,
       });
+      selectedJobId.value = activeJob.value.id;
+      jobs.value = [activeJob.value, ...jobs.value];
       schedule();
     } catch (cause) {
       error.value = (cause as Error).message;
@@ -115,6 +179,16 @@ export function createReviewAnalysisWorkspace(
     }
   }
   async function createAnnotation() {
+    if (annotationLimit.value === null) {
+      const confirmed =
+        typeof globalThis.confirm !== "function" ||
+        globalThis.confirm(
+          "将对已选车系的 " +
+            availableReviews.value +
+            " 条评论逐条调用模型，确认继续吗？",
+        );
+      if (!confirmed) return;
+    }
     busy.value = true;
     try {
       activeJob.value = await api.createAnnotation(projectId.value, {
@@ -122,6 +196,8 @@ export function createReviewAnalysisWorkspace(
         selected_series_ids: selectedSeriesIds.value,
         limit: annotationLimit.value,
       });
+      selectedJobId.value = activeJob.value.id;
+      jobs.value = [activeJob.value, ...jobs.value];
       schedule();
     } catch (cause) {
       error.value = (cause as Error).message;
@@ -132,13 +208,13 @@ export function createReviewAnalysisWorkspace(
   async function control(
     action: "pause" | "resume" | "cancel" | "retry-failures",
   ) {
-    if (!activeJob.value) return;
-    activeJob.value = await api.controlJob(
-      projectId.value,
-      activeJob.value.id,
-      action,
-    );
-    await activate();
+    const target =
+      action === "retry-failures" ? selectedJob.value : activeJob.value;
+    if (!target) return;
+    const result = await api.controlJob(projectId.value, target.id, action);
+    selectedJobId.value = result.id;
+    await refreshJobs();
+    schedule();
   }
   async function loadProposal(jobId: string) {
     proposal.value = await api.getProposal(projectId.value, jobId);
@@ -155,12 +231,17 @@ export function createReviewAnalysisWorkspace(
       proposalDraft.value,
     );
   }
-  async function loadAnnotations() {
+  async function loadAnnotations(page = 1) {
+    annotationPage.value = page;
     const params = Object.fromEntries(
       Object.entries(filters.value).filter(([, value]) => value),
     );
-    const page = await api.listAnnotations(projectId.value, params);
-    annotations.value = page.rows;
+    params.page = String(page);
+    params.page_size = "20";
+    const result = await api.listAnnotations(projectId.value, params);
+    annotations.value = result.rows;
+    annotationTotal.value = result.total;
+    summary.value = await api.getSummary(projectId.value, filters.value.job_id);
   }
   async function openAnnotation(id: string) {
     selectedAnnotation.value = await api.getAnnotation(projectId.value, id);
@@ -170,19 +251,28 @@ export function createReviewAnalysisWorkspace(
     schemaId,
     schemaStatus,
     sources,
+    sourceQuery,
+    sourcePage,
+    sourceTotal,
     selectedSeriesIds,
     jobs,
     activeJob,
+    selectedJobId,
+    selectedJob,
     proposal,
     proposalDraft,
     annotations,
     selectedAnnotation,
+    annotationPage,
+    annotationTotal,
+    summary,
     sampleLimit,
     annotationLimit,
     filters,
     busy,
     error,
     availableReviews,
+    loadSources,
     activate,
     deactivate,
     reset,

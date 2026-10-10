@@ -27,6 +27,7 @@ def client_for(tmp_path, *, configured=True):
       CREATE TABLE vehicle_series (platform TEXT,series_id TEXT,series_name TEXT,series_url TEXT,review_url TEXT,discovery_rank INTEGER,first_discovered_at TEXT,last_confirmed_at TEXT,PRIMARY KEY(platform,series_id));
       CREATE TABLE reviews (platform TEXT,review_id TEXT,series_id TEXT,series_name_snapshot TEXT,source_url TEXT,original_review_json TEXT,content_hash TEXT,first_collected_at TEXT,last_confirmed_at TEXT,PRIMARY KEY(platform,review_id));
       INSERT INTO projects VALUES ('p','项目','custom','now');
+      INSERT INTO projects VALUES ('other','其他项目','custom','now');
       INSERT INTO schemas VALUES ('draft','p',1,'draft',1,'[{"name":"空间","labels":["宽敞","局促"]}]','now');
       INSERT INTO schemas VALUES ('frozen','p',2,'frozen',2,'[{"name":"空间","labels":["宽敞","局促"]}]','now');
       INSERT INTO vehicle_series VALUES ('autohome','1','车系一','https://a','https://a',1,'now','now');
@@ -59,3 +60,15 @@ def test_duplicate_selection_is_422(tmp_path):
     client, _, _ = client_for(tmp_path)
     response = client.post('/api/projects/p/review-analysis/discovery-jobs', json={'schema_id':'draft','selected_series_ids':['1','1'],'sample_limit':10})
     assert response.status_code == 422
+
+
+def test_job_mutations_are_scoped_to_project(tmp_path):
+    client, _, _ = client_for(tmp_path)
+    created = client.post(
+        '/api/projects/p/review-analysis/discovery-jobs',
+        json={'schema_id':'draft','selected_series_ids':['1'],'sample_limit':10},
+    ).json()
+
+    assert client.get(f"/api/projects/other/review-analysis/jobs/{created['id']}").status_code == 404
+    assert client.post(f"/api/projects/other/review-analysis/jobs/{created['id']}/cancel").status_code == 404
+    assert client.get(f"/api/projects/other/review-analysis/jobs/{created['id']}/proposal").status_code == 404

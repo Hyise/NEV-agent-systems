@@ -10,8 +10,42 @@ const workspace = useReviewAnalysisWorkspace();
       <h2>逐条评论标注</h2>
       <p>筛选只改变当前显示，不会重新调用模型。</p>
     </header>
+    <div class="analysis-summary" aria-label="标注汇总">
+      <strong>{{ workspace.summary.value.annotated_reviews }}</strong>
+      <span>条已完成标注</span>
+      <span
+        v-for="(count, name) in workspace.summary.value.criteria"
+        :key="name"
+      >
+        {{ name }} {{ count }} 次
+      </span>
+    </div>
     <div class="annotation-filters">
-      <label>准则<input v-model="workspace.filters.value.criterion" /></label
+      <label
+        >任务<select v-model="workspace.filters.value.job_id">
+          <option value="">全部标注任务</option>
+          <option
+            v-for="job in workspace.jobs.value.filter(
+              (item) => item.job_type === 'review_annotation',
+            )"
+            :key="job.id"
+            :value="job.id"
+          >
+            {{ job.id.slice(0, 8) }} · {{ job.status }}
+          </option>
+        </select></label
+      ><label
+        >车系<select v-model="workspace.filters.value.series_id">
+          <option value="">全部车系</option>
+          <option
+            v-for="source in workspace.sources.value"
+            :key="source.series_id"
+            :value="source.series_id"
+          >
+            {{ source.series_name }}
+          </option>
+        </select></label
+      ><label>准则<input v-model="workspace.filters.value.criterion" /></label
       ><label>等级<input v-model="workspace.filters.value.label" /></label
       ><label
         >状态<select v-model="workspace.filters.value.status">
@@ -20,7 +54,7 @@ const workspace = useReviewAnalysisWorkspace();
           <option value="failed">失败</option>
           <option value="cached">缓存复用</option>
         </select></label
-      ><button class="btn secondary" @click="workspace.loadAnnotations">
+      ><button class="btn secondary" @click="workspace.loadAnnotations()">
         查询结果
       </button>
     </div>
@@ -32,6 +66,7 @@ const workspace = useReviewAnalysisWorkspace();
             <th>评论 ID</th>
             <th>状态</th>
             <th>命中准则</th>
+            <th>标注时间</th>
             <th>操作</th>
           </tr>
         </thead>
@@ -41,6 +76,7 @@ const workspace = useReviewAnalysisWorkspace();
             <td class="mono">{{ row.review_id }}</td>
             <td>{{ row.status }}</td>
             <td>{{ row.annotation_count }}</td>
+            <td>{{ row.annotated_at ?? "—" }}</td>
             <td>
               <button
                 v-if="row.annotation_id"
@@ -54,6 +90,32 @@ const workspace = useReviewAnalysisWorkspace();
         </tbody>
       </table>
     </div>
+    <nav
+      v-if="workspace.annotationTotal.value"
+      class="pager"
+      aria-label="标注结果分页"
+    >
+      <button
+        class="text-button"
+        :disabled="workspace.annotationPage.value <= 1"
+        @click="workspace.loadAnnotations(workspace.annotationPage.value - 1)"
+      >
+        上一页
+      </button>
+      <span
+        >第 {{ workspace.annotationPage.value }} 页 · 共
+        {{ workspace.annotationTotal.value }} 条</span
+      >
+      <button
+        class="text-button"
+        :disabled="
+          workspace.annotationPage.value * 20 >= workspace.annotationTotal.value
+        "
+        @click="workspace.loadAnnotations(workspace.annotationPage.value + 1)"
+      >
+        下一页
+      </button>
+    </nav>
     <article
       v-if="workspace.selectedAnnotation.value"
       class="annotation-detail"

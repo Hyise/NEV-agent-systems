@@ -2,7 +2,7 @@ from collections import deque
 
 from backend.review_analysis.annotation import ReviewAnnotationPipeline
 from backend.review_analysis.deepseek import JsonCompletion
-from backend.review_analysis.domain import ControlAction
+from backend.review_analysis.domain import ControlAction, CriterionSnapshot
 from backend.review_analysis.prompting import PromptRenderer
 from backend.review_analysis.structured_calls import StructuredCallExecutor
 
@@ -17,8 +17,12 @@ class Client:
 class Repo:
     def __init__(self, rows):
         self.rows = rows; self.results = {}; self.links = {}; self.failures = {}; self.states = []
+        criteria = [{"name": "空间", "labels": ["宽敞", "局促"]}, {"name": "续航", "labels": ["充足", "不足"]}]
+        manifest = PromptRenderer().review_annotation(
+            [CriterionSnapshot.model_validate(item) for item in criteria], "占位"
+        ).manifest.model_dump()
         self.job = {"model": "deepseek-flash", "schema_fingerprint": "b" * 64,
-                    "criteria": [{"name": "空间", "labels": ["宽敞", "局促"]}, {"name": "续航", "labels": ["充足", "不足"]}],
+                    "criteria": criteria, "prompt_manifests": [manifest],
                     "failed_count": 0}
     def get_job(self, job_id): return self.job
     def pending_review_snapshots(self, job_id): return [r for r in self.rows if r["review_id"] not in self.links and r["review_id"] not in self.failures]

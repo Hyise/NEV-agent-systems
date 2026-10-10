@@ -19,6 +19,16 @@ const workspace = useReviewAnalysisWorkspace();
       </button>
     </div>
     <div v-else class="source-selector">
+      <form class="source-search" @submit.prevent="workspace.loadSources(1)">
+        <label>
+          搜索车系名称或 ID
+          <input
+            v-model="workspace.sourceQuery.value"
+            placeholder="例如：Model Y 或 5769"
+          />
+        </label>
+        <button class="btn secondary" type="submit">搜索</button>
+      </form>
       <label
         v-for="source in workspace.sources.value"
         :key="source.series_id"
@@ -39,7 +49,36 @@ const workspace = useReviewAnalysisWorkspace();
           ></span
         >
       </label>
+      <div v-if="!workspace.sources.value.length" class="empty">
+        没有匹配的已采集车系。
+      </div>
     </div>
+    <nav
+      v-if="!main.isPreset.value && workspace.sourceTotal.value"
+      class="pager"
+      aria-label="车系列表分页"
+    >
+      <button
+        class="text-button"
+        :disabled="workspace.sourcePage.value <= 1"
+        @click="workspace.loadSources(workspace.sourcePage.value - 1)"
+      >
+        上一页
+      </button>
+      <span
+        >第 {{ workspace.sourcePage.value }} 页 · 共
+        {{ workspace.sourceTotal.value }} 个车系</span
+      >
+      <button
+        class="text-button"
+        :disabled="
+          workspace.sourcePage.value * 20 >= workspace.sourceTotal.value
+        "
+        @click="workspace.loadSources(workspace.sourcePage.value + 1)"
+      >
+        下一页
+      </button>
+    </nav>
     <div v-if="!main.isPreset.value" class="scope-actions">
       <label v-if="workspace.schemaStatus.value === 'draft'"
         >发现样本上限<input

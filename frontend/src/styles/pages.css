@@ -918,6 +918,41 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
   border-top: 1px solid #d9e0e5;
 }
+.source-search {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 10px;
+  align-items: end;
+  padding: 14px 8px;
+  border-bottom: 1px solid #d9e0e5;
+}
+.source-search label,
+.job-history-select {
+  display: grid;
+  gap: 6px;
+}
+.source-search label {
+  flex: 1;
+}
+.pager,
+.analysis-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 14px;
+}
+.analysis-summary {
+  justify-content: flex-start;
+  padding: 12px 0;
+  color: #536e7c;
+  border-bottom: 1px solid #d9e0e5;
+}
+.analysis-summary strong {
+  color: #17313d;
+  font-size: 22px;
+}
 .source-choice {
   display: flex;
   gap: 12px;

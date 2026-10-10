@@ -46,6 +46,7 @@ def command(**updates):
         project_id="p1",
         schema_id="s1",
         job_type="criteria_discovery",
+        schema_revision=1,
         selected_series_ids=["1", "2"],
         limit=2,
         model="deepseek-flash",
@@ -144,3 +145,35 @@ def test_proposal_application_uses_revision_lock_and_applies_once(tmp_path):
     assert applied["criteria"] == [{"name": "空间", "labels": ["宽敞", "局促"]}]
     with pytest.raises(ValueError, match="已经应用"):
         repository.apply_proposal(job["id"], expected_revision=1)
+
+
+def test_proposal_rejects_schema_changed_after_discovery(tmp_path):
+    path = tmp_path / "app.db"
+    seed(path)
+    repository = ReviewAnalysisRepository(path)
+    job = repository.create_job_with_snapshot(command(), snapshots)
+    proposal = {"criteria": [{"name": "空间", "labels": ["宽敞", "局促"], "similar_terms": [], "basis": "空间评价", "evidence": []}]}
+    repository.save_proposal(job["id"], proposal, source_review_count=3, sample_review_count=2)
+    with sqlite3.connect(path) as connection:
+        connection.execute("UPDATE schemas SET revision=2,criteria=? WHERE id='s1'", (json.dumps([{"name": "续航", "labels": ["充足", "不足"]}], ensure_ascii=False),))
+        connection.commit()
+
+    with pytest.raises(ValueError, match="revision 已变化"):
+        repository.apply_proposal(job["id"], expected_revision=2)
+
+    with sqlite3.connect(path) as connection:
+        criteria = json.loads(connection.execute("SELECT criteria FROM schemas WHERE id='s1'").fetchone()[0])
+    assert criteria == [{"name": "续航", "labels": ["充足", "不足"]}]
+
+
+def test_cancel_paused_job_finishes_immediately(tmp_path):
+    path = tmp_path / "app.db"
+    seed(path)
+    repository = ReviewAnalysisRepository(path)
+    job = repository.create_job_with_snapshot(command(), snapshots)
+    repository.set_job_state(job["id"], "paused")
+
+    cancelled = repository.request_control(job["id"], "cancel")
+
+    assert cancelled["status"] == "cancelled"
+    assert cancelled["control_requested"] is None
