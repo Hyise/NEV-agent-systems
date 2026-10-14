@@ -354,10 +354,12 @@ expectContains("src/modules/collection/views/AssetsView.vue", [
   "标签",
   "分析状态",
   "导入评论",
+  "查看原文",
   "ReviewAssetDrawer",
 ]);
 expectContains("src/modules/collection/components/ReviewAssetDrawer.vue", [
-  "只读原始数据",
+  "原始评论内容",
+  "全部原始结构化字段",
   "研究引用",
   "删除数据",
   "JSON.stringify",

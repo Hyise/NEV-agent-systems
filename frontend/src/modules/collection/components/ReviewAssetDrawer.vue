@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { nextTick, ref, watch } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
 import { X } from "lucide-vue-next";
 import type { AssetWorkspace } from "../assetWorkspace";
+import { buildReadableReview } from "../reviewContent";
 
 const props = defineProps<{ workspace: AssetWorkspace }>();
 const drawer = ref<HTMLDialogElement>();
@@ -12,6 +13,11 @@ const note = ref("");
 const analysisEnabled = ref(true);
 const deletionReason = ref("");
 const confirmationId = ref("");
+const readableReview = computed(() =>
+  props.workspace.detail.value
+    ? buildReadableReview(props.workspace.detail.value.original_review)
+    : { summary: null, sections: [] },
+);
 
 watch(
   () => props.workspace.detail.value,
@@ -95,12 +101,47 @@ async function remove() {
             刷新详情
           </button>
         </div>
-        <section aria-labelledby="raw-data-title">
-          <h3 id="raw-data-title">只读原始数据</h3>
-          <p class="section-help">原始评论不可修改；这里只提供完整复核。</p>
-          <pre>{{
-            JSON.stringify(workspace.detail.value.original_review, null, 2)
-          }}</pre>
+        <section
+          class="original-review"
+          aria-labelledby="original-review-title"
+        >
+          <h3 id="original-review-title">原始评论内容</h3>
+          <p class="section-help">
+            以下内容按来源中的原始顺序完整展示，不截断、不改写。
+          </p>
+
+          <article v-if="readableReview.summary" class="original-review__lead">
+            <span>评论概述</span>
+            <p>{{ readableReview.summary }}</p>
+          </article>
+
+          <div
+            v-if="readableReview.sections.length"
+            class="original-review__sections"
+          >
+            <article
+              v-for="(section, index) in readableReview.sections"
+              :key="`${index}:${section.label}`"
+              class="original-review__entry"
+            >
+              <span>{{ section.label }}</span>
+              <p>{{ section.content }}</p>
+            </article>
+          </div>
+
+          <p
+            v-if="!readableReview.summary && !readableReview.sections.length"
+            class="original-review__empty"
+          >
+            该记录没有标准正文字段，请在下方查看完整结构化数据。
+          </p>
+
+          <details class="original-review__raw">
+            <summary>全部原始结构化字段</summary>
+            <pre>{{
+              JSON.stringify(workspace.detail.value.original_review, null, 2)
+            }}</pre>
+          </details>
         </section>
 
         <section aria-labelledby="metadata-title">

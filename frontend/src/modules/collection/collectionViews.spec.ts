@@ -81,12 +81,15 @@ describe("guided collection views", () => {
     ).toBe("manage");
   });
 
-  it("keeps asset governance table-first and original JSON read-only", () => {
+  it("keeps asset governance table-first and makes original reviews explicit and read-only", () => {
     for (const label of ["来源", "标签", "分析状态"]) {
       expect(assetsSource).toContain(label);
     }
     expect(assetsSource).not.toContain("批量删除");
-    expect(drawerSource).toContain("只读原始数据");
+    expect(assetsSource).toContain("查看原文");
+    expect(drawerSource).toContain("原始评论内容");
+    expect(drawerSource).toContain("全部原始结构化字段");
+    expect(drawerSource).toContain("buildReadableReview");
     expect(drawerSource).toContain("JSON.stringify");
     expect(drawerSource).not.toContain('v-model="original_review');
     expect(drawerSource).toContain("删除原因");

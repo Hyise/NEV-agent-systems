@@ -149,6 +149,7 @@ function dateTime(value: string) {
               <th>标签</th>
               <th>分析状态</th>
               <th>采集 / 导入时间</th>
+              <th>操作</th>
             </tr>
           </thead>
           <tbody>
@@ -165,12 +166,7 @@ function dateTime(value: string) {
                 />
               </td>
               <td>
-                <button
-                  class="asset-id-button"
-                  @click="workspace.openAsset(item.asset_id)"
-                >
-                  {{ item.review_id }}
-                </button>
+                <span class="mono">{{ item.review_id }}</span>
               </td>
               <td>
                 {{ item.series_name
@@ -188,6 +184,16 @@ function dateTime(value: string) {
               </td>
               <td>{{ item.analysis_enabled ? "参与分析" : "暂不分析" }}</td>
               <td>{{ dateTime(item.first_collected_at) }}</td>
+              <td>
+                <button
+                  class="asset-id-button"
+                  type="button"
+                  :aria-label="`查看评论 ${item.review_id} 的完整原文`"
+                  @click="workspace.openAsset(item.asset_id)"
+                >
+                  查看原文
+                </button>
+              </td>
             </tr>
           </tbody>
         </table>
