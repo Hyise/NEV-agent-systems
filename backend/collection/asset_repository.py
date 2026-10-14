@@ -97,7 +97,7 @@ class ReviewAssetRepository:
     ) -> dict[str, Any] | None:
         row = connection.execute(
             """
-            SELECT asset_id, source_kind, platform, review_id, series_id,
+            SELECT audit_id, asset_id, source_kind, platform, review_id, series_id,
                    series_name_snapshot, content_hash, reason, deleted_at,
                    recollection_allowed_at
             FROM review_deletion_audits
@@ -315,6 +315,139 @@ class ReviewAssetRepository:
             "by_source": [dict(row) for row in sources],
             "by_series": [dict(row) for row in series],
         }
+
+    @staticmethod
+    def _job_contains_series(
+        connection: sqlite3.Connection, job: sqlite3.Row, series_id: str
+    ) -> bool:
+        if job["current_series_id"] == series_id:
+            return True
+        if connection.execute(
+            "SELECT 1 FROM collection_job_series WHERE job_id=? AND series_id=?",
+            (job["id"], series_id),
+        ).fetchone():
+            return True
+        try:
+            manifest = json.loads(job["series_manifest"])
+        except (TypeError, ValueError):
+            return False
+        return any(
+            (item.get("series_id") if isinstance(item, dict) else item) == series_id
+            for item in manifest
+        )
+
+    def delete_asset(
+        self,
+        asset_id: str,
+        *,
+        expected_content_hash: str,
+        confirmed_review_id: str,
+        reason: str,
+    ) -> dict[str, Any]:
+        timestamp = _now()
+        audit_id = str(uuid4())
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT * FROM reviews WHERE asset_id=?", (asset_id,)
+            ).fetchone()
+            if row is None:
+                self._raise_missing(connection, asset_id)
+            active_jobs = connection.execute(
+                """
+                SELECT id, current_series_id, series_manifest
+                FROM collection_jobs
+                WHERE status IN ('queued','discovering','collecting','paused')
+                """
+            ).fetchall()
+            if any(
+                self._job_contains_series(connection, job, row["series_id"])
+                for job in active_jobs
+            ):
+                raise AssetConflict("该车系存在活动采集任务，请先停止任务再删除")
+            if confirmed_review_id != row["review_id"]:
+                raise AssetConflict("确认评论ID与当前资产不一致")
+            if expected_content_hash != row["content_hash"]:
+                raise AssetConflict("评论内容已变化，请刷新后重新确认")
+            audit = {
+                "audit_id": audit_id,
+                "asset_id": row["asset_id"],
+                "source_kind": row["source_kind"],
+                "platform": row["platform"],
+                "review_id": row["review_id"],
+                "series_id": row["series_id"],
+                "series_name_snapshot": row["series_name_snapshot"],
+                "content_hash": row["content_hash"],
+                "reason": reason,
+                "deleted_at": timestamp,
+                "recollection_allowed_at": None,
+            }
+            connection.execute(
+                """
+                INSERT INTO review_deletion_audits (
+                    audit_id, asset_id, source_kind, platform, review_id,
+                    series_id, series_name_snapshot, content_hash, reason,
+                    deleted_at, recollection_allowed_at
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                tuple(audit.values()),
+            )
+            connection.execute(
+                "DELETE FROM review_asset_metadata WHERE asset_id=?", (asset_id,)
+            )
+            connection.execute("DELETE FROM reviews WHERE asset_id=?", (asset_id,))
+        return audit
+
+    def list_deletions(
+        self, *, page: int = 1, page_size: int = 20
+    ) -> dict[str, Any]:
+        if page < 1 or not 1 <= page_size <= 100:
+            raise ValueError("分页参数无效")
+        with self.connect() as connection:
+            total = connection.execute(
+                "SELECT COUNT(*) FROM review_deletion_audits"
+            ).fetchone()[0]
+            rows = connection.execute(
+                """
+                SELECT audit_id, asset_id, source_kind, platform, review_id,
+                       series_id, series_name_snapshot, content_hash, reason,
+                       deleted_at, recollection_allowed_at
+                FROM review_deletion_audits
+                ORDER BY deleted_at DESC, audit_id DESC LIMIT ? OFFSET ?
+                """,
+                (page_size, (page - 1) * page_size),
+            ).fetchall()
+        return {
+            "rows": [dict(row) for row in rows],
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        }
+
+    def allow_recollection(self, asset_id: str) -> dict[str, Any]:
+        timestamp = _now()
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                """
+                SELECT * FROM review_deletion_audits WHERE asset_id=?
+                ORDER BY deleted_at DESC, audit_id DESC LIMIT 1
+                """,
+                (asset_id,),
+            ).fetchone()
+            if row is None:
+                raise AssetNotFound(asset_id)
+            if row["recollection_allowed_at"] is None:
+                connection.execute(
+                    "UPDATE review_deletion_audits SET recollection_allowed_at=? "
+                    "WHERE audit_id=?",
+                    (timestamp, row["audit_id"]),
+                )
+                row = connection.execute(
+                    "SELECT * FROM review_deletion_audits WHERE audit_id=?",
+                    (row["audit_id"],),
+                ).fetchone()
+        return dict(row)
 
     def import_duplicate_state(
         self, review_ids: list[str], content_hashes: list[str]

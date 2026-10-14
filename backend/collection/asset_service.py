@@ -13,6 +13,7 @@ from backend.review_analysis.text import extract_analysis_text
 
 from .asset_domain import (
     AssetConflict,
+    DeleteAssetBody,
     ImportReviewItem,
     ImportValidationError,
 )
@@ -184,3 +185,16 @@ class ReviewAssetService:
             "duplicate_count": len(validation["duplicates"]),
             "asset_ids": asset_ids,
         }
+
+    def delete_asset(
+        self, asset_id: str, command: DeleteAssetBody
+    ) -> dict[str, Any]:
+        return self.repository.delete_asset(
+            asset_id,
+            expected_content_hash=command.expected_content_hash,
+            confirmed_review_id=command.confirmed_review_id,
+            reason=command.reason,
+        )
+
+    def allow_recollection(self, asset_id: str) -> dict[str, Any]:
+        return self.repository.allow_recollection(asset_id)

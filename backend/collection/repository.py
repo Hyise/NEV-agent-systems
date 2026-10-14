@@ -556,6 +556,26 @@ class CollectionRepository:
                 ).fetchone()
                 if deletion is not None and deletion["recollection_allowed_at"] is None:
                     deleted_skipped += 1
+                    connection.execute(
+                        """
+                        INSERT INTO collection_events (
+                            job_id, series_id, event_type, message, details, created_at
+                        ) VALUES (?,?,?,?,?,?)
+                        """,
+                        (
+                            job_id,
+                            review.series_id,
+                            "review_deleted_skip",
+                            "评论已由用户删除，本次未重新写入",
+                            _json(
+                                {
+                                    "asset_id": f"autohome:{review.review_id}",
+                                    "review_id": review.review_id,
+                                }
+                            ),
+                            saved_at,
+                        ),
+                    )
                     continue
                 existing = connection.execute(
                     "SELECT content_hash,original_review_json FROM reviews "

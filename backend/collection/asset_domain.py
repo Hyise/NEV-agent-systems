@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -91,6 +91,13 @@ class ImportBatchBody(StrictModel):
 
 class ImportConfirmBody(ImportBatchBody):
     validation_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class DeleteAssetBody(StrictModel):
+    expected_content_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    confirmed_review_id: str = Field(min_length=1, max_length=200)
+    reason: str = Field(min_length=1, max_length=500)
+    confirm: Literal[True]
 
 
 class AssetNotFound(LookupError):

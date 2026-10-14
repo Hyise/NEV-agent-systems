@@ -11,6 +11,7 @@ from .asset_domain import (
     AssetGone,
     AssetNotFound,
     BatchMetadataPatchBody,
+    DeleteAssetBody,
     ImportBatchBody,
     ImportConfirmBody,
     ImportValidationError,
@@ -84,6 +85,16 @@ def create_review_asset_router(
             )
         )
 
+    @router.get("/deletions")
+    def list_deletions(
+        page: Page = 1, page_size: PageSize = 20
+    ) -> dict[str, Any]:
+        return repository.list_deletions(page=page, page_size=page_size)
+
+    @router.post("/deletions/{asset_id}/allow-recollection")
+    def allow_recollection(asset_id: str) -> dict[str, Any]:
+        return _run(lambda: service.allow_recollection(asset_id))
+
     @router.get("/review-assets/{asset_id}")
     def asset_detail(asset_id: str) -> dict[str, Any]:
         return _run(lambda: repository.get_asset(asset_id))
@@ -91,5 +102,9 @@ def create_review_asset_router(
     @router.patch("/review-assets/{asset_id}/metadata")
     def update_metadata(asset_id: str, body: MetadataPatchBody) -> dict[str, Any]:
         return _run(lambda: repository.update_metadata(asset_id, body))
+
+    @router.delete("/review-assets/{asset_id}")
+    def delete_asset(asset_id: str, body: DeleteAssetBody) -> dict[str, Any]:
+        return _run(lambda: service.delete_asset(asset_id, body))
 
     return router

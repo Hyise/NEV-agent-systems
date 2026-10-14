@@ -3,6 +3,7 @@ from fastapi.testclient import TestClient
 
 from backend.app import ROOT, create_app
 from backend.collection.asset_domain import MetadataPatchBody
+from backend.collection.domain import JobStatus
 from backend.tests.test_review_asset_repository import seed_asset_database
 
 
@@ -153,3 +154,69 @@ def test_import_confirm_with_stale_fingerprint_returns_409(asset_client):
     )
 
     assert response.status_code == 409
+
+
+def test_delete_audit_and_allow_recollection_routes(asset_client):
+    asset_client.app.state.collection_repository.set_status(
+        "job-1",
+        JobStatus.STOPPED,
+        "2026-10-14T08:00:00+00:00",
+        finished=True,
+    )
+    detail = asset_client.get(
+        "/api/collection/review-assets/autohome%3Areview-1"
+    ).json()
+
+    deleted = asset_client.request(
+        "DELETE",
+        "/api/collection/review-assets/autohome%3Areview-1",
+        json={
+            "expected_content_hash": detail["content_hash"],
+            "confirmed_review_id": "review-1",
+            "reason": "API删除测试",
+            "confirm": True,
+        },
+    )
+    gone = asset_client.get(
+        "/api/collection/review-assets/autohome%3Areview-1"
+    )
+    audits = asset_client.get("/api/collection/deletions")
+    released = asset_client.post(
+        "/api/collection/deletions/autohome%3Areview-1/allow-recollection"
+    )
+
+    assert deleted.status_code == 200
+    assert gone.status_code == 410
+    assert audits.json()["total"] == 1
+    assert "original_review" not in audits.text
+    assert released.status_code == 200
+    assert released.json()["recollection_allowed_at"] is not None
+
+
+def test_delete_validation_and_conflict_statuses(asset_client):
+    detail = asset_client.get(
+        "/api/collection/review-assets/autohome%3Areview-1"
+    ).json()
+    invalid = asset_client.request(
+        "DELETE",
+        "/api/collection/review-assets/autohome%3Areview-1",
+        json={
+            "expected_content_hash": detail["content_hash"],
+            "confirmed_review_id": "review-1",
+            "reason": "",
+            "confirm": False,
+        },
+    )
+    conflict = asset_client.request(
+        "DELETE",
+        "/api/collection/review-assets/autohome%3Areview-1",
+        json={
+            "expected_content_hash": detail["content_hash"],
+            "confirmed_review_id": "review-1",
+            "reason": "活动任务冲突",
+            "confirm": True,
+        },
+    )
+
+    assert invalid.status_code == 422
+    assert conflict.status_code == 409
