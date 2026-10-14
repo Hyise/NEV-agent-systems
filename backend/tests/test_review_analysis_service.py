@@ -2,7 +2,11 @@ import threading
 
 import pytest
 
-from backend.review_analysis.deepseek import LlmAuthenticationError
+from backend.review_analysis.deepseek import (
+    LlmAuthenticationError,
+    LlmInvalidResponseError,
+    LlmTransientError,
+)
 from backend.review_analysis.service import ReviewAnalysisService
 
 
@@ -74,6 +78,44 @@ def test_authentication_failure_pauses_with_sanitized_error():
     _, status, details = repo.states[-1]
     assert status == "paused" and details["error_code"] == "authentication"
     assert secret not in details["error_message"]
+    service.shutdown()
+
+
+def test_invalid_discovery_response_has_actionable_public_error():
+    repo = Repo()
+    service = ReviewAnalysisService(
+        repo,
+        Pipeline([]),
+        Pipeline([], error=LlmInvalidResponseError("private model output")),
+    )
+
+    service.start("d").result(timeout=2)
+
+    _, status, details = repo.states[-1]
+    assert status == "failed"
+    assert details == {
+        "error_code": "invalid_response",
+        "error_message": "DeepSeek 返回内容多次未通过结构校验，请重新运行任务",
+    }
+    service.shutdown()
+
+
+def test_transient_discovery_failure_pauses_for_resume():
+    repo = Repo()
+    service = ReviewAnalysisService(
+        repo,
+        Pipeline([]),
+        Pipeline([], error=LlmTransientError("private network detail")),
+    )
+
+    service.start("d").result(timeout=2)
+
+    _, status, details = repo.states[-1]
+    assert status == "paused"
+    assert details == {
+        "error_code": "transient",
+        "error_message": "DeepSeek 网络或服务暂时不可用，请稍后继续任务",
+    }
     service.shutdown()
 
 

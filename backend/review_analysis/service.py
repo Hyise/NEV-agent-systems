@@ -6,7 +6,11 @@ import threading
 from concurrent.futures import Future, ThreadPoolExecutor
 
 from .config import LlmConfigurationError
-from .deepseek import LlmAuthenticationError
+from .deepseek import (
+    LlmAuthenticationError,
+    LlmInvalidResponseError,
+    LlmTransientError,
+)
 from .domain import ControlAction
 
 
@@ -46,6 +50,20 @@ class ReviewAnalysisService:
                 "paused",
                 error_code="configuration",
                 error_message=str(exc),
+            )
+        except LlmInvalidResponseError:
+            self.repository.finish_job(
+                job_id,
+                "failed",
+                error_code="invalid_response",
+                error_message="DeepSeek 返回内容多次未通过结构校验，请重新运行任务",
+            )
+        except LlmTransientError:
+            self.repository.finish_job(
+                job_id,
+                "paused",
+                error_code="transient",
+                error_message="DeepSeek 网络或服务暂时不可用，请稍后继续任务",
             )
         except Exception as exc:
             self.repository.finish_job(

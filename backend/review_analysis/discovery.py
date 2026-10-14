@@ -3,7 +3,7 @@
 from pydantic import BaseModel, ConfigDict, Field
 
 from .config import LlmConfigurationError
-from .domain import ControlAction, parse_criteria_proposal
+from .domain import CriteriaProposal, ControlAction, ProposalCriterion
 
 
 class _Clue(BaseModel):
@@ -95,21 +95,44 @@ class CriteriaDiscoveryPipeline:
 
 def _validate_clues(payload, texts: list[str]):
     result = _Clues.model_validate(payload)
-    if any(
-        not evidence or not any(evidence in text for text in texts)
-        for clue in result.clues
-        for evidence in clue.evidence
-    ):
-        raise ValueError("准则线索证据必须来自评论原文")
-    return result
+    traceable = []
+    for clue in result.clues:
+        evidence = [
+            item for item in clue.evidence
+            if item and any(item in text for text in texts)
+        ]
+        if evidence:
+            traceable.append(clue.model_copy(update={"evidence": evidence}))
+    if result.clues and not traceable:
+        raise ValueError("准则线索没有可追溯的原文证据")
+    return result.model_copy(update={"clues": traceable})
 
 
 def _validate_proposal(payload, texts: list[str]):
-    result = parse_criteria_proposal(payload)
-    if any(
-        not evidence or not any(evidence in text for text in texts)
-        for criterion in result.criteria
-        for evidence in criterion.evidence
+    if (
+        not isinstance(payload, dict)
+        or set(payload) != {"criteria"}
+        or not isinstance(payload["criteria"], list)
     ):
-        raise ValueError("候选方案证据必须来自样本原文")
-    return result
+        raise ValueError("候选方案必须是只含 criteria 列表的对象")
+    traceable = []
+    names: set[str] = set()
+    for item in payload["criteria"]:
+        try:
+            criterion = ProposalCriterion.model_validate(item)
+        except (ValueError, TypeError):
+            continue
+        if criterion.name in names:
+            continue
+        evidence = [
+            item for item in criterion.evidence
+            if item and any(item in text for text in texts)
+        ]
+        if evidence:
+            traceable.append(criterion.model_copy(update={"evidence": evidence}))
+            names.add(criterion.name)
+        if len(traceable) == 20:
+            break
+    if not traceable:
+        raise ValueError("候选方案没有可追溯的原文证据")
+    return CriteriaProposal(criteria=traceable)

@@ -126,6 +126,109 @@ def test_rejects_fabricated_discovery_evidence():
     assert repo.proposal is None
 
 
+def test_discards_only_untraceable_clues_and_proposal_criteria():
+    repo = Repo(["真实空间", "真实续航"])
+    clues = {
+            "clues": [
+                {"name": "空间", "terms": ["空间"], "evidence": ["真实空间", "改写空间"]},
+                {"name": "动力", "terms": ["动力"], "evidence": ["不存在的动力描述"]},
+            ]
+        }
+    proposal = {
+            "criteria": [
+                {
+                    "name": "空间",
+                    "labels": ["宽敞", "局促"],
+                    "similar_terms": ["空间"],
+                    "basis": "空间线索",
+                    "evidence": ["真实空间", "改写空间"],
+                },
+                {
+                    "name": "动力",
+                    "labels": ["强", "弱"],
+                    "similar_terms": ["动力"],
+                    "basis": "动力线索",
+                    "evidence": ["不存在的动力描述"],
+                },
+            ]
+        }
+    client = Client([clues, proposal, proposal])
+
+    CriteriaDiscoveryPipeline(
+        repo, PromptRenderer(), StructuredCallExecutor(client, sleep=lambda _: None)
+    ).run("j", lambda: None)
+
+    assert repo.checkpoints[0]["clues"] == [
+        {"name": "空间", "terms": ["空间"], "evidence": ["真实空间"]}
+    ]
+    assert repo.proposal == {
+        "criteria": [
+            {
+                "name": "空间",
+                "labels": ["宽敞", "局促"],
+                "similar_terms": ["空间"],
+                "basis": "空间线索",
+                "evidence": ["真实空间"],
+            }
+        ]
+    }
+
+
+def test_rejects_merge_when_no_criterion_has_traceable_evidence():
+    repo = Repo(["真实评论"])
+    fabricated = {
+        "criteria": [{
+            "name": "空间",
+            "labels": ["宽敞", "局促"],
+            "similar_terms": [],
+            "basis": "空间线索",
+            "evidence": ["并不存在的证据"],
+        }]
+    }
+    client = Client([
+        {"clues": [{"name": "空间", "terms": [], "evidence": ["真实评论"]}]},
+        fabricated,
+        fabricated,
+    ])
+
+    with pytest.raises(LlmInvalidResponseError):
+        CriteriaDiscoveryPipeline(
+            repo, PromptRenderer(), StructuredCallExecutor(client, sleep=lambda _: None)
+        ).run("j", lambda: None)
+
+    assert repo.proposal is None
+
+
+def test_merge_keeps_first_twenty_valid_unique_traceable_criteria():
+    repo = Repo(["真实评论"])
+    oversized = {
+        "criteria": [
+            {
+                "name": f"准则{index}",
+                "labels": ["好", "差"],
+                "similar_terms": [],
+                "basis": "归并依据",
+                "evidence": ["真实评论"],
+            }
+            for index in range(21)
+        ]
+    }
+    client = Client([
+        {"clues": [{"name": "空间", "terms": [], "evidence": ["真实评论"]}]},
+        oversized,
+        oversized,
+    ])
+
+    CriteriaDiscoveryPipeline(
+        repo, PromptRenderer(), StructuredCallExecutor(client, sleep=lambda _: None)
+    ).run("j", lambda: None)
+
+    assert len(repo.proposal["criteria"]) == 20
+    assert [item["name"] for item in repo.proposal["criteria"]] == [
+        f"准则{index}" for index in range(20)
+    ]
+
+
 def test_evidence_cannot_cross_review_boundaries():
     repo = Repo(["评论尾", "评论头"])
     payload = {"clues": [{"name": "空间", "terms": [], "evidence": ["尾\n评论"]}]}

@@ -122,6 +122,31 @@ def test_canonical_hash_ignores_json_key_order():
     assert len(canonical_review_hash(first)) == 64
 
 
+def test_canonical_hash_ignores_dynamic_display_fields_and_picture_order():
+    first = {
+        "Koubeiid": "abc",
+        "contents": [{"structuredname": "满意", "content": "空间充足"}],
+        "commentcount": 3,
+        "viewcount": 120,
+        "posttimeV2": "昨天",
+        "piclist": ["https://img.example/2.jpg", "https://img.example/1.jpg"],
+    }
+    second = {
+        **first,
+        "commentcount": 9,
+        "viewcount": 999,
+        "posttimeV2": "2天前",
+        "piclist": ["https://cdn.example/new-2.jpg", "https://cdn.example/new-1.jpg"],
+    }
+    changed_content = {
+        **second,
+        "contents": [{"structuredname": "满意", "content": "空间一般"}],
+    }
+
+    assert canonical_review_hash(first) == canonical_review_hash(second)
+    assert canonical_review_hash(first) != canonical_review_hash(changed_content)
+
+
 def test_collected_review_keeps_original_object_intact():
     original = {
         "Koubeiid": "abc",

@@ -105,7 +105,7 @@
 
 评论列表不返回大型 `original_review`。采集时先保留汽车之家列表接口对象，再根据 `showId` 读取口碑详情页 HTML，以 `.space.kb-item` 中的完整正文补齐对应的 `contents[].content`；“最满意/最不满意”分别映射回原结构化名称“满意/不满意”，其他原始字段不拆分、不拼接、不改写。若列表正文已截断但详情页缺少对应分区，任务暂停且不提交该页。详情和 JSONL 中的每条记录包含 `platform`、`review_id`、`series_id`、采集时车系名称快照、可直接访问的口碑详情地址、内容哈希、采集时间和补齐后的完整 `original_review`。JSONL 媒体类型为 `application/x-ndjson; charset=utf-8`，每行是独立 JSON 对象；不生成拼接评论文本，也不把嵌套对象压平为 CSV。
 
-车系唯一键为 `platform + series_id`；评论唯一键为 `platform + review_id`。来源存在 `Koubeiid` 或 `showId` 时直接使用；两者都缺失时，回退 ID 为 `sha256-{series_id}-{原始对象规范哈希}`，避免相同无 ID 对象在不同车系间碰撞。不同年款、改款和配置保留在原始对象字段中，但不形成独立车系任务。每页评论和下一页游标在同一事务提交；重复请求依靠唯一键幂等，同一评论 ID 内容变化会写入采集事件。
+车系唯一键为 `platform + series_id`；评论唯一键为 `platform + review_id`。来源存在 `Koubeiid` 或 `showId` 时直接使用；两者都缺失时，回退 ID 为 `sha256-{series_id}-{原始对象规范哈希}`，避免相同无 ID 对象在不同车系间碰撞。内容哈希基于完整对象中稳定、可分析的字段计算，不包含会随访问变化的 `commentcount`、`viewcount`、`posttimeV2` 和 `piclist`；这些字段仍原样保存在 `original_review` 并在重采时更新。不同年款、改款和配置保留在原始对象字段中，但不形成独立车系任务。每页评论和下一页游标在同一事务提交；重复请求依靠唯一键幂等，只有同一评论 ID 的稳定内容变化才写入采集事件。
 
 任务详情返回最近 100 条事件，并按发生时间正序展示；长任务的更早事件仍保留在 SQLite。分页终止以来源响应中已校验的 `pageindex`、`pagesize`、`pagecount` 和 `seriesid` 为准，不假设每页固定返回 20 条。
 # 评论语义分析 API
@@ -120,6 +120,6 @@
 - `GET /jobs/{id}/proposal`、`POST /jobs/{id}/proposal/apply`：候选审核与 revision 锁应用；可提交人工编辑后的完整候选准则。
 - `GET /annotations`、`GET /annotations/{id}`、`GET /summary`：评论级结果、详情和基础计数；筛选不调用模型。
 
-未配置 Key 返回 503；项目/版本/任务不存在返回 404；版本状态、活动任务和 revision 冲突返回 409；空/重复选择、无评论或非法范围返回 422。评论标注输出中的 `criterion`、`label` 必须属于任务冻结快照，`evidence` 和 `unmatched_evidence` 必须为 `analysis_text` 原文子串。
+未配置 Key 返回 503；项目/版本/任务不存在返回 404；版本状态、活动任务和 revision 冲突返回 409；空/重复选择、无评论或非法范围返回 422。评论标注输出中的 `criterion`、`label` 必须属于任务冻结快照，`evidence` 和 `unmatched_evidence` 必须为 `analysis_text` 原文子串。准则发现会逐项丢弃无法回溯到原文的证据和因此失去全部证据的线索/准则，归并结果按模型顺序去重并限制为前 20 个有效准则；若整批没有任何可追溯结果，任务仍判为无效响应。模型无效响应以 `invalid_response` 失败，临时网络或服务异常以 `transient` 暂停并允许继续。
 
 持久化表为 `review_analysis_jobs`、`review_analysis_job_reviews`、`review_analysis_discovery_batches`、`criteria_proposals`、`review_annotation_results`。评论快照保存完整派生文本；可复用结果不绑定评论 ID，由任务评论行保存关联以保持追溯。准则发现每个成功批次立即保存线索、进度与 token 用量，暂停或进程重启后跳过成功批次；全局归并结果同样可幂等恢复。任务同时保存创建时的准则草稿 revision、模型和 Prompt 清单，谱系发生变化时拒绝静默套用旧结果。任务最终提交会原子消费请求期间到达的暂停/取消指令；取消请求的优先级高于暂停，工作器也以单事务消费控制并同步写入 `paused` 或 `cancelled` 状态。

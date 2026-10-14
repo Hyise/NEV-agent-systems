@@ -279,6 +279,53 @@ def test_review_content_change_is_audited(tmp_path):
     assert json.loads(events[0]["details"])["previous_hash"] != detail["content_hash"]
 
 
+def test_dynamic_review_metadata_is_updated_without_content_change_event(tmp_path):
+    repository = make_repository(tmp_path)
+    create_job(repository)
+    series = make_series()
+    repository.save_discovery("job-1", [series], "2026-10-08T08:01:00+00:00")
+    original = make_review()
+    first_payload = {
+        **original.original_review,
+        "commentcount": 1,
+        "viewcount": 10,
+        "posttimeV2": "昨天",
+        "piclist": ["https://img.example/2.jpg", "https://img.example/1.jpg"],
+    }
+    second_payload = {
+        **first_payload,
+        "commentcount": 2,
+        "viewcount": 20,
+        "posttimeV2": "2天前",
+        "piclist": ["https://cdn.example/new-2.jpg", "https://cdn.example/new-1.jpg"],
+    }
+    first = CollectedReview(
+        review_id=original.review_id,
+        series_id=original.series_id,
+        series_name=original.series_name,
+        source_url=original.source_url,
+        original_review=first_payload,
+    )
+    second = CollectedReview(
+        review_id=original.review_id,
+        series_id=original.series_id,
+        series_name=original.series_name,
+        source_url=original.source_url,
+        original_review=second_payload,
+    )
+
+    repository.save_review_page(
+        "job-1", series, [first], 2, "2026-10-08T08:02:00+00:00"
+    )
+    result = repository.save_review_page(
+        "job-1", series, [second], 3, "2026-10-08T08:03:00+00:00"
+    )
+
+    assert result == {"saved": 0, "duplicates": 1, "changed": 0}
+    assert repository.list_events("job-1") == []
+    assert repository.get_review("review-1")["original_review"]["viewcount"] == 20
+
+
 def test_interrupted_active_job_becomes_paused_and_resumable(tmp_path):
     repository = make_repository(tmp_path)
     create_job(repository)

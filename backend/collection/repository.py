@@ -14,6 +14,7 @@ from .domain import (
     JobStatus,
     TaskControlError,
     VehicleSeries,
+    canonical_review_hash,
 )
 
 AUTOHOME_CATALOG_URL = "https://www.autohome.com.cn/price/ev#pvareaid=3311257"
@@ -542,7 +543,8 @@ class CollectionRepository:
                 raise KeyError(job_id)
             for review in reviews:
                 existing = connection.execute(
-                    "SELECT content_hash FROM reviews WHERE platform=? AND review_id=?",
+                    "SELECT content_hash,original_review_json FROM reviews "
+                    "WHERE platform=? AND review_id=?",
                     (review.platform, review.review_id),
                 ).fetchone()
                 if existing is None:
@@ -565,7 +567,10 @@ class CollectionRepository:
                     saved += 1
                     continue
                 duplicates += 1
-                if existing["content_hash"] != review.content_hash:
+                previous_hash = canonical_review_hash(
+                    json.loads(existing["original_review_json"])
+                )
+                if previous_hash != review.content_hash:
                     changed += 1
                     connection.execute(
                         """
@@ -581,7 +586,7 @@ class CollectionRepository:
                             _json(
                                 {
                                     "review_id": review.review_id,
-                                    "previous_hash": existing["content_hash"],
+                                    "previous_hash": previous_hash,
                                     "current_hash": review.content_hash,
                                 }
                             ),

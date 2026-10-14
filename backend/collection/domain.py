@@ -127,8 +127,13 @@ class VehicleSeries(StrictModel):
 
 
 def canonical_review_hash(payload: dict[str, Any]) -> str:
+    stable_payload = {
+        key: value
+        for key, value in payload.items()
+        if key not in {"commentcount", "viewcount", "posttimeV2", "piclist"}
+    }
     canonical = json.dumps(
-        payload,
+        stable_payload,
         ensure_ascii=False,
         allow_nan=False,
         sort_keys=True,
