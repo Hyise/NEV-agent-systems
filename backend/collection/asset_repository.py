@@ -8,6 +8,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from backend.review_analysis.text import extract_analysis_text
 
@@ -314,3 +315,111 @@ class ReviewAssetRepository:
             "by_source": [dict(row) for row in sources],
             "by_series": [dict(row) for row in series],
         }
+
+    def import_duplicate_state(
+        self, review_ids: list[str], content_hashes: list[str]
+    ) -> dict[str, set[str]]:
+        with self.connect() as connection:
+            return self._import_duplicate_state(connection, review_ids, content_hashes)
+
+    @staticmethod
+    def _import_duplicate_state(
+        connection: sqlite3.Connection,
+        review_ids: list[str],
+        content_hashes: list[str],
+    ) -> dict[str, set[str]]:
+        manual_ids: set[str] = set()
+        hashes: set[str] = set()
+        if review_ids:
+            rows = connection.execute(
+                f"SELECT review_id FROM reviews WHERE platform='manual' "
+                f"AND review_id IN ({','.join('?' for _ in review_ids)})",
+                review_ids,
+            ).fetchall()
+            manual_ids = {row["review_id"] for row in rows}
+        if content_hashes:
+            rows = connection.execute(
+                f"SELECT DISTINCT content_hash FROM reviews WHERE content_hash IN "
+                f"({','.join('?' for _ in content_hashes)})",
+                content_hashes,
+            ).fetchall()
+            hashes = {row["content_hash"] for row in rows}
+        return {"review_ids": manual_ids, "content_hashes": hashes}
+
+    def import_assets(
+        self,
+        records: list[dict[str, Any]],
+        imported_at: str,
+        duplicate_guard: dict[str, Any],
+    ) -> list[str]:
+        asset_ids: list[str] = []
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            current_state = self._import_duplicate_state(
+                connection,
+                duplicate_guard["candidate_review_ids"],
+                duplicate_guard["candidate_content_hashes"],
+            )
+            if current_state != duplicate_guard["expected_state"]:
+                raise AssetConflict("导入校验结果已变化，请重新校验")
+            for record in records:
+                item = record["item"]
+                review_id = item.review_id or str(uuid4())
+                asset_id = f"manual:{uuid4()}"
+                source_url = item.source_url or ""
+                connection.execute(
+                    """
+                    INSERT INTO vehicle_series (
+                        platform, series_id, series_name, series_url, review_url,
+                        discovery_rank, first_discovered_at, last_confirmed_at
+                    ) VALUES ('manual',?,?,?,?,?,?,?)
+                    ON CONFLICT(platform,series_id) DO UPDATE SET
+                        series_name=excluded.series_name,
+                        last_confirmed_at=excluded.last_confirmed_at
+                    """,
+                    (
+                        item.series_id,
+                        item.series_name,
+                        source_url,
+                        source_url,
+                        1_000_000,
+                        imported_at,
+                        imported_at,
+                    ),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO reviews (
+                        platform, review_id, series_id, series_name_snapshot,
+                        source_url, original_review_json, content_hash,
+                        first_collected_at, last_confirmed_at, asset_id, source_kind
+                    ) VALUES ('manual',?,?,?,?,?,?,?,?,?,'manual_import')
+                    """,
+                    (
+                        review_id,
+                        item.series_id,
+                        item.series_name,
+                        source_url,
+                        json.dumps(
+                            item.original_review,
+                            ensure_ascii=False,
+                            allow_nan=False,
+                            separators=(",", ":"),
+                        ),
+                        record["content_hash"],
+                        imported_at,
+                        imported_at,
+                        asset_id,
+                    ),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO review_asset_metadata (
+                        asset_id, analysis_enabled, tags_json, note, revision,
+                        created_at, updated_at
+                    ) VALUES (?,1,'[]','',1,?,?)
+                    """,
+                    (asset_id, imported_at, imported_at),
+                )
+                asset_ids.append(asset_id)
+        return asset_ids

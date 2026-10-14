@@ -16,6 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from .collection.api import create_collection_router
 from .collection.asset_api import create_review_asset_router
 from .collection.asset_repository import ReviewAssetRepository
+from .collection.asset_service import ReviewAssetService
 from .collection.catalog_api import create_catalog_router
 from .collection.catalog_repository import SeriesCatalogRepository
 from .collection.catalog_service import SeriesCatalogService
@@ -78,6 +79,7 @@ def create_app(
     )
     review_analysis_repository = ReviewAnalysisRepository(database_path)
     review_asset_repository = ReviewAssetRepository(database_path)
+    review_asset_service = ReviewAssetService(review_asset_repository)
     try:
         deepseek_settings = DeepSeekSettings.from_environ(os.environ)
     except LlmConfigurationError:
@@ -123,6 +125,7 @@ def create_app(
     app.state.review_analysis_repository = review_analysis_repository
     app.state.review_analysis_service = review_analysis_service
     app.state.review_asset_repository = review_asset_repository
+    app.state.review_asset_service = review_asset_service
     with store.connect() as conn:
         conn.execute('INSERT OR IGNORE INTO projects VALUES (?,?,?,?)',
                      ('research-archive', '新能源汽车消费者决策研究', 'preset', now()))
@@ -172,7 +175,9 @@ def create_app(
         )
     )
     app.include_router(create_catalog_router(catalog_repository, catalog_service))
-    app.include_router(create_review_asset_router(review_asset_repository))
+    app.include_router(
+        create_review_asset_router(review_asset_repository, review_asset_service)
+    )
     app.include_router(create_review_analysis_router(
         review_analysis_repository, review_analysis_service, deepseek_settings
     ))

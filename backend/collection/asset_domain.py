@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -69,6 +69,30 @@ class BatchMetadataPatchBody(StrictModel):
         return self
 
 
+class ImportReviewItem(StrictModel):
+    series_id: str = Field(pattern=r"^\d+$", max_length=100)
+    series_name: str = Field(min_length=1, max_length=200)
+    review_id: str | None = Field(default=None, min_length=1, max_length=200)
+    source_url: str | None = Field(default=None, max_length=2000)
+    original_review: dict[str, Any]
+
+    @field_validator("source_url")
+    @classmethod
+    def https_source_url(cls, value: str | None) -> str | None:
+        if value is not None and not value.startswith("https://"):
+            raise ValueError("来源网址必须使用https")
+        return value
+
+
+class ImportBatchBody(StrictModel):
+    items: list[Any]
+    payload_bytes: int = Field(ge=0)
+
+
+class ImportConfirmBody(ImportBatchBody):
+    validation_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
 class AssetNotFound(LookupError):
     pass
 
@@ -81,3 +105,9 @@ class AssetGone(LookupError):
     def __init__(self, audit: dict):
         super().__init__("评论资产已永久删除")
         self.audit = audit
+
+
+class ImportValidationError(ValueError):
+    def __init__(self, result: dict[str, Any]):
+        super().__init__("导入数据未通过校验")
+        self.result = result

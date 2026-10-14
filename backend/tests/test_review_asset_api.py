@@ -103,3 +103,53 @@ def test_unknown_asset_returns_404_and_raw_fields_are_forbidden(asset_client):
     assert missing.status_code == 404
     assert invalid.status_code == 422
     assert "original_review" not in MetadataPatchBody.model_fields
+
+
+def test_import_validate_and_confirm_routes_are_two_step(asset_client):
+    item = {
+        "series_id": "5769",
+        "series_name": "Model Y",
+        "review_id": "api-manual-1",
+        "original_review": {
+            "feeling_summary": "导入测试",
+            "contents": [{"structuredname": "满意", "content": "空间充足"}],
+        },
+    }
+    preview = asset_client.post(
+        "/api/collection/review-assets/import/validate",
+        json={"items": [item], "payload_bytes": 512},
+    )
+
+    confirmed = asset_client.post(
+        "/api/collection/review-assets/import",
+        json={
+            "items": [item],
+            "payload_bytes": 512,
+            "validation_fingerprint": preview.json()["validation_fingerprint"],
+        },
+    )
+
+    assert preview.status_code == 200
+    assert preview.json()["importable"][0]["line"] == 1
+    assert confirmed.status_code == 201
+    assert confirmed.json()["imported_count"] == 1
+
+
+def test_import_confirm_with_stale_fingerprint_returns_409(asset_client):
+    item = {
+        "series_id": "5769",
+        "series_name": "Model Y",
+        "review_id": "stale-api",
+        "original_review": {"feeling_summary": "导入测试"},
+    }
+
+    response = asset_client.post(
+        "/api/collection/review-assets/import",
+        json={
+            "items": [item],
+            "payload_bytes": 256,
+            "validation_fingerprint": "0" * 64,
+        },
+    )
+
+    assert response.status_code == 409

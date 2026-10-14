@@ -11,9 +11,13 @@ from .asset_domain import (
     AssetGone,
     AssetNotFound,
     BatchMetadataPatchBody,
+    ImportBatchBody,
+    ImportConfirmBody,
+    ImportValidationError,
     MetadataPatchBody,
 )
 from .asset_repository import ReviewAssetRepository
+from .asset_service import ReviewAssetService
 
 Page = Annotated[int, Query(ge=1)]
 PageSize = Annotated[int, Query(ge=1, le=100)]
@@ -31,10 +35,12 @@ def _run(action):
         ) from error
     except AssetConflict as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
+    except ImportValidationError as error:
+        raise HTTPException(status_code=422, detail=error.result) from error
 
 
 def create_review_asset_router(
-    repository: ReviewAssetRepository, service: Any | None = None
+    repository: ReviewAssetRepository, service: ReviewAssetService
 ) -> APIRouter:
     router = APIRouter(prefix="/api/collection", tags=["review-assets"])
 
@@ -65,6 +71,18 @@ def create_review_asset_router(
     @router.patch("/review-assets/metadata")
     def batch_update_metadata(body: BatchMetadataPatchBody) -> dict[str, int]:
         return _run(lambda: repository.batch_update_metadata(body))
+
+    @router.post("/review-assets/import/validate")
+    def validate_import(body: ImportBatchBody) -> dict[str, Any]:
+        return service.validate_import(body.items, body.payload_bytes)
+
+    @router.post("/review-assets/import", status_code=201)
+    def import_reviews(body: ImportConfirmBody) -> dict[str, Any]:
+        return _run(
+            lambda: service.import_validated(
+                body.items, body.payload_bytes, body.validation_fingerprint
+            )
+        )
 
     @router.get("/review-assets/{asset_id}")
     def asset_detail(asset_id: str) -> dict[str, Any]:
