@@ -1,0 +1,77 @@
+"""HTTP boundary for review asset querying and management metadata."""
+
+from __future__ import annotations
+
+from typing import Annotated, Any
+
+from fastapi import APIRouter, HTTPException, Query
+
+from .asset_domain import (
+    AssetConflict,
+    AssetGone,
+    AssetNotFound,
+    BatchMetadataPatchBody,
+    MetadataPatchBody,
+)
+from .asset_repository import ReviewAssetRepository
+
+Page = Annotated[int, Query(ge=1)]
+PageSize = Annotated[int, Query(ge=1, le=100)]
+
+
+def _run(action):
+    try:
+        return action()
+    except AssetNotFound as error:
+        raise HTTPException(status_code=404, detail="评论资产不存在") from error
+    except AssetGone as error:
+        raise HTTPException(
+            status_code=410,
+            detail={"message": str(error), "deletion": error.audit},
+        ) from error
+    except AssetConflict as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+def create_review_asset_router(
+    repository: ReviewAssetRepository, service: Any | None = None
+) -> APIRouter:
+    router = APIRouter(prefix="/api/collection", tags=["review-assets"])
+
+    @router.get("/review-assets")
+    def list_assets(
+        keyword: str = "",
+        series_id: str | None = None,
+        source_kind: str | None = None,
+        tag: str | None = None,
+        analysis_enabled: bool | None = None,
+        page: Page = 1,
+        page_size: PageSize = 20,
+    ) -> dict[str, Any]:
+        return repository.list_assets(
+            keyword=keyword,
+            series_id=series_id,
+            source_kind=source_kind,
+            tag=tag,
+            analysis_enabled=analysis_enabled,
+            page=page,
+            page_size=page_size,
+        )
+
+    @router.get("/review-assets/summary")
+    def asset_summary() -> dict[str, Any]:
+        return repository.summary()
+
+    @router.patch("/review-assets/metadata")
+    def batch_update_metadata(body: BatchMetadataPatchBody) -> dict[str, int]:
+        return _run(lambda: repository.batch_update_metadata(body))
+
+    @router.get("/review-assets/{asset_id}")
+    def asset_detail(asset_id: str) -> dict[str, Any]:
+        return _run(lambda: repository.get_asset(asset_id))
+
+    @router.patch("/review-assets/{asset_id}/metadata")
+    def update_metadata(asset_id: str, body: MetadataPatchBody) -> dict[str, Any]:
+        return _run(lambda: repository.update_metadata(asset_id, body))
+
+    return router
