@@ -1,0 +1,2 @@
+{"series_id":"900001","series_name":"测试车系甲","review_id":"fixture-valid-1","source_url":"https://example.test/reviews/fixture-valid-1","original_review":{"feeling_summary":"测试评论：空间充足，日常通勤便利。","contents":[{"structuredname":"满意","content":"后排空间充足，储物位置清楚。"}]}}
+{"series_id":"900002","series_name":"测试车系乙","review_id":"fixture-valid-2","original_review":{"feeling_summary":"测试评论：动力输出平顺。","contents":[{"structuredname":"不满意","content":"高速风噪仍有改进空间。"}],"fixture":true}}

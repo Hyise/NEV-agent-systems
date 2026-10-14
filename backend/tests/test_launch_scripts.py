@@ -279,7 +279,7 @@ try {
         process_id = $child.Id
         started_at = $child.StartTime.ToUniversalTime().ToString('o')
         port = 0
-        executable = $child.Path
+        executable = $env:DUMMY_PYTHON
     }
     $record | ConvertTo-Json | Set-Content -LiteralPath $env:RECORD_PATH -Encoding utf8
     & $env:STOP_SCRIPT

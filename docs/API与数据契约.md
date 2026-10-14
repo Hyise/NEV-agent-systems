@@ -108,6 +108,29 @@
 车系唯一键为 `platform + series_id`；评论唯一键为 `platform + review_id`。来源存在 `Koubeiid` 或 `showId` 时直接使用；两者都缺失时，回退 ID 为 `sha256-{series_id}-{原始对象规范哈希}`，避免相同无 ID 对象在不同车系间碰撞。内容哈希基于完整对象中稳定、可分析的字段计算，不包含会随访问变化的 `commentcount`、`viewcount`、`posttimeV2` 和 `piclist`；这些字段仍原样保存在 `original_review` 并在重采时更新。不同年款、改款和配置保留在原始对象字段中，但不形成独立车系任务。每页评论和下一页游标在同一事务提交；重复请求依靠唯一键幂等，只有同一评论 ID 的稳定内容变化才写入采集事件。
 
 任务详情返回最近 100 条事件，并按发生时间正序展示；长任务的更早事件仍保留在 SQLite。分页终止以来源响应中已校验的 `pageindex`、`pagesize`、`pagecount` 和 `seriesid` 为准，不假设每页固定返回 20 条。
+
+## 评论资产管理 API
+
+评论资产仍以 `reviews` 为唯一原文主表，不复制第二份正文。`asset_id` 是稳定 API 标识，汽车之家记录为 `autohome:{review_id}`，人工导入记录为 `manual:{uuid}`；`source_kind` 区分 `autohome` 与 `manual_import`。`review_asset_metadata` 只保存标签、备注、分析启用状态和 revision，任何管理接口均不得改写 `original_review_json` 或 `content_hash`。
+
+| 方法 | 路径 | 用途 |
+| --- | --- | --- |
+| GET | `/api/collection/review-assets` | 按关键词、车系、来源、标签、分析状态分页查询摘要 |
+| GET | `/api/collection/review-assets/{asset_id}` | 读取完整只读原文、管理元数据和研究引用数 |
+| PATCH | `/api/collection/review-assets/{asset_id}/metadata` | 使用 revision 更新标签、备注和分析启用状态 |
+| PATCH | `/api/collection/review-assets/metadata` | 批量设置分析状态或增删标签；不支持批量删除 |
+| POST | `/api/collection/review-assets/import/validate` | 预检 JSON 数组并返回可导入、重复、错误及校验指纹 |
+| POST | `/api/collection/review-assets/import` | 使用同一输入和校验指纹原子确认导入 |
+| DELETE | `/api/collection/review-assets/{asset_id}` | 校验哈希、评论 ID、原因和明确确认后永久删除原文 |
+| GET | `/api/collection/review-assets/summary` | 返回总数、启用/禁用、来源与车系统计 |
+| GET | `/api/collection/deletions` | 分页读取不含原文的删除审计 |
+| POST | `/api/collection/deletions/{asset_id}/allow-recollection` | 仅解除未来同来源评论的重采阻止 |
+
+人工导入请求使用 `{items, payload_bytes}`；确认请求额外提交 `validation_fingerprint`。文件须为 UTF-8 JSON/JSONL，最大 8 MB、最多 10,000 条。每条必须含数字字符串 `series_id`、非空 `series_name` 和可提取正文的 `original_review`；`source_url` 省略或使用 HTTPS。脱敏示例见 `backend/tests/fixtures/import/reviews-valid.jsonl`，错误行示例见同目录 `reviews-invalid.jsonl`。
+
+元数据 revision 冲突、导入指纹过期、活动采集任务或删除哈希变化返回 409；当前资产不存在返回 404；已永久删除返回 410，并只返回最小删除审计；输入或文件结构不合法返回 422。永久删除会移除当前原文和管理元数据，同时写入 `review_deletion_audits` 墓碑。墓碑默认阻止采集任务静默写回同一来源评论；解除重采只影响未来采集，不恢复旧原文。
+
+新建准则发现或评论标注任务只读取当前存在且 `analysis_enabled=true` 的资产，并把 `source_asset_id` 与不可变 `analysis_text` 一并保存。源资产随后删除时，历史快照、候选方案、标注结果和 token 记录不删除，查询以 `source_deleted=true` 标示；无法映射的旧快照保留 `source_asset_id=null`。
 # 评论语义分析 API
 
 统一前缀：`/api/projects/{project_id}/review-analysis`。

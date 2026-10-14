@@ -1,0 +1,3 @@
+{"series_id":"not-numeric","series_name":"错误示例一","review_id":"fixture-invalid-1","original_review":{"feeling_summary":"车系 ID 非数字。"}}
+{"series_id":"900003","series_name":"错误示例二","review_id":"fixture-invalid-2","source_url":"http://example.test/not-https","original_review":{"feeling_summary":"来源地址不是 HTTPS。"}}
+{"series_id":"900004","series_name":"错误示例三","review_id":"fixture-invalid-3","original_review":{"contents":[]}}
