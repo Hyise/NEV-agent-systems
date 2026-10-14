@@ -316,8 +316,10 @@ export function createReviewAnalysisWorkspace(
     annotationTotal.value = result[0].total;
     summary.value = result[1];
   }
-  async function openAnnotation(id: string) {
-    const result = await guarded(() => api.getAnnotation(projectId.value, id));
+  async function openAnnotation(id: string, snapshotId?: string) {
+    const result = await guarded(() =>
+      api.getAnnotation(projectId.value, id, snapshotId),
+    );
     if (result) selectedAnnotation.value = result;
   }
   watch([projectId, schemaId], () => {

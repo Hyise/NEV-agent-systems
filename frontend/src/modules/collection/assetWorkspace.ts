@@ -18,6 +18,7 @@ import {
   type ReviewAssetSourceKind,
   type ReviewAssetSummary,
   type ReviewAssetSummaryStats,
+  type ReviewDeletion,
   type ReviewImportItem,
   type ReviewImportResult,
   type ReviewImportValidation,
@@ -26,6 +27,13 @@ import {
 export type ImportStep = "select" | "preview" | "complete";
 
 const emptyPage = (): Page<ReviewAssetSummary> => ({
+  rows: [],
+  total: 0,
+  page: 1,
+  page_size: 20,
+});
+
+const emptyDeletionPage = (): Page<ReviewDeletion> => ({
   rows: [],
   total: 0,
   page: 1,
@@ -66,8 +74,11 @@ export function createAssetWorkspace(
   const summary = ref<ReviewAssetSummaryStats | null>(null);
   const detail = ref<ReviewAssetDetail | null>(null);
   const selectedAssetIds = ref<string[]>([]);
+  const deletions = ref<Page<ReviewDeletion>>(emptyDeletionPage());
+  const deletionPage = ref(1);
   const busy = ref(false);
   const detailBusy = ref(false);
+  const deletionBusy = ref(false);
   const actionBusy = ref(false);
   const error = ref("");
 
@@ -82,7 +93,9 @@ export function createAssetWorkspace(
   let lifecycleId = 0;
   let listRequestId = 0;
   let detailRequestId = 0;
+  let detailContextId = 0;
   let summaryRequestId = 0;
+  let deletionRequestId = 0;
   let actionRequestId = 0;
 
   const current = (lifecycle: number) => active && lifecycle === lifecycleId;
@@ -152,6 +165,7 @@ export function createAssetWorkspace(
   }
 
   async function openAsset(assetId: string) {
+    detailContextId += 1;
     const request = ++detailRequestId;
     const lifecycle = lifecycleId;
     detail.value = null;
@@ -183,6 +197,7 @@ export function createAssetWorkspace(
   }
 
   function closeAsset() {
+    detailContextId += 1;
     detailRequestId += 1;
     detail.value = null;
     detailBusy.value = false;
@@ -193,6 +208,7 @@ export function createAssetWorkspace(
   ) {
     if (!detail.value) return;
     const assetId = detail.value.asset_id;
+    const detailContext = detailContextId;
     const request = ++actionRequestId;
     const lifecycle = lifecycleId;
     actionBusy.value = true;
@@ -203,14 +219,21 @@ export function createAssetWorkspace(
         revision: detail.value.revision,
       });
       if (!current(lifecycle) || request !== actionRequestId) return;
-      await Promise.all([openAsset(assetId), loadAssets(), loadSummary()]);
+      await Promise.all([loadAssets(), loadSummary()]);
+      if (
+        detailContext === detailContextId &&
+        detail.value?.asset_id === assetId
+      ) {
+        await openAsset(assetId);
+      }
     } catch (cause) {
-      if (current(lifecycle) && request === actionRequestId) {
+      if (
+        current(lifecycle) &&
+        request === actionRequestId &&
+        detailContext === detailContextId &&
+        detail.value?.asset_id === assetId
+      ) {
         error.value = message(cause, "管理信息保存失败");
-        if (cause instanceof ApiError && cause.status === 409) {
-          await openAsset(assetId);
-          error.value = message(cause, "管理信息保存失败");
-        }
       }
     } finally {
       if (current(lifecycle) && request === actionRequestId)
@@ -322,6 +345,7 @@ export function createAssetWorkspace(
   async function deleteCurrent(reason: string, confirmedReviewId: string) {
     if (!detail.value) return;
     const target = detail.value;
+    const detailContext = detailContextId;
     const request = ++actionRequestId;
     const lifecycle = lifecycleId;
     actionBusy.value = true;
@@ -334,13 +358,23 @@ export function createAssetWorkspace(
         confirm: true,
       });
       if (!current(lifecycle) || request !== actionRequestId) return;
-      closeAsset();
       selectedAssetIds.value = selectedAssetIds.value.filter(
         (id) => id !== target.asset_id,
       );
-      await Promise.all([loadAssets(), loadSummary()]);
+      if (
+        detailContext === detailContextId &&
+        detail.value?.asset_id === target.asset_id
+      ) {
+        closeAsset();
+      }
+      await Promise.all([loadAssets(), loadSummary(), loadDeletions()]);
     } catch (cause) {
-      if (current(lifecycle) && request === actionRequestId) {
+      if (
+        current(lifecycle) &&
+        request === actionRequestId &&
+        detailContext === detailContextId &&
+        detail.value?.asset_id === target.asset_id
+      ) {
         error.value = message(cause, "评论删除失败");
       }
     } finally {
@@ -349,10 +383,63 @@ export function createAssetWorkspace(
     }
   }
 
+  async function refreshCurrentDetail() {
+    const assetId = detail.value?.asset_id;
+    if (assetId) await openAsset(assetId);
+  }
+
+  async function loadDeletions(targetPage = deletionPage.value) {
+    const request = ++deletionRequestId;
+    const lifecycle = lifecycleId;
+    deletionBusy.value = true;
+    try {
+      const result = await client.listReviewDeletions(
+        targetPage,
+        pageSize.value,
+      );
+      if (current(lifecycle) && request === deletionRequestId) {
+        deletions.value = result;
+        deletionPage.value = result.page;
+      }
+    } catch (cause) {
+      if (current(lifecycle) && request === deletionRequestId) {
+        error.value = message(cause, "删除记录加载失败");
+      }
+    } finally {
+      if (current(lifecycle) && request === deletionRequestId) {
+        deletionBusy.value = false;
+      }
+    }
+  }
+
+  async function allowRecollection(assetId: string) {
+    const request = ++actionRequestId;
+    const lifecycle = lifecycleId;
+    actionBusy.value = true;
+    error.value = "";
+    try {
+      await client.allowReviewRecollection(assetId);
+      if (!current(lifecycle) || request !== actionRequestId) return;
+      await loadDeletions();
+    } catch (cause) {
+      if (current(lifecycle) && request === actionRequestId) {
+        error.value = message(cause, "解除重采阻止失败");
+      }
+    } finally {
+      if (current(lifecycle) && request === actionRequestId) {
+        actionBusy.value = false;
+      }
+    }
+  }
+
+  async function refresh() {
+    await Promise.all([loadAssets(), loadSummary(), loadDeletions()]);
+  }
+
   async function activate() {
     active = true;
     lifecycleId += 1;
-    await Promise.all([loadAssets(), loadSummary()]);
+    await refresh();
   }
 
   function deactivate() {
@@ -361,9 +448,11 @@ export function createAssetWorkspace(
     listRequestId += 1;
     detailRequestId += 1;
     summaryRequestId += 1;
+    deletionRequestId += 1;
     actionRequestId += 1;
     busy.value = false;
     detailBusy.value = false;
+    deletionBusy.value = false;
     actionBusy.value = false;
   }
 
@@ -388,8 +477,11 @@ export function createAssetWorkspace(
     summary,
     detail,
     selectedAssetIds,
+    deletions,
+    deletionPage,
     busy,
     detailBusy,
+    deletionBusy,
     actionBusy,
     error,
     importOpen,
@@ -405,6 +497,7 @@ export function createAssetWorkspace(
     nextPage,
     openAsset,
     closeAsset,
+    refreshCurrentDetail,
     saveMetadata,
     batchUpdate,
     beginImport,
@@ -412,6 +505,9 @@ export function createAssetWorkspace(
     validateImport,
     confirmImport,
     deleteCurrent,
+    loadDeletions,
+    allowRecollection,
+    refresh,
     activate,
     deactivate,
   };

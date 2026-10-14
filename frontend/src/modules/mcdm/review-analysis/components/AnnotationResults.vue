@@ -58,23 +58,30 @@ const workspace = useReviewAnalysisWorkspace();
             <th>车系</th>
             <th>评论 ID</th>
             <th>状态</th>
+            <th>来源状态</th>
             <th>命中准则</th>
             <th>标注时间</th>
             <th>操作</th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="row in workspace.annotations.value" :key="row.review_id">
+          <tr
+            v-for="row in workspace.annotations.value"
+            :key="row.snapshot_id ?? `${row.series_id}:${row.review_id}`"
+          >
             <td>{{ row.series_name }}</td>
             <td class="mono">{{ row.review_id }}</td>
             <td>{{ row.status }}</td>
+            <td>{{ row.source_deleted ? "源评论已删除" : "当前可追溯" }}</td>
             <td>{{ row.annotation_count }}</td>
             <td>{{ row.annotated_at ?? "—" }}</td>
             <td>
               <button
                 v-if="row.annotation_id"
                 class="text-button"
-                @click="workspace.openAnnotation(row.annotation_id)"
+                @click="
+                  workspace.openAnnotation(row.annotation_id, row.snapshot_id)
+                "
               >
                 查看详情
               </button>
@@ -114,6 +121,13 @@ const workspace = useReviewAnalysisWorkspace();
       class="annotation-detail"
     >
       <h3>完整评论与模型判定</h3>
+      <p
+        v-if="workspace.selectedAnnotation.value.source_deleted"
+        class="notice warning"
+        role="status"
+      >
+        源评论已删除；以下内容来自任务创建时保存的不可变研究快照。
+      </p>
       <pre>{{ workspace.selectedAnnotation.value.analysis_text }}</pre>
       <div
         v-for="item in workspace.selectedAnnotation.value.result?.annotations"

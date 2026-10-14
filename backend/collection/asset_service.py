@@ -28,6 +28,19 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _serialized_item_bytes(items: list[Any]) -> int:
+    try:
+        canonical = json.dumps(
+            items,
+            ensure_ascii=False,
+            allow_nan=True,
+            separators=(",", ":"),
+        )
+    except (TypeError, ValueError):
+        return 0
+    return len(canonical.encode("utf-8"))
+
+
 class ReviewAssetService:
     def __init__(self, repository: ReviewAssetRepository):
         self.repository = repository
@@ -57,7 +70,10 @@ class ReviewAssetService:
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, set[str]]]:
         errors: list[dict[str, Any]] = []
         records: list[dict[str, Any]] = []
-        if payload_bytes > MAX_IMPORT_BYTES:
+        if (
+            payload_bytes > MAX_IMPORT_BYTES
+            or _serialized_item_bytes(items) > MAX_IMPORT_BYTES
+        ):
             return [], [
                 {
                     "line": 0,
@@ -80,7 +96,7 @@ class ReviewAssetService:
                 json.dumps(item.original_review, allow_nan=False)
                 extract_analysis_text(item.original_review)
                 content_hash = canonical_review_hash(item.original_review)
-            except (ValidationError, TypeError, ValueError) as error:
+            except (ValidationError, TypeError, ValueError):
                 errors.append(
                     {
                         "line": line,

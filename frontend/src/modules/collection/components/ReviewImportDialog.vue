@@ -2,7 +2,11 @@
 import { nextTick, ref, watch } from "vue";
 import { X } from "lucide-vue-next";
 import type { AssetWorkspace } from "../assetWorkspace";
-import type { ReviewImportItem } from "../api";
+import {
+  decodeReviewImport,
+  MAX_REVIEW_IMPORT_BYTES,
+  parseReviewImportText,
+} from "../importFile";
 
 const props = defineProps<{ workspace: AssetWorkspace }>();
 const dialog = ref<HTMLDialogElement>();
@@ -31,36 +35,18 @@ function close() {
   requestAnimationFrame(() => restoreFocus.value?.focus());
 }
 
-function parseItems(text: string): ReviewImportItem[] {
-  const trimmed = text.trim();
-  if (!trimmed) throw new Error("文件内容为空");
-  if (trimmed.startsWith("[")) {
-    const value = JSON.parse(trimmed) as unknown;
-    if (!Array.isArray(value)) throw new Error("JSON 文件顶层必须是数组");
-    return value as ReviewImportItem[];
-  }
-  if (trimmed.startsWith("{")) {
-    try {
-      return [JSON.parse(trimmed) as ReviewImportItem];
-    } catch {
-      // A JSONL file also begins with an object; parse it line by line below.
-    }
-  }
-  return trimmed
-    .split(/\r?\n/)
-    .filter((line) => line.trim())
-    .map((line) => JSON.parse(line) as ReviewImportItem);
-}
-
 async function chooseFile(event: Event) {
   const file = (event.target as HTMLInputElement).files?.[0];
   if (!file) return;
   parseError.value = "";
   try {
-    const text = await file.text();
+    if (file.size > MAX_REVIEW_IMPORT_BYTES)
+      throw new Error("导入文件不能超过 8 MB");
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const text = decodeReviewImport(bytes);
     await props.workspace.validateImport(
-      parseItems(text),
-      new TextEncoder().encode(text).byteLength,
+      parseReviewImportText(text),
+      file.size,
     );
   } catch (error) {
     parseError.value = error instanceof Error ? error.message : "文件解析失败";

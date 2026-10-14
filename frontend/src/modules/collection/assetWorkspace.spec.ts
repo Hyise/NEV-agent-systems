@@ -5,7 +5,9 @@ import {
   type Page,
   type ReviewAssetApi,
   type ReviewAssetDetail,
+  type ReviewAssetMetadata,
   type ReviewAssetSummary,
+  type ReviewDeletion,
 } from "./api";
 import { createAssetWorkspace } from "./assetWorkspace";
 
@@ -101,8 +103,20 @@ function api(overrides: Partial<ReviewAssetApi> = {}): ReviewAssetApi {
       deleted_at: "now",
     }),
     getReviewAssetSummary: vi.fn().mockResolvedValue(summary),
-    listReviewDeletions: vi.fn(),
-    allowReviewRecollection: vi.fn(),
+    listReviewDeletions: vi.fn().mockResolvedValue({
+      rows: [],
+      total: 0,
+      page: 1,
+      page_size: 20,
+    }),
+    allowReviewRecollection: vi.fn().mockResolvedValue({
+      asset_id: "autohome:r1",
+      review_id: "r1",
+      content_hash: "a".repeat(64),
+      reason: "误采集",
+      deleted_at: "now",
+      recollection_allowed_at: "later",
+    }),
     ...overrides,
   };
 }
@@ -161,8 +175,10 @@ describe("review asset workspace", () => {
       note: "复核",
       analysis_enabled: false,
     });
-    expect(conflictClient.getReviewAsset).toHaveBeenCalledTimes(2);
+    expect(conflictClient.getReviewAsset).toHaveBeenCalledTimes(1);
     expect(workspace.error.value).toContain("刷新后重试");
+    await workspace.refreshCurrentDetail();
+    expect(conflictClient.getReviewAsset).toHaveBeenCalledTimes(2);
 
     const client = api();
     const next = createAssetWorkspace(client, false);
@@ -277,6 +293,89 @@ describe("review asset workspace", () => {
     lateSummary.resolve(summary);
     await loading;
     expect(stopped.summary.value).toBeNull();
+  });
+
+  it("does not reopen a closed asset when a metadata save finishes late", async () => {
+    const saved = deferred<ReviewAssetMetadata>();
+    const client = api({
+      updateReviewAssetMetadata: vi.fn().mockReturnValue(saved.promise),
+    });
+    const workspace = createAssetWorkspace(client, false);
+    await workspace.openAsset("autohome:r1");
+
+    const saving = workspace.saveMetadata({
+      tags: ["重点"],
+      note: "稍后完成",
+      analysis_enabled: true,
+    });
+    workspace.closeAsset();
+    saved.resolve({
+      asset_id: "autohome:r1",
+      analysis_enabled: true,
+      tags: ["重点"],
+      note: "稍后完成",
+      revision: 2,
+      updated_at: "later",
+    });
+    await saving;
+
+    expect(workspace.detail.value).toBeNull();
+    expect(client.getReviewAsset).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not close a newer asset when an older deletion finishes late", async () => {
+    const deleted = deferred<ReviewDeletion>();
+    const client = api({
+      getReviewAsset: vi
+        .fn()
+        .mockImplementation((assetId: string) =>
+          Promise.resolve(detail(assetId)),
+        ),
+      deleteReviewAsset: vi.fn().mockReturnValue(deleted.promise),
+    });
+    const workspace = createAssetWorkspace(client, false);
+    await workspace.openAsset("autohome:r1");
+
+    const deleting = workspace.deleteCurrent("错误数据", "r1");
+    workspace.closeAsset();
+    await workspace.openAsset("manual:r2");
+    deleted.resolve({
+      asset_id: "autohome:r1",
+      review_id: "r1",
+      content_hash: "a".repeat(64),
+      reason: "错误数据",
+      deleted_at: "later",
+    });
+    await deleting;
+
+    expect(workspace.detail.value?.asset_id).toBe("manual:r2");
+  });
+
+  it("loads deletion history and explicitly releases a tombstone", async () => {
+    const deletion: ReviewDeletion = {
+      asset_id: "autohome:r1",
+      review_id: "r1",
+      content_hash: "a".repeat(64),
+      reason: "误采集",
+      deleted_at: "now",
+      recollection_allowed_at: null,
+    };
+    const client = api({
+      listReviewDeletions: vi.fn().mockResolvedValue({
+        rows: [deletion],
+        total: 1,
+        page: 1,
+        page_size: 20,
+      }),
+    });
+    const workspace = createAssetWorkspace(client, false);
+
+    await workspace.loadDeletions();
+    expect(workspace.deletions.value.rows).toEqual([deletion]);
+    await workspace.allowRecollection("autohome:r1");
+
+    expect(client.allowReviewRecollection).toHaveBeenCalledWith("autohome:r1");
+    expect(client.listReviewDeletions).toHaveBeenCalledTimes(2);
   });
 });
 

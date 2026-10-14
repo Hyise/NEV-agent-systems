@@ -218,6 +218,21 @@
   background: var(--surface);
 }
 
+.deletion-history {
+  margin-top: 24px;
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+}
+
+.deletion-history > summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.deletion-history .table-scroll {
+  margin-top: 12px;
+}
+
 .asset-table-region table {
   min-width: 1080px;
 }

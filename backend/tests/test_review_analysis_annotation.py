@@ -38,7 +38,7 @@ class Repo:
 
 
 def row(review_id, content_hash="1" * 64, text="后排很宽敞，冬季续航不足"):
-    return {"review_id": review_id, "content_hash": content_hash, "analysis_text": text}
+    return {"snapshot_id": review_id, "review_id": review_id, "content_hash": content_hash, "analysis_text": text}
 
 
 def test_annotation_allows_multiple_criteria_and_explicit_empty_success():

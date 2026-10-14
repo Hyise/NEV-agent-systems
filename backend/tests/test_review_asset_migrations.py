@@ -77,7 +77,7 @@ def test_migration_backfills_legacy_reviews_without_changing_raw_content(tmp_pat
         "SELECT analysis_enabled, tags_json, note, revision FROM review_asset_metadata"
     ).fetchone()
     snapshot = connection.execute(
-        "SELECT source_asset_id FROM review_analysis_job_reviews"
+        "SELECT source_asset_id, snapshot_id FROM review_analysis_job_reviews"
     ).fetchone()
     job_columns = {
         row[1] for row in connection.execute("PRAGMA table_info(collection_jobs)")
@@ -96,6 +96,7 @@ def test_migration_backfills_legacy_reviews_without_changing_raw_content(tmp_pat
         "revision": 1,
     }
     assert snapshot["source_asset_id"] == "autohome:review-1"
+    assert snapshot["snapshot_id"] == "review-1"
     assert "deleted_review_skip_count" in job_columns
     connection.close()
 

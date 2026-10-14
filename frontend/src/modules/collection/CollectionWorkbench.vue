@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { Menu } from "lucide-vue-next";
 import { RouterLink } from "vue-router";
 import AppBrand from "../../components/AppBrand.vue";
@@ -53,8 +53,17 @@ function closeMobileNavigation() {
 function navigateTo(page: CollectionPage) {
   const restore = workspace.mobileNav.value;
   workspace.navigate(page);
+  if (page === "assets" || page === "research") void assetWorkspace.refresh();
   if (restore) requestAnimationFrame(() => mobileMenuButton.value?.focus());
 }
+
+watch(
+  () => workspace.overview.value?.review_count,
+  (next, previous) => {
+    if (previous !== undefined && next !== previous)
+      void assetWorkspace.refresh();
+  },
+);
 
 function runGuidedAction(action: AcquisitionAction) {
   const activeJob = workspace.overview.value?.active_job;

@@ -26,8 +26,10 @@ export interface ProposalCriterion {
 export interface CriteriaProposal {
   job_id: string;
   proposal: { criteria: ProposalCriterion[] };
+  source_deleted_count?: number;
 }
 export interface AnnotationRow {
+  snapshot_id?: string;
   annotation_id?: string;
   review_id: string;
   series_id: string;
@@ -36,6 +38,7 @@ export interface AnnotationRow {
   annotation_count: number;
   annotated_at?: string;
   analysis_text?: string;
+  source_deleted?: boolean;
   result?: {
     annotations: Array<{
       criterion: string;
@@ -101,8 +104,12 @@ export function createReviewAnalysisApi(fetcher = api) {
       request<PageResult<AnnotationRow>>(
         `${base(projectId)}/annotations?${new URLSearchParams(params)}`,
       ),
-    getAnnotation: (projectId: string, id: string) =>
-      request<AnnotationRow>(`${base(projectId)}/annotations/${id}`),
+    getAnnotation: (projectId: string, id: string, snapshotId?: string) =>
+      request<AnnotationRow>(
+        `${base(projectId)}/annotations/${id}${
+          snapshotId ? `?snapshot_id=${encodeURIComponent(snapshotId)}` : ""
+        }`,
+      ),
     getSummary: (projectId: string, jobId = "") =>
       request<AnnotationSummary>(
         `${base(projectId)}/summary${jobId ? `?job_id=${encodeURIComponent(jobId)}` : ""}`,

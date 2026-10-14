@@ -224,6 +224,85 @@ function dateTime(value: string) {
       </footer>
     </div>
 
+    <details class="deletion-history">
+      <summary>删除记录（{{ workspace.deletions.value.total }}）</summary>
+      <p class="section-help">
+        解除阻止只允许未来重新采集，不会恢复已删除的原始评论。
+      </p>
+      <div class="table-scroll" :aria-busy="workspace.deletionBusy.value">
+        <table>
+          <thead>
+            <tr>
+              <th>评论 ID</th>
+              <th>车系</th>
+              <th>删除原因</th>
+              <th>删除时间</th>
+              <th>重采状态</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="item in workspace.deletions.value.rows"
+              :key="item.audit_id ?? `${item.asset_id}-${item.deleted_at}`"
+            >
+              <td class="mono">{{ item.review_id }}</td>
+              <td>
+                {{ item.series_name_snapshot ?? "—" }}
+                <small class="mono">{{ item.series_id ?? "—" }}</small>
+              </td>
+              <td>{{ item.reason }}</td>
+              <td>{{ dateTime(item.deleted_at) }}</td>
+              <td>
+                {{ item.recollection_allowed_at ? "已允许" : "阻止中" }}
+              </td>
+              <td>
+                <button
+                  v-if="!item.recollection_allowed_at"
+                  class="text-button"
+                  :disabled="workspace.actionBusy.value"
+                  @click="workspace.allowRecollection(item.asset_id)"
+                >
+                  允许未来重新采集
+                </button>
+                <span v-else>无需操作</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p
+        v-if="
+          !workspace.deletionBusy.value &&
+          !workspace.deletions.value.rows.length
+        "
+        class="collection-empty-inline"
+      >
+        暂无删除记录。
+      </p>
+      <footer class="asset-pagination">
+        <span>第 {{ workspace.deletionPage.value }} 页</span>
+        <div>
+          <button
+            class="text-button"
+            :disabled="workspace.deletionPage.value <= 1"
+            @click="workspace.loadDeletions(workspace.deletionPage.value - 1)"
+          >
+            上一页</button
+          ><button
+            class="text-button"
+            :disabled="
+              workspace.deletionPage.value * workspace.pageSize.value >=
+              workspace.deletions.value.total
+            "
+            @click="workspace.loadDeletions(workspace.deletionPage.value + 1)"
+          >
+            下一页
+          </button>
+        </div>
+      </footer>
+    </details>
+
     <ReviewImportDialog :workspace="workspace" />
     <ReviewAssetDrawer :workspace="workspace" />
   </section>

@@ -130,7 +130,7 @@
 
 元数据 revision 冲突、导入指纹过期、活动采集任务或删除哈希变化返回 409；当前资产不存在返回 404；已永久删除返回 410，并只返回最小删除审计；输入或文件结构不合法返回 422。永久删除会移除当前原文和管理元数据，同时写入 `review_deletion_audits` 墓碑。墓碑默认阻止采集任务静默写回同一来源评论；解除重采只影响未来采集，不恢复旧原文。
 
-新建准则发现或评论标注任务只读取当前存在且 `analysis_enabled=true` 的资产，并把 `source_asset_id` 与不可变 `analysis_text` 一并保存。源资产随后删除时，历史快照、候选方案、标注结果和 token 记录不删除，查询以 `source_deleted=true` 标示；无法映射的旧快照保留 `source_asset_id=null`。
+新建准则发现或评论标注任务只读取当前存在且 `analysis_enabled=true` 的资产，并把 `source_asset_id` 与不可变 `analysis_text` 一并保存。任务内使用 `snapshot_id` 作为处理身份：新快照取稳定的 `source_asset_id`，迁移前旧快照保留原 `review_id`；展示用的裸 `review_id` 不再承担跨来源唯一性。源资产随后删除时，历史快照、候选方案、标注结果和 token 记录不删除，查询以 `source_deleted=true` 标示；无法映射的旧快照保留 `source_asset_id=null`。
 # 评论语义分析 API
 
 统一前缀：`/api/projects/{project_id}/review-analysis`。

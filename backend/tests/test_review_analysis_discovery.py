@@ -34,7 +34,7 @@ class Repo:
         }
         self.texts = texts; self.proposal = None; self.states = []; self.usage = []; self.checkpoints = []
     def get_job(self, job_id): return self.job
-    def pending_review_snapshots(self, job_id): return [{"review_id": str(i), "analysis_text": text} for i, text in enumerate(self.texts)]
+    def pending_review_snapshots(self, job_id): return [{"snapshot_id": str(i), "review_id": str(i), "analysis_text": text} for i, text in enumerate(self.texts)]
     def save_proposal(self, job_id, proposal, completion=None, **counts):
         self.proposal = proposal; self.counts = counts
         if completion: self.usage.append(completion.total_tokens)
@@ -45,7 +45,7 @@ class Repo:
     def ensure_discovery_batches(self, job_id, batches):
         if not self.checkpoints:
             self.checkpoints = [
-                {"batch_index": index, "review_ids": [row["review_id"] for row in batch], "status": "pending", "clues": None}
+                {"batch_index": index, "review_ids": [row["snapshot_id"] for row in batch], "status": "pending", "clues": None}
                 for index, batch in enumerate(batches)
             ]
         return self.checkpoints

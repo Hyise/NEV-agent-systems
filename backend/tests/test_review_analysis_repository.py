@@ -96,7 +96,7 @@ def test_sources_aggregate_providers_and_snapshots_use_enabled_assets_only(tmp_p
                 platform,review_id,series_id,series_name_snapshot,source_url,
                 original_review_json,content_hash,first_collected_at,
                 last_confirmed_at,asset_id,source_kind
-            ) VALUES ('manual','manual-r4','1','车系一','',?,?,?, ?,
+            ) VALUES ('manual','r1','1','车系一','',?,?,?, ?,
                       'manual:asset-r4','manual_import')
             """,
             (
@@ -144,6 +144,15 @@ def test_sources_aggregate_providers_and_snapshots_use_enabled_assets_only(tmp_p
         }
     ]
     assert {row["source_asset_id"] for row in rows} == {
+        "autohome:r1",
+        "manual:asset-r4",
+    }
+    assert {row["snapshot_id"] for row in rows} == {
+        "autohome:r1",
+        "manual:asset-r4",
+    }
+    checkpoint = repository.ensure_discovery_batches(job["id"], [rows])[0]
+    assert set(checkpoint["review_ids"]) == {
         "autohome:r1",
         "manual:asset-r4",
     }
@@ -264,6 +273,45 @@ def test_proposal_application_uses_revision_lock_and_applies_once(tmp_path):
     assert applied["criteria"] == [{"name": "空间", "labels": ["宽敞", "局促"]}]
     with pytest.raises(ValueError, match="已经应用"):
         repository.apply_proposal(job["id"], expected_revision=1)
+
+
+def test_proposal_reports_deleted_source_snapshots(tmp_path):
+    path = tmp_path / "proposal-source-status.db"
+    seed(path)
+    repository = ReviewAnalysisRepository(path)
+    assets = ReviewAssetRepository(path)
+    job = repository.create_job_with_snapshot(command(), snapshots)
+    repository.save_proposal(
+        job["id"],
+        {
+            "criteria": [
+                {
+                    "name": "空间",
+                    "labels": ["宽敞", "局促"],
+                    "similar_terms": [],
+                    "basis": "空间评价",
+                    "evidence": ["空间宽敞"],
+                }
+            ]
+        },
+        source_review_count=2,
+        sample_review_count=2,
+    )
+    repository.set_job_state(job["id"], "completed")
+    snapshot = repository.pending_review_snapshots(job["id"])[0]
+    detail = assets.get_asset(snapshot["source_asset_id"])
+
+    ReviewAssetService(assets).delete_asset(
+        snapshot["source_asset_id"],
+        DeleteAssetBody(
+            expected_content_hash=detail["content_hash"],
+            confirmed_review_id=detail["review_id"],
+            reason="验证准则发现历史来源状态",
+            confirm=True,
+        ),
+    )
+
+    assert repository.get_proposal(job["id"])["source_deleted_count"] == 1
 
 
 def test_proposal_rejects_schema_changed_after_discovery(tmp_path):
@@ -416,10 +464,51 @@ def test_combined_criterion_and_label_filter_matches_same_annotation(tmp_path):
         output_tokens=1,
         cached_tokens=0,
     )
-    repository.mark_review_succeeded(job["id"], row["review_id"], result["id"], cached=False)
+    repository.mark_review_succeeded(
+        job["id"], row["snapshot_id"], result["id"], cached=False
+    )
 
     filtered = repository.list_annotations(
         "p1", job_id=job["id"], criterion="空间", label="差"
     )
 
     assert filtered["total"] == 0
+
+
+def test_shared_cached_annotation_detail_uses_snapshot_identity(tmp_path):
+    path = tmp_path / "annotation-detail.db"
+    seed(path)
+    repository = ReviewAnalysisRepository(path)
+    criteria = [CriterionSnapshot(name="空间", labels=["好", "差"])]
+    job = repository.create_job_with_snapshot(
+        command(
+            job_type="review_annotation",
+            criteria=criteria,
+            schema_fingerprint=schema_fingerprint(criteria),
+        ),
+        snapshots,
+    )
+    rows = repository.pending_review_snapshots(job["id"])
+    result = repository.save_result(
+        content_hash=rows[0]["content_hash"],
+        schema_fingerprint=job["schema_fingerprint"],
+        model=job["model"],
+        prompt_version="v1",
+        prompt_sha256="a" * 64,
+        result={"annotations": [], "unmatched_evidence": []},
+        input_tokens=1,
+        output_tokens=1,
+        cached_tokens=0,
+    )
+    for row in rows:
+        repository.mark_review_succeeded(
+            job["id"], row["snapshot_id"], result["id"], cached=True
+        )
+
+    selected = repository.get_annotation(
+        "p1", result["id"], rows[1]["snapshot_id"]
+    )
+
+    assert selected["snapshot_id"] == rows[1]["snapshot_id"]
+    assert selected["review_id"] == rows[1]["review_id"]
+    assert selected["analysis_text"] == rows[1]["analysis_text"]

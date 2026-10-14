@@ -89,6 +89,12 @@ async function remove() {
       </header>
 
       <div class="asset-drawer__body">
+        <div v-if="workspace.error.value" class="notice error" role="alert">
+          <span>{{ workspace.error.value }}</span>
+          <button class="text-button" @click="workspace.refreshCurrentDetail">
+            刷新详情
+          </button>
+        </div>
         <section aria-labelledby="raw-data-title">
           <h3 id="raw-data-title">只读原始数据</h3>
           <p class="section-help">原始评论不可修改；这里只提供完整复核。</p>

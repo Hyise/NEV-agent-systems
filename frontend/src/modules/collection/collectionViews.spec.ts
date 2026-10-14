@@ -8,6 +8,8 @@ import importerSource from "./components/ReviewImportDialog.vue?raw";
 import assetsSource from "./views/AssetsView.vue?raw";
 import researchSource from "./views/ResearchHandoffView.vue?raw";
 import mcdmSource from "../mcdm/McdmWorkbench.vue?raw";
+import annotationSource from "../mcdm/review-analysis/components/AnnotationResults.vue?raw";
+import proposalSource from "../mcdm/review-analysis/components/CriteriaProposalEditor.vue?raw";
 
 const overview = (
   series: number,
@@ -89,6 +91,10 @@ describe("guided collection views", () => {
     expect(drawerSource).not.toContain('v-model="original_review');
     expect(drawerSource).toContain("删除原因");
     expect(drawerSource).toContain("输入评论 ID");
+    expect(drawerSource).toContain('role="alert"');
+    expect(drawerSource).toContain("refreshCurrentDetail");
+    expect(assetsSource).toContain("删除记录");
+    expect(assetsSource).toContain("允许未来重新采集");
   });
 
   it("documents the import steps, line feedback, and dialog accessibility", () => {
@@ -116,6 +122,7 @@ describe("guided collection views", () => {
     expect(shellSource).toContain("获取数据");
     expect(shellSource).toContain("管理数据");
     expect(shellSource).toContain("用于研究");
+    expect(shellSource).toContain("assetWorkspace.refresh()");
   });
 
   it("hands server summary to two explicit research intents without creating tasks", () => {
@@ -125,11 +132,20 @@ describe("guided collection views", () => {
     expect(researchSource).toContain("不可用原因");
     expect(mcdmSource).toContain("parseMcdmIntent");
     expect(mcdmSource).toContain("请确认本次研究的车系来源范围");
+    expect(mcdmSource).toContain("当前是准则草稿");
+    expect(mcdmSource).toContain("当前是冻结准则版本");
     expect(mcdmSource).not.toContain(
       "handoffIntent.value === 'criteria-discovery' ? reviewAnalysisWorkspace.createDiscovery",
     );
     expect(mcdmSource).not.toContain(
       "handoffIntent.value === 'review-annotation' ? reviewAnalysisWorkspace.createAnnotation",
     );
+  });
+
+  it("shows deleted-source traceability in historical research", () => {
+    expect(annotationSource).toContain("源评论已删除");
+    expect(annotationSource).toContain("source_deleted");
+    expect(proposalSource).toContain("source_deleted_count");
+    expect(proposalSource).toContain("不可变快照证据");
   });
 });

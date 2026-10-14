@@ -59,9 +59,9 @@ class CriteriaDiscoveryPipeline:
             batch_rows.append(rows[offset:offset + len(texts)])
             offset += len(texts)
         checkpoints = self.repository.ensure_discovery_batches(job_id, batch_rows)
-        by_id = {row["review_id"]: row for row in rows}
+        by_id = {row["snapshot_id"]: row for row in rows}
         for checkpoint in checkpoints:
-            texts = [by_id[review_id]["analysis_text"] for review_id in checkpoint["review_ids"]]
+            texts = [by_id[snapshot_id]["analysis_text"] for snapshot_id in checkpoint["review_ids"]]
             if checkpoint["status"] == "succeeded":
                 all_clues.extend(checkpoint["clues"] or [])
                 continue

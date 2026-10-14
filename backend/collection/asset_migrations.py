@@ -31,6 +31,69 @@ def _add_column(
         connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {declaration}")
 
 
+def _rebuild_analysis_snapshots_with_stable_identity(
+    connection: sqlite3.Connection,
+) -> None:
+    table = "review_analysis_job_reviews"
+    columns = _columns(connection, table)
+    if not columns or "snapshot_id" in columns:
+        return
+
+    connection.execute("DROP INDEX IF EXISTS ix_review_analysis_job_reviews_pending")
+    connection.execute(
+        f"ALTER TABLE {table} RENAME TO review_analysis_job_reviews_legacy"
+    )
+    connection.execute(
+        """
+        CREATE TABLE review_analysis_job_reviews (
+            job_id TEXT NOT NULL
+                REFERENCES review_analysis_jobs(id) ON DELETE CASCADE,
+            snapshot_id TEXT NOT NULL,
+            source_asset_id TEXT,
+            review_id TEXT NOT NULL,
+            series_id TEXT NOT NULL,
+            series_name_snapshot TEXT NOT NULL,
+            content_hash TEXT NOT NULL,
+            analysis_text TEXT NOT NULL,
+            ordinal INTEGER NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            attempt_count INTEGER NOT NULL DEFAULT 0,
+            annotation_id TEXT,
+            error_code TEXT,
+            error_message TEXT,
+            PRIMARY KEY(job_id, snapshot_id),
+            UNIQUE(job_id, ordinal)
+        )
+        """
+    )
+
+    def existing(name: str, fallback: str) -> str:
+        return name if name in columns else fallback
+
+    connection.execute(
+        f"""
+        INSERT INTO review_analysis_job_reviews (
+            job_id, snapshot_id, source_asset_id, review_id, series_id,
+            series_name_snapshot, content_hash, analysis_text, ordinal,
+            status, attempt_count, annotation_id, error_code, error_message
+        )
+        SELECT job_id, review_id, source_asset_id, review_id, series_id,
+               series_name_snapshot, content_hash, analysis_text, ordinal,
+               {existing('status', "'pending'")},
+               {existing('attempt_count', '0')},
+               {existing('annotation_id', 'NULL')},
+               {existing('error_code', 'NULL')},
+               {existing('error_message', 'NULL')}
+        FROM review_analysis_job_reviews_legacy
+        """
+    )
+    connection.execute("DROP TABLE review_analysis_job_reviews_legacy")
+    connection.execute(
+        """CREATE INDEX ix_review_analysis_job_reviews_pending
+           ON review_analysis_job_reviews(job_id, status, ordinal)"""
+    )
+
+
 def ensure_review_asset_schema(connection: sqlite3.Connection) -> None:
     """Migrate review asset storage atomically without rewriting source payloads."""
 
@@ -52,6 +115,7 @@ def ensure_review_asset_schema(connection: sqlite3.Connection) -> None:
             "source_asset_id",
             "TEXT",
         )
+        _rebuild_analysis_snapshots_with_stable_identity(connection)
 
         connection.execute(
             """

@@ -2,7 +2,7 @@ import sqlite3
 
 import pytest
 
-from backend.collection.asset_domain import AssetConflict
+from backend.collection.asset_domain import AssetConflict, ImportValidationError
 from backend.collection.asset_repository import ReviewAssetRepository
 from backend.collection.asset_service import ReviewAssetService
 from backend.tests.test_review_asset_repository import seed_asset_database
@@ -75,6 +75,40 @@ def test_validate_import_enforces_batch_and_json_limits(
 
     assert result["importable"] == []
     assert result["errors"][0]["type"] == error_type
+
+
+def test_validate_import_measures_items_instead_of_trusting_declared_size(tmp_path):
+    service, repository = service_for(tmp_path)
+    items = [valid_item(content="大" * (8 * 1024 * 1024))]
+
+    validation = service.validate_import(items, payload_bytes=1)
+
+    assert validation["importable"] == []
+    assert validation["errors"][0]["type"] == "payload_too_large"
+    with pytest.raises(ImportValidationError):
+        service.import_validated(
+            items,
+            payload_bytes=1,
+            validation_fingerprint=validation["validation_fingerprint"],
+        )
+    assert repository.list_assets(
+        source_kind="manual_import", page=1, page_size=20
+    )["total"] == 0
+
+
+@pytest.mark.parametrize(
+    "source_url",
+    ["https://", "https:// bad-host/review", "https://example.test/has space"],
+)
+def test_validate_import_rejects_malformed_https_urls(tmp_path, source_url):
+    service, _ = service_for(tmp_path)
+
+    result = service.validate_import(
+        [{**valid_item(), "source_url": source_url}], payload_bytes=1024
+    )
+
+    assert result["importable"] == []
+    assert result["errors"][0]["type"] == "invalid_item"
 
 
 def test_confirm_import_preserves_structure_and_isolates_manual_ids(tmp_path):

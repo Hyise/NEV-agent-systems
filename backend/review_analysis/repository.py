@@ -55,12 +55,13 @@ class ReviewAnalysisRepository:
                 );
                 CREATE TABLE IF NOT EXISTS review_analysis_job_reviews (
                     job_id TEXT NOT NULL REFERENCES review_analysis_jobs(id) ON DELETE CASCADE,
+                    snapshot_id TEXT NOT NULL, source_asset_id TEXT,
                     review_id TEXT NOT NULL, series_id TEXT NOT NULL,
                     series_name_snapshot TEXT NOT NULL, content_hash TEXT NOT NULL,
                     analysis_text TEXT NOT NULL, ordinal INTEGER NOT NULL,
                     status TEXT NOT NULL DEFAULT 'pending', attempt_count INTEGER NOT NULL DEFAULT 0,
                     annotation_id TEXT, error_code TEXT, error_message TEXT,
-                    PRIMARY KEY(job_id,review_id), UNIQUE(job_id,ordinal)
+                    PRIMARY KEY(job_id,snapshot_id), UNIQUE(job_id,ordinal)
                 );
                 CREATE TABLE IF NOT EXISTS criteria_proposals (
                     job_id TEXT PRIMARY KEY REFERENCES review_analysis_jobs(id) ON DELETE CASCADE,
@@ -243,10 +244,11 @@ class ReviewAnalysisRepository:
             for snapshot in snapshots:
                 connection.execute(
                     """INSERT INTO review_analysis_job_reviews (
-                        job_id,source_asset_id,review_id,series_id,series_name_snapshot,
+                        job_id,snapshot_id,source_asset_id,review_id,series_id,series_name_snapshot,
                         content_hash,analysis_text,ordinal
-                    ) VALUES (?,?,?,?,?,?,?,?)""",
-                    (job_id, snapshot.source_asset_id, snapshot.review_id,
+                    ) VALUES (?,?,?,?,?,?,?,?,?)""",
+                    (job_id, snapshot.source_asset_id or snapshot.review_id,
+                     snapshot.source_asset_id, snapshot.review_id,
                      snapshot.series_id, snapshot.series_name,
                      snapshot.content_hash, snapshot.analysis_text, snapshot.ordinal),
                 )
@@ -430,19 +432,19 @@ class ReviewAnalysisRepository:
                 (completion.input_tokens, completion.output_tokens, completion.cached_tokens, _now(), job_id),
             )
 
-    def mark_review_succeeded(self, job_id: str, review_id: str, annotation_id: str, *, cached: bool, input_tokens: int = 0, output_tokens: int = 0, cached_tokens: int = 0):
+    def mark_review_succeeded(self, job_id: str, snapshot_id: str, annotation_id: str, *, cached: bool, input_tokens: int = 0, output_tokens: int = 0, cached_tokens: int = 0):
         status = "cached" if cached else "succeeded"
         with self.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            count = connection.execute("UPDATE review_analysis_job_reviews SET status=?,annotation_id=?,attempt_count=attempt_count+1,error_code=NULL,error_message=NULL WHERE job_id=? AND review_id=?", (status, annotation_id, job_id, review_id)).rowcount
-            if count != 1: raise KeyError(review_id)
+            count = connection.execute("UPDATE review_analysis_job_reviews SET status=?,annotation_id=?,attempt_count=attempt_count+1,error_code=NULL,error_message=NULL WHERE job_id=? AND snapshot_id=?", (status, annotation_id, job_id, snapshot_id)).rowcount
+            if count != 1: raise KeyError(snapshot_id)
             connection.execute("UPDATE review_analysis_jobs SET processed_count=processed_count+1,success_count=success_count+1,cache_hit_count=cache_hit_count+?,input_tokens=input_tokens+?,output_tokens=output_tokens+?,cached_tokens=cached_tokens+?,updated_at=? WHERE id=?", (int(cached), input_tokens, output_tokens, cached_tokens, _now(), job_id))
 
-    def mark_review_failed(self, job_id: str, review_id: str, error_code: str, error_message: str):
+    def mark_review_failed(self, job_id: str, snapshot_id: str, error_code: str, error_message: str):
         with self.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            count = connection.execute("UPDATE review_analysis_job_reviews SET status='failed',attempt_count=attempt_count+1,error_code=?,error_message=? WHERE job_id=? AND review_id=?", (error_code, error_message[:500], job_id, review_id)).rowcount
-            if count != 1: raise KeyError(review_id)
+            count = connection.execute("UPDATE review_analysis_job_reviews SET status='failed',attempt_count=attempt_count+1,error_code=?,error_message=? WHERE job_id=? AND snapshot_id=?", (error_code, error_message[:500], job_id, snapshot_id)).rowcount
+            if count != 1: raise KeyError(snapshot_id)
             connection.execute("UPDATE review_analysis_jobs SET processed_count=processed_count+1,failed_count=failed_count+1,updated_at=? WHERE id=?", (_now(), job_id))
 
     def save_proposal(self, job_id: str, proposal: dict[str, Any], *, source_review_count: int, sample_review_count: int, completion=None):
@@ -458,8 +460,18 @@ class ReviewAnalysisRepository:
     def get_proposal(self, job_id: str):
         with self.connect() as connection:
             row = connection.execute("SELECT * FROM criteria_proposals WHERE job_id=?", (job_id,)).fetchone()
+            source_deleted_count = connection.execute(
+                """SELECT COUNT(*)
+                   FROM review_analysis_job_reviews snapshot
+                   LEFT JOIN reviews current
+                     ON current.asset_id=snapshot.source_asset_id
+                   WHERE snapshot.job_id=?
+                     AND snapshot.source_asset_id IS NOT NULL
+                     AND current.asset_id IS NULL""",
+                (job_id,),
+            ).fetchone()[0]
         if row is None: return None
-        result = dict(row); result["proposal"] = json.loads(result.pop("proposal_json")); return result
+        result = dict(row); result["proposal"] = json.loads(result.pop("proposal_json")); result["source_deleted_count"] = source_deleted_count; return result
 
     def apply_proposal(self, job_id: str, expected_revision: int, edited_criteria=None):
         with self.connect() as connection:
@@ -515,11 +527,11 @@ class ReviewAnalysisRepository:
             for ordinal, row in enumerate(failed):
                 connection.execute(
                     """INSERT INTO review_analysis_job_reviews (
-                        job_id,source_asset_id,review_id,series_id,
+                        job_id,snapshot_id,source_asset_id,review_id,series_id,
                         series_name_snapshot,content_hash,analysis_text,ordinal
-                    ) VALUES (?,?,?,?,?,?,?,?)""",
+                    ) VALUES (?,?,?,?,?,?,?,?,?)""",
                     (
-                        new_id,row["source_asset_id"],row["review_id"],
+                        new_id,row["snapshot_id"],row["source_asset_id"],row["review_id"],
                         row["series_id"],row["series_name_snapshot"],
                         row["content_hash"],row["analysis_text"],ordinal,
                     ),
@@ -562,7 +574,7 @@ class ReviewAnalysisRepository:
             existing = connection.execute("SELECT COUNT(*) FROM review_analysis_discovery_batches WHERE job_id=?", (job_id,)).fetchone()[0]
             if not existing:
                 for index, batch in enumerate(batches):
-                    connection.execute("INSERT INTO review_analysis_discovery_batches (job_id,batch_index,review_ids_json) VALUES (?,?,?)", (job_id,index,_json([row["review_id"] for row in batch])))
+                    connection.execute("INSERT INTO review_analysis_discovery_batches (job_id,batch_index,review_ids_json) VALUES (?,?,?)", (job_id,index,_json([row["snapshot_id"] for row in batch])))
             rows = connection.execute("SELECT * FROM review_analysis_discovery_batches WHERE job_id=? ORDER BY batch_index", (job_id,)).fetchall()
         return [{**dict(row), "review_ids": json.loads(row["review_ids_json"]), "clues": json.loads(row["clues_json"]) if row["clues_json"] else None} for row in rows]
 
@@ -589,9 +601,15 @@ class ReviewAnalysisRepository:
                 )
         return bool(count)
 
-    def get_annotation(self, project_id: str, annotation_id: str):
+    def get_annotation(
+        self, project_id: str, annotation_id: str, snapshot_id: str | None = None
+    ):
         with self.connect() as connection:
-            row=connection.execute("""SELECT a.*,r.review_id,r.series_id,
+            snapshot_clause = " AND r.snapshot_id=?" if snapshot_id else ""
+            params = [annotation_id, project_id]
+            if snapshot_id:
+                params.append(snapshot_id)
+            row=connection.execute("""SELECT a.*,r.snapshot_id,r.review_id,r.series_id,
                        r.series_name_snapshot,r.analysis_text,r.job_id,r.source_asset_id,
                        CASE WHEN r.source_asset_id IS NOT NULL
                                   AND current.asset_id IS NULL
@@ -599,7 +617,7 @@ class ReviewAnalysisRepository:
                 FROM review_annotation_results a JOIN review_analysis_job_reviews r ON r.annotation_id=a.id
                 JOIN review_analysis_jobs j ON j.id=r.job_id
                 LEFT JOIN reviews current ON current.asset_id=r.source_asset_id
-                WHERE a.id=? AND j.project_id=? LIMIT 1""",(annotation_id,project_id)).fetchone()
+                WHERE a.id=? AND j.project_id=?""" + snapshot_clause + " LIMIT 1", params).fetchone()
         if row is None:return None
         result=dict(row);result["series_name"]=result.pop("series_name_snapshot");result["result"]=json.loads(result.pop("result_json"));result["source_deleted"]=bool(result["source_deleted"]);return result
 

@@ -29,7 +29,7 @@ class ReviewAnnotationPipeline:
                 row["content_hash"], job["schema_fingerprint"], job["model"], prompt.manifest.sha256,
             )
             if cached is not None:
-                self.repository.mark_review_succeeded(job_id, row["review_id"], cached["id"], cached=True)
+                self.repository.mark_review_succeeded(job_id, row["snapshot_id"], cached["id"], cached=True)
                 continue
             try:
                 result, completion = self.executor.call(
@@ -40,7 +40,7 @@ class ReviewAnnotationPipeline:
                 )
             except (LlmInvalidResponseError, LlmTransientError) as exc:
                 code = "invalid_response" if isinstance(exc, LlmInvalidResponseError) else "transient_exhausted"
-                self.repository.mark_review_failed(job_id, row["review_id"], code, str(exc))
+                self.repository.mark_review_failed(job_id, row["snapshot_id"], code, str(exc))
                 continue
             saved = self.repository.save_result(
                 content_hash=row["content_hash"], schema_fingerprint=job["schema_fingerprint"],
@@ -50,7 +50,7 @@ class ReviewAnnotationPipeline:
                 cached_tokens=completion.cached_tokens,
             )
             self.repository.mark_review_succeeded(
-                job_id, row["review_id"], saved["id"], cached=False,
+                job_id, row["snapshot_id"], saved["id"], cached=False,
                 input_tokens=completion.input_tokens, output_tokens=completion.output_tokens,
                 cached_tokens=completion.cached_tokens,
             )

@@ -127,6 +127,19 @@ const mobileMenuButton = ref<HTMLButtonElement>();
 const route = useRoute();
 const router = useRouter();
 const handoffIntent = ref<McdmIntent | null>(null);
+const handoffMessage = computed(() => {
+  if (!handoffIntent.value || !overview.value) return "";
+  const draft = overview.value.schema.status === "draft";
+  if (handoffIntent.value === "criteria-discovery" && !draft) {
+    return "当前是冻结准则版本，不能执行准则发现。请切换或派生一个草稿版本后再继续。";
+  }
+  if (handoffIntent.value === "review-annotation" && draft) {
+    return "当前是准则草稿，不能执行逐条评论标注。请先审核并冻结准则，或切换到冻结版本。";
+  }
+  return `已定位到${
+    handoffIntent.value === "criteria-discovery" ? "准则发现" : "逐条评论标注"
+  }。 请确认本次研究的车系来源范围，再由你手动启动任务。`;
+});
 
 function closeMobileNavigation() {
   const shouldRestoreFocus = mobileNav.value;
@@ -320,13 +333,7 @@ onBeforeUnmount(() =>
               class="notice info handoff-intent"
               role="status"
             >
-              <span>
-                已定位到{{
-                  handoffIntent === "criteria-discovery"
-                    ? "准则发现"
-                    : "逐条评论标注"
-                }}。 请确认本次研究的车系来源范围，再由你手动启动任务。
-              </span>
+              <span>{{ handoffMessage }}</span>
               <button class="text-button" @click="handoffIntent = null">
                 知道了
               </button>

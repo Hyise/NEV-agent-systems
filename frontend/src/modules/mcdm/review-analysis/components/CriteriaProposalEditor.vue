@@ -32,6 +32,14 @@ async function apply() {
     >
       读取候选方案
     </button>
+    <p
+      v-if="workspace.proposal.value?.source_deleted_count"
+      class="notice warning"
+      role="status"
+    >
+      有 {{ workspace.proposal.value.source_deleted_count }}
+      条来源评论已删除；候选准则仍使用任务创建时保存的不可变快照证据。
+    </p>
     <div v-if="workspace.proposalDraft.value.length" class="proposal-list">
       <article
         v-for="(criterion, index) in workspace.proposalDraft.value"

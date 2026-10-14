@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Annotated, Any, Literal
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -79,8 +80,17 @@ class ImportReviewItem(StrictModel):
     @field_validator("source_url")
     @classmethod
     def https_source_url(cls, value: str | None) -> str | None:
-        if value is not None and not value.startswith("https://"):
-            raise ValueError("来源网址必须使用https")
+        if value is not None:
+            try:
+                parsed = urlsplit(value)
+            except ValueError as error:
+                raise ValueError("来源网址格式无效") from error
+            if (
+                parsed.scheme != "https"
+                or not parsed.hostname
+                or any(character.isspace() for character in value)
+            ):
+                raise ValueError("来源网址必须是有效的https地址")
         return value
 
 
