@@ -321,7 +321,12 @@ def test_dynamic_review_metadata_is_updated_without_content_change_event(tmp_pat
         "job-1", series, [second], 3, "2026-10-08T08:03:00+00:00"
     )
 
-    assert result == {"saved": 0, "duplicates": 1, "changed": 0}
+    assert result == {
+        "saved": 0,
+        "duplicates": 1,
+        "changed": 0,
+        "deleted_skipped": 0,
+    }
     assert repository.list_events("job-1") == []
     assert repository.get_review("review-1")["original_review"]["viewcount"] == 20
 
@@ -418,3 +423,69 @@ def test_detail_and_export_return_lossless_original_review(tmp_path):
     assert "original_review" not in summary
     assert detail["original_review"] == review.original_review
     assert exported == [detail]
+
+
+def test_new_review_gets_stable_asset_identity_and_default_metadata(tmp_path):
+    repository = make_repository(tmp_path)
+    series = make_series()
+    create_job(repository)
+    repository.save_discovery("job-1", [series], "2026-10-08T08:01:00+00:00")
+
+    repository.save_review_page(
+        "job-1", series, [make_review()], 2, "2026-10-08T08:02:00+00:00"
+    )
+
+    with repository.connect() as connection:
+        review = connection.execute(
+            "SELECT asset_id, source_kind FROM reviews WHERE review_id='review-1'"
+        ).fetchone()
+        metadata = connection.execute(
+            "SELECT analysis_enabled, revision FROM review_asset_metadata "
+            "WHERE asset_id='autohome:review-1'"
+        ).fetchone()
+    assert dict(review) == {
+        "asset_id": "autohome:review-1",
+        "source_kind": "autohome",
+    }
+    assert dict(metadata) == {"analysis_enabled": 1, "revision": 1}
+
+
+def test_unreleased_deletion_tombstone_blocks_silent_recollection(tmp_path):
+    repository = make_repository(tmp_path)
+    series = make_series()
+    create_job(repository)
+    repository.save_discovery("job-1", [series], "2026-10-08T08:01:00+00:00")
+    with repository.connect() as connection:
+        connection.execute(
+            """
+            INSERT INTO review_deletion_audits (
+                audit_id, asset_id, source_kind, platform, review_id, series_id,
+                series_name_snapshot, content_hash, reason, deleted_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "audit-1",
+                "autohome:review-1",
+                "autohome",
+                "autohome",
+                "review-1",
+                "5769",
+                "Model Y",
+                "a" * 64,
+                "用户删除",
+                "2026-10-08T08:01:30+00:00",
+            ),
+        )
+
+    result = repository.save_review_page(
+        "job-1", series, [make_review()], 2, "2026-10-08T08:02:00+00:00"
+    )
+
+    assert result == {
+        "saved": 0,
+        "duplicates": 0,
+        "changed": 0,
+        "deleted_skipped": 1,
+    }
+    assert repository.get_review("review-1") is None
+    assert repository.get_job("job-1")["deleted_review_skip_count"] == 1

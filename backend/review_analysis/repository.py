@@ -11,6 +11,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+from backend.collection.asset_migrations import ensure_review_asset_schema
+
 from .domain import CreateJobCommand, ReviewAsset, ReviewSnapshot
 
 
@@ -91,6 +93,7 @@ class ReviewAnalysisRepository:
             columns = {row[1] for row in connection.execute("PRAGMA table_info(review_analysis_jobs)")}
             if "schema_revision" not in columns:
                 connection.execute("ALTER TABLE review_analysis_jobs ADD COLUMN schema_revision INTEGER")
+            ensure_review_asset_schema(connection)
 
     @contextmanager
     def connect(self):

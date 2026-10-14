@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
+from .asset_migrations import ensure_review_asset_schema
 from .catalog_domain import CatalogRunConflict, CatalogSelectionError
 from .domain import (
     CollectedReview,
@@ -122,6 +123,7 @@ class CollectionRepository:
                     ON collection_events(job_id, id);
                 """
             )
+            ensure_review_asset_schema(connection)
 
     @contextmanager
     def connect(self):
@@ -535,13 +537,26 @@ class CollectionRepository:
         next_page: int,
         saved_at: str,
     ) -> dict[str, int]:
-        saved = duplicates = changed = 0
+        saved = duplicates = changed = deleted_skipped = 0
         with self.connect() as connection:
             if not connection.execute(
                 "SELECT 1 FROM collection_jobs WHERE id=?", (job_id,)
             ).fetchone():
                 raise KeyError(job_id)
             for review in reviews:
+                deletion = connection.execute(
+                    """
+                    SELECT recollection_allowed_at
+                    FROM review_deletion_audits
+                    WHERE platform=? AND review_id=?
+                    ORDER BY deleted_at DESC, audit_id DESC
+                    LIMIT 1
+                    """,
+                    (review.platform, review.review_id),
+                ).fetchone()
+                if deletion is not None and deletion["recollection_allowed_at"] is None:
+                    deleted_skipped += 1
+                    continue
                 existing = connection.execute(
                     "SELECT content_hash,original_review_json FROM reviews "
                     "WHERE platform=? AND review_id=?",
@@ -550,7 +565,11 @@ class CollectionRepository:
                 if existing is None:
                     connection.execute(
                         """
-                        INSERT INTO reviews VALUES (?,?,?,?,?,?,?,?,?)
+                        INSERT INTO reviews (
+                            platform, review_id, series_id, series_name_snapshot,
+                            source_url, original_review_json, content_hash,
+                            first_collected_at, last_confirmed_at, asset_id, source_kind
+                        ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
                         """,
                         (
                             review.platform,
@@ -562,7 +581,18 @@ class CollectionRepository:
                             review.content_hash,
                             saved_at,
                             saved_at,
+                            f"autohome:{review.review_id}",
+                            "autohome",
                         ),
+                    )
+                    connection.execute(
+                        """
+                        INSERT INTO review_asset_metadata (
+                            asset_id, analysis_enabled, tags_json, note, revision,
+                            created_at, updated_at
+                        ) VALUES (?,1,'[]','',1,?,?)
+                        """,
+                        (f"autohome:{review.review_id}", saved_at, saved_at),
                     )
                     saved += 1
                     continue
@@ -616,6 +646,7 @@ class CollectionRepository:
                 UPDATE collection_jobs SET
                     current_series_id=?,current_series_name=?,current_page=?,
                     saved_count=saved_count+?,duplicate_count=duplicate_count+?,
+                    deleted_review_skip_count=deleted_review_skip_count+?,
                     last_success_at=?,updated_at=?
                 WHERE id=?
                 """,
@@ -625,12 +656,18 @@ class CollectionRepository:
                     next_page,
                     saved,
                     duplicates,
+                    deleted_skipped,
                     saved_at,
                     saved_at,
                     job_id,
                 ),
             )
-        return {"saved": saved, "duplicates": duplicates, "changed": changed}
+        return {
+            "saved": saved,
+            "duplicates": duplicates,
+            "changed": changed,
+            "deleted_skipped": deleted_skipped,
+        }
 
     def advance_series(
         self,
