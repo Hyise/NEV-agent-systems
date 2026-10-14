@@ -220,6 +220,7 @@ export function createAssetWorkspace(
       });
       if (!current(lifecycle) || request !== actionRequestId) return;
       await Promise.all([loadAssets(), loadSummary()]);
+      if (!current(lifecycle) || request !== actionRequestId) return;
       if (
         detailContext === detailContextId &&
         detail.value?.asset_id === assetId

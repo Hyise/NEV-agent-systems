@@ -161,9 +161,14 @@ def create_review_analysis_router(repository, service, settings) -> APIRouter:
 
     @router.get("/annotations/{annotation_id}")
     def annotation(
-        project_id: str, annotation_id: str, snapshot_id: str | None = None
+        project_id: str,
+        annotation_id: str,
+        job_id: str | None = None,
+        snapshot_id: str | None = None,
     ):
-        value = repository.get_annotation(project_id, annotation_id, snapshot_id)
+        value = repository.get_annotation(
+            project_id, annotation_id, job_id=job_id, snapshot_id=snapshot_id
+        )
         if value is None: raise HTTPException(404, "标注不存在")
         return value
 

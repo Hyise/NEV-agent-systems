@@ -323,6 +323,34 @@ describe("review asset workspace", () => {
     expect(client.getReviewAsset).toHaveBeenCalledTimes(1);
   });
 
+  it("does not reopen an asset when deactivated during the post-save refresh", async () => {
+    const lateList = deferred<Page<ReviewAssetSummary>>();
+    const lateSummary = deferred<typeof summary>();
+    const client = api({
+      listReviewAssets: vi.fn().mockReturnValue(lateList.promise),
+      getReviewAssetSummary: vi.fn().mockReturnValue(lateSummary.promise),
+    });
+    const workspace = createAssetWorkspace(client, false);
+    await workspace.openAsset("autohome:r1");
+
+    const saving = workspace.saveMetadata({
+      tags: ["重点"],
+      note: "保存后离开页面",
+      analysis_enabled: true,
+    });
+    await vi.waitFor(() => {
+      expect(client.listReviewAssets).toHaveBeenCalledTimes(1);
+      expect(client.getReviewAssetSummary).toHaveBeenCalledTimes(1);
+    });
+    workspace.deactivate();
+    lateList.resolve(resultPage([asset()]));
+    lateSummary.resolve(summary);
+    await saving;
+
+    expect(client.getReviewAsset).toHaveBeenCalledTimes(1);
+    expect(workspace.detailBusy.value).toBe(false);
+  });
+
   it("does not close a newer asset when an older deletion finishes late", async () => {
     const deleted = deferred<ReviewDeletion>();
     const client = api({

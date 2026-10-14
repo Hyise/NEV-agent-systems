@@ -67,7 +67,7 @@ const workspace = useReviewAnalysisWorkspace();
         <tbody>
           <tr
             v-for="row in workspace.annotations.value"
-            :key="row.snapshot_id ?? `${row.series_id}:${row.review_id}`"
+            :key="`${row.job_id}:${row.snapshot_id ?? `${row.series_id}:${row.review_id}`}`"
           >
             <td>{{ row.series_name }}</td>
             <td class="mono">{{ row.review_id }}</td>
@@ -80,7 +80,11 @@ const workspace = useReviewAnalysisWorkspace();
                 v-if="row.annotation_id"
                 class="text-button"
                 @click="
-                  workspace.openAnnotation(row.annotation_id, row.snapshot_id)
+                  workspace.openAnnotation(
+                    row.annotation_id,
+                    row.job_id,
+                    row.snapshot_id,
+                  )
                 "
               >
                 查看详情

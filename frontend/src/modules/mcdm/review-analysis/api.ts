@@ -29,6 +29,7 @@ export interface CriteriaProposal {
   source_deleted_count?: number;
 }
 export interface AnnotationRow {
+  job_id: string;
   snapshot_id?: string;
   annotation_id?: string;
   review_id: string;
@@ -104,11 +105,17 @@ export function createReviewAnalysisApi(fetcher = api) {
       request<PageResult<AnnotationRow>>(
         `${base(projectId)}/annotations?${new URLSearchParams(params)}`,
       ),
-    getAnnotation: (projectId: string, id: string, snapshotId?: string) =>
+    getAnnotation: (
+      projectId: string,
+      id: string,
+      jobId?: string,
+      snapshotId?: string,
+    ) =>
       request<AnnotationRow>(
-        `${base(projectId)}/annotations/${id}${
-          snapshotId ? `?snapshot_id=${encodeURIComponent(snapshotId)}` : ""
-        }`,
+        `${base(projectId)}/annotations/${id}?${new URLSearchParams({
+          ...(jobId ? { job_id: jobId } : {}),
+          ...(snapshotId ? { snapshot_id: snapshotId } : {}),
+        })}`,
       ),
     getSummary: (projectId: string, jobId = "") =>
       request<AnnotationSummary>(

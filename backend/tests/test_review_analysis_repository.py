@@ -506,9 +506,33 @@ def test_shared_cached_annotation_detail_uses_snapshot_identity(tmp_path):
         )
 
     selected = repository.get_annotation(
-        "p1", result["id"], rows[1]["snapshot_id"]
+        "p1", result["id"], snapshot_id=rows[1]["snapshot_id"]
     )
 
     assert selected["snapshot_id"] == rows[1]["snapshot_id"]
     assert selected["review_id"] == rows[1]["review_id"]
     assert selected["analysis_text"] == rows[1]["analysis_text"]
+
+    repository.set_job_state(job["id"], "completed")
+    repeated_job = repository.create_job_with_snapshot(
+        command(
+            job_type="review_annotation",
+            criteria=criteria,
+            schema_fingerprint=schema_fingerprint(criteria),
+        ),
+        snapshots,
+    )
+    repeated_rows = repository.pending_review_snapshots(repeated_job["id"])
+    repository.mark_review_succeeded(
+        repeated_job["id"], repeated_rows[0]["snapshot_id"], result["id"], cached=True
+    )
+
+    repeated = repository.get_annotation(
+        "p1",
+        result["id"],
+        repeated_job["id"],
+        repeated_rows[0]["snapshot_id"],
+    )
+
+    assert repeated["job_id"] == repeated_job["id"]
+    assert repeated["snapshot_id"] == repeated_rows[0]["snapshot_id"]

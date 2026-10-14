@@ -141,7 +141,7 @@
 - `GET /jobs`、`GET /jobs/{id}`：任务、进度、错误摘要与 token 用量。
 - `POST /jobs/{id}/pause|resume|cancel|retry-failures`：协作式控制或为失败项建立新快照。
 - `GET /jobs/{id}/proposal`、`POST /jobs/{id}/proposal/apply`：候选审核与 revision 锁应用；可提交人工编辑后的完整候选准则。
-- `GET /annotations`、`GET /annotations/{id}`、`GET /summary`：评论级结果、详情和基础计数；筛选不调用模型。
+- `GET /annotations`、`GET /annotations/{id}`、`GET /summary`：评论级结果、详情和基础计数；筛选不调用模型。打开详情时客户端必须把列表行的 `job_id` 与 `snapshot_id` 同时传给 `GET /annotations/{id}`，因为 `snapshot_id` 只在单个任务内唯一。
 
 未配置 Key 返回 503；项目/版本/任务不存在返回 404；版本状态、活动任务和 revision 冲突返回 409；空/重复选择、无评论或非法范围返回 422。评论标注输出中的 `criterion`、`label` 必须属于任务冻结快照，`evidence` 和 `unmatched_evidence` 必须为 `analysis_text` 原文子串。准则发现会逐项丢弃无法回溯到原文的证据和因此失去全部证据的线索/准则，归并结果按模型顺序去重并限制为前 20 个有效准则；若整批没有任何可追溯结果，任务仍判为无效响应。模型无效响应以 `invalid_response` 失败，临时网络或服务异常以 `transient` 暂停并允许继续。
 

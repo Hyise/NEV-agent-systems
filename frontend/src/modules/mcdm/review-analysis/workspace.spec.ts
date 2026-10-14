@@ -307,6 +307,7 @@ describe("review analysis workspace", () => {
     const oldActivation = workspace.activate();
     workspace.filters.value.job_id = "old-job";
     workspace.selectedAnnotation.value = {
+      job_id: "old-job",
       review_id: "old-review",
       series_id: "1",
       series_name: "旧车系",
@@ -364,6 +365,7 @@ describe("review analysis workspace", () => {
     await nextTick();
     resolveRows({ rows: [], total: 0, page: 1, page_size: 20 });
     resolveDetail({
+      job_id: "old-job",
       review_id: "old-review",
       series_id: "1",
       series_name: "旧车系",
@@ -375,6 +377,34 @@ describe("review analysis workspace", () => {
     expect(workspace.filters.value.job_id).toBe("");
     expect(workspace.annotations.value).toEqual([]);
     expect(workspace.selectedAnnotation.value).toBeNull();
+  });
+
+  it("opens annotation detail with its job-scoped snapshot identity", async () => {
+    const api = fakeApi();
+    api.getAnnotation.mockResolvedValue({
+      job_id: "job-2",
+      snapshot_id: "asset-1",
+      review_id: "review-1",
+      series_id: "1",
+      series_name: "车系一",
+      status: "cached",
+      annotation_count: 0,
+    });
+    const workspace = createReviewAnalysisWorkspace(
+      api,
+      ref("p1"),
+      ref("s1"),
+      ref("frozen"),
+    );
+
+    await workspace.openAnnotation("annotation-1", "job-2", "asset-1");
+
+    expect(api.getAnnotation).toHaveBeenCalledWith(
+      "p1",
+      "annotation-1",
+      "job-2",
+      "asset-1",
+    );
   });
 
   it("surfaces proposal conflicts without discarding local edits", async () => {

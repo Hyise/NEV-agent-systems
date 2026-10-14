@@ -602,12 +602,20 @@ class ReviewAnalysisRepository:
         return bool(count)
 
     def get_annotation(
-        self, project_id: str, annotation_id: str, snapshot_id: str | None = None
+        self,
+        project_id: str,
+        annotation_id: str,
+        job_id: str | None = None,
+        snapshot_id: str | None = None,
     ):
         with self.connect() as connection:
-            snapshot_clause = " AND r.snapshot_id=?" if snapshot_id else ""
+            identity_clause = ""
             params = [annotation_id, project_id]
+            if job_id:
+                identity_clause += " AND r.job_id=?"
+                params.append(job_id)
             if snapshot_id:
+                identity_clause += " AND r.snapshot_id=?"
                 params.append(snapshot_id)
             row=connection.execute("""SELECT a.*,r.snapshot_id,r.review_id,r.series_id,
                        r.series_name_snapshot,r.analysis_text,r.job_id,r.source_asset_id,
@@ -617,7 +625,7 @@ class ReviewAnalysisRepository:
                 FROM review_annotation_results a JOIN review_analysis_job_reviews r ON r.annotation_id=a.id
                 JOIN review_analysis_jobs j ON j.id=r.job_id
                 LEFT JOIN reviews current ON current.asset_id=r.source_asset_id
-                WHERE a.id=? AND j.project_id=?""" + snapshot_clause + " LIMIT 1", params).fetchone()
+                WHERE a.id=? AND j.project_id=?""" + identity_clause + " LIMIT 1", params).fetchone()
         if row is None:return None
         result=dict(row);result["series_name"]=result.pop("series_name_snapshot");result["result"]=json.loads(result.pop("result_json"));result["source_deleted"]=bool(result["source_deleted"]);return result
 
