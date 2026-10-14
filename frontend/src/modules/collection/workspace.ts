@@ -1,5 +1,4 @@
 import {
-  computed,
   inject,
   onActivated,
   onBeforeUnmount,
@@ -16,12 +15,9 @@ import {
   type CollectionJobDetail,
   type CollectionOverview,
   type Page as ResultPage,
-  type ReviewDetail,
-  type ReviewSummary,
-  type SeriesRow,
 } from "./api";
 
-export type CollectionPage = "overview" | "jobs" | "series" | "reviews";
+export type CollectionPage = "acquire" | "assets" | "research";
 
 const RUNNING = new Set(["queued", "discovering", "collecting"]);
 const POLL_INTERVAL_MS = 2_000;
@@ -33,48 +29,24 @@ const emptyJobs = (): ResultPage<CollectionJob> => ({
   page_size: 20,
 });
 
-const emptyPage = <T>(): ResultPage<T> => ({
-  rows: [],
-  total: 0,
-  page: 1,
-  page_size: 20,
-});
-
 export function createCollectionWorkspace(
   client: CollectionApi = collectionApi,
   registerLifecycle = true,
 ) {
-  const page = ref<CollectionPage>("overview");
+  const page = ref<CollectionPage>("acquire");
   const overview = ref<CollectionOverview | null>(null);
   const jobs = ref<ResultPage<CollectionJob>>(emptyJobs());
+  const selectedJob = ref<CollectionJobDetail | null>(null);
   const busy = ref(false);
   const actionBusy = ref(false);
+  const jobDetailBusy = ref(false);
   const error = ref("");
   const mobileNav = ref(false);
-  const series = ref<ResultPage<SeriesRow>>(emptyPage());
-  const reviews = ref<ResultPage<ReviewSummary>>(emptyPage());
-  const selectedSeries = ref<SeriesRow | null>(null);
-  const reviewDetail = ref<ReviewDetail | null>(null);
-  const selectedJob = ref<CollectionJobDetail | null>(null);
-  const jobDetailBusy = ref(false);
-  const seriesQuery = ref("");
-  const seriesPage = ref(1);
-  const reviewPage = ref(1);
-  const dataBusy = ref(false);
-  const selectedSeriesExportUrl = computed(() =>
-    selectedSeries.value
-      ? `/api/collection/export?series_id=${encodeURIComponent(selectedSeries.value.series_id)}`
-      : "",
-  );
 
   let active = false;
   let requestId = 0;
-  let pollTimer: ReturnType<typeof setTimeout> | undefined;
-  let searchTimer: ReturnType<typeof setTimeout> | undefined;
-  let seriesRequestId = 0;
-  let reviewRequestId = 0;
-  let detailRequestId = 0;
   let jobDetailRequestId = 0;
+  let pollTimer: ReturnType<typeof setTimeout> | undefined;
 
   function clearPoll() {
     if (pollTimer !== undefined) clearTimeout(pollTimer);
@@ -123,85 +95,6 @@ export function createCollectionWorkspace(
   function navigate(nextPage: CollectionPage) {
     page.value = nextPage;
     mobileNav.value = false;
-    if (nextPage === "series") void loadSeries();
-    if (nextPage === "reviews" && selectedSeries.value) void loadReviews();
-  }
-
-  async function loadSeries() {
-    const token = ++seriesRequestId;
-    dataBusy.value = true;
-    error.value = "";
-    try {
-      const result = await client.listSeries(
-        seriesQuery.value,
-        seriesPage.value,
-        20,
-      );
-      if (token === seriesRequestId) series.value = result;
-    } catch (cause) {
-      if (token === seriesRequestId) error.value = (cause as Error).message;
-    } finally {
-      if (token === seriesRequestId) dataBusy.value = false;
-    }
-  }
-
-  function searchSeries() {
-    if (searchTimer !== undefined) clearTimeout(searchTimer);
-    seriesPage.value = 1;
-    searchTimer = setTimeout(() => {
-      searchTimer = undefined;
-      void loadSeries();
-    }, 250);
-  }
-
-  async function loadReviews() {
-    if (!selectedSeries.value) {
-      reviews.value = emptyPage();
-      return;
-    }
-    const token = ++reviewRequestId;
-    dataBusy.value = true;
-    error.value = "";
-    try {
-      const result = await client.listReviews(
-        selectedSeries.value.series_id,
-        reviewPage.value,
-        20,
-      );
-      if (token === reviewRequestId) reviews.value = result;
-    } catch (cause) {
-      if (token === reviewRequestId) error.value = (cause as Error).message;
-    } finally {
-      if (token === reviewRequestId) dataBusy.value = false;
-    }
-  }
-
-  async function selectSeries(value: SeriesRow) {
-    selectedSeries.value = value;
-    reviewDetail.value = null;
-    reviewPage.value = 1;
-    page.value = "reviews";
-    mobileNav.value = false;
-    await loadReviews();
-  }
-
-  async function openReview(reviewId: string) {
-    const token = ++detailRequestId;
-    dataBusy.value = true;
-    error.value = "";
-    try {
-      const result = await client.getReview(reviewId);
-      if (token === detailRequestId) reviewDetail.value = result;
-    } catch (cause) {
-      if (token === detailRequestId) error.value = (cause as Error).message;
-    } finally {
-      if (token === detailRequestId) dataBusy.value = false;
-    }
-  }
-
-  function closeReview() {
-    detailRequestId += 1;
-    reviewDetail.value = null;
   }
 
   async function openJob(jobId: string) {
@@ -222,30 +115,6 @@ export function createCollectionWorkspace(
     jobDetailRequestId += 1;
     selectedJob.value = null;
     jobDetailBusy.value = false;
-  }
-
-  async function previousSeriesPage() {
-    if (seriesPage.value <= 1) return;
-    seriesPage.value -= 1;
-    await loadSeries();
-  }
-
-  async function nextSeriesPage() {
-    if (seriesPage.value * 20 >= series.value.total) return;
-    seriesPage.value += 1;
-    await loadSeries();
-  }
-
-  async function previousReviewPage() {
-    if (reviewPage.value <= 1) return;
-    reviewPage.value -= 1;
-    await loadReviews();
-  }
-
-  async function nextReviewPage() {
-    if (reviewPage.value * 20 >= reviews.value.total) return;
-    reviewPage.value += 1;
-    await loadReviews();
   }
 
   async function runAction(
@@ -276,13 +145,8 @@ export function createCollectionWorkspace(
   function deactivate() {
     active = false;
     requestId += 1;
-    clearPoll();
-    if (searchTimer !== undefined) clearTimeout(searchTimer);
-    searchTimer = undefined;
-    seriesRequestId += 1;
-    reviewRequestId += 1;
-    detailRequestId += 1;
     jobDetailRequestId += 1;
+    clearPoll();
   }
 
   if (registerLifecycle) {
@@ -302,38 +166,19 @@ export function createCollectionWorkspace(
     page,
     overview,
     jobs,
+    selectedJob,
     busy,
     actionBusy,
+    jobDetailBusy,
     error,
     mobileNav,
-    series,
-    reviews,
-    selectedSeries,
-    reviewDetail,
-    selectedJob,
-    jobDetailBusy,
-    seriesQuery,
-    seriesPage,
-    reviewPage,
-    dataBusy,
-    selectedSeriesExportUrl,
     navigate,
     loadWorkspace,
+    openJob,
+    closeJob,
     pause,
     resume,
     stop,
-    loadSeries,
-    searchSeries,
-    loadReviews,
-    selectSeries,
-    openReview,
-    closeReview,
-    openJob,
-    closeJob,
-    previousSeriesPage,
-    nextSeriesPage,
-    previousReviewPage,
-    nextReviewPage,
     activate,
     deactivate,
   };

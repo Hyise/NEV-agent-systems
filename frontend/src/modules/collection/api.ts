@@ -158,6 +158,126 @@ export interface CreateJobInput {
   series_delay_max_seconds?: number;
 }
 
+export type ReviewAssetSourceKind = "autohome" | "manual_import";
+
+export interface ReviewAssetSummary {
+  asset_id: string;
+  review_id: string;
+  series_id: string;
+  series_name: string;
+  source_kind: ReviewAssetSourceKind;
+  platform: string;
+  source_url: string | null;
+  content_hash: string;
+  excerpt: string;
+  first_collected_at: string;
+  last_confirmed_at: string;
+  analysis_enabled: boolean;
+  tags: string[];
+  note: string;
+  revision: number;
+  metadata_updated_at: string;
+}
+
+export interface ReviewAssetDetail extends ReviewAssetSummary {
+  original_review: Record<string, unknown>;
+  reference_count: number;
+}
+
+export interface ReviewAssetFilters {
+  keyword?: string;
+  series_id?: string;
+  source_kind?: ReviewAssetSourceKind;
+  tag?: string;
+  analysis_enabled?: boolean;
+  page?: number;
+  page_size?: number;
+}
+
+export interface ReviewAssetMetadataInput {
+  revision: number;
+  tags: string[];
+  note: string;
+  analysis_enabled: boolean;
+}
+
+export interface ReviewAssetMetadata extends ReviewAssetMetadataInput {
+  asset_id: string;
+  updated_at: string;
+}
+
+export interface ReviewAssetBatchInput {
+  asset_ids: string[];
+  analysis_enabled?: boolean;
+  add_tags: string[];
+  remove_tags: string[];
+}
+
+export interface ReviewImportItem {
+  series_id: string;
+  series_name: string;
+  review_id?: string | null;
+  source_url?: string | null;
+  original_review: Record<string, unknown>;
+}
+
+export interface ReviewImportValidation {
+  importable: Array<{
+    line: number;
+    series_id: string;
+    series_name: string;
+    review_id: string | null;
+    content_hash: string;
+  }>;
+  duplicates: Array<{ line: number; reason: string }>;
+  errors: Array<{ line: number; type: string; message: string }>;
+  validation_fingerprint: string;
+}
+
+export interface ReviewImportResult {
+  imported_count: number;
+  duplicate_count: number;
+  asset_ids: string[];
+}
+
+export interface ReviewDeletion {
+  audit_id?: string;
+  asset_id: string;
+  source_kind?: ReviewAssetSourceKind;
+  platform?: string;
+  review_id: string;
+  series_id?: string;
+  series_name_snapshot?: string;
+  content_hash: string;
+  reason: string;
+  deleted_at: string;
+  recollection_allowed_at?: string | null;
+}
+
+export interface ReviewAssetSummaryStats {
+  total: number;
+  analysis_enabled: number;
+  analysis_disabled: number;
+  by_source: Array<{ source_kind: ReviewAssetSourceKind; count: number }>;
+  by_series: Array<{
+    series_id: string;
+    series_name: string;
+    count: number;
+    analysis_enabled: number;
+  }>;
+}
+
+export class ApiError extends Error {
+  constructor(
+    public readonly status: number,
+    message: string,
+    public readonly detail?: unknown,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch("/api/collection" + path, {
     ...options,
@@ -183,7 +303,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     } catch {
       // Retain the status-based fallback when the response is not JSON.
     }
-    throw new Error(message);
+    throw new ApiError(response.status, message, undefined);
   }
   return response.json() as Promise<T>;
 }
@@ -193,6 +313,12 @@ const post = <T>(path: string, body?: unknown) =>
     method: "POST",
     body: body === undefined ? undefined : JSON.stringify(body),
   });
+
+const patch = <T>(path: string, body: unknown) =>
+  request<T>(path, { method: "PATCH", body: JSON.stringify(body) });
+
+const remove = <T>(path: string, body: unknown) =>
+  request<T>(path, { method: "DELETE", body: JSON.stringify(body) });
 
 export interface CollectionApi {
   getOverview(): Promise<CollectionOverview>;
@@ -225,7 +351,45 @@ export interface CollectionApi {
   cancelCatalogDiscovery(runId: string): Promise<CatalogRun>;
 }
 
-export const collectionApi: CollectionApi = {
+export interface ReviewAssetApi {
+  listReviewAssets(
+    filters?: ReviewAssetFilters,
+  ): Promise<Page<ReviewAssetSummary>>;
+  getReviewAsset(assetId: string): Promise<ReviewAssetDetail>;
+  updateReviewAssetMetadata(
+    assetId: string,
+    input: ReviewAssetMetadataInput,
+  ): Promise<ReviewAssetMetadata>;
+  batchUpdateReviewAssetMetadata(
+    input: ReviewAssetBatchInput,
+  ): Promise<{ updated_count: number }>;
+  validateReviewImport(input: {
+    items: ReviewImportItem[];
+    payload_bytes: number;
+  }): Promise<ReviewImportValidation>;
+  confirmReviewImport(input: {
+    items: ReviewImportItem[];
+    payload_bytes: number;
+    validation_fingerprint: string;
+  }): Promise<ReviewImportResult>;
+  deleteReviewAsset(
+    assetId: string,
+    input: {
+      expected_content_hash: string;
+      confirmed_review_id: string;
+      reason: string;
+      confirm: true;
+    },
+  ): Promise<ReviewDeletion>;
+  getReviewAssetSummary(): Promise<ReviewAssetSummaryStats>;
+  listReviewDeletions(
+    page?: number,
+    pageSize?: number,
+  ): Promise<Page<ReviewDeletion>>;
+  allowReviewRecollection(assetId: string): Promise<ReviewDeletion>;
+}
+
+export const collectionApi: CollectionApi & ReviewAssetApi = {
   getOverview: () => request("/overview"),
   listJobs: (page = 1, pageSize = 20) =>
     request(`/jobs?page=${page}&page_size=${pageSize}`),
@@ -255,4 +419,32 @@ export const collectionApi: CollectionApi = {
     request(`/catalog/discover/${encodeURIComponent(runId)}`),
   cancelCatalogDiscovery: (runId) =>
     post(`/catalog/discover/${encodeURIComponent(runId)}/cancel`),
+  listReviewAssets: (filters = {}) => {
+    const entries: Array<[string, string]> = [];
+    for (const [key, value] of Object.entries(filters)) {
+      if (value !== undefined && value !== null && value !== "") {
+        entries.push([key, String(value)]);
+      }
+    }
+    const query = entries
+      .map(([key, value]) => `${key}=${encodeURIComponent(value)}`)
+      .join("&");
+    return request(`/review-assets${query ? `?${query}` : ""}`);
+  },
+  getReviewAsset: (assetId) =>
+    request(`/review-assets/${encodeURIComponent(assetId)}`),
+  updateReviewAssetMetadata: (assetId, input) =>
+    patch(`/review-assets/${encodeURIComponent(assetId)}/metadata`, input),
+  batchUpdateReviewAssetMetadata: (input) =>
+    patch("/review-assets/metadata", input),
+  validateReviewImport: (input) =>
+    post("/review-assets/import/validate", input),
+  confirmReviewImport: (input) => post("/review-assets/import", input),
+  deleteReviewAsset: (assetId, input) =>
+    remove(`/review-assets/${encodeURIComponent(assetId)}`, input),
+  getReviewAssetSummary: () => request("/review-assets/summary"),
+  listReviewDeletions: (page = 1, pageSize = 20) =>
+    request(`/deletions?page=${page}&page_size=${pageSize}`),
+  allowReviewRecollection: (assetId) =>
+    post(`/deletions/${encodeURIComponent(assetId)}/allow-recollection`),
 };
