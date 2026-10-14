@@ -125,7 +125,10 @@ async function remove() {
               class="original-review__entry"
             >
               <span>{{ section.label }}</span>
-              <p>{{ section.content }}</p>
+              <p v-if="section.content?.trim()">{{ section.content }}</p>
+              <p v-else class="original-review__unreadable">
+                该分段没有可阅读的正文，请展开原始结构化字段核对。
+              </p>
             </article>
           </div>
 

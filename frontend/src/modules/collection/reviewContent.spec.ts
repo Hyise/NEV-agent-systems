@@ -31,6 +31,7 @@ describe("buildReadableReview", () => {
         null,
         { structuredname: " ", content: "第二段原始评论" },
         { structuredname: "无效项", content: 42 },
+        { structuredname: "空白项", content: "" },
       ],
       score: 4.5,
     });
@@ -39,7 +40,10 @@ describe("buildReadableReview", () => {
       summary: null,
       sections: [
         { label: "原文 1", content: "第一段原始评论" },
+        { label: "原文 2", content: null },
         { label: "原文 3", content: "第二段原始评论" },
+        { label: "无效项", content: null },
+        { label: "空白项", content: "" },
       ],
     });
   });

@@ -378,6 +378,11 @@
   white-space: pre-wrap;
 }
 
+.original-review__entry .original-review__unreadable {
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .original-review__empty {
   margin-top: 16px;
   border-left: 3px solid var(--muted-soft);

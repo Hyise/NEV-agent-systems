@@ -1,6 +1,6 @@
 export interface ReadableReviewSection {
   label: string;
-  content: string;
+  content: string | null;
 }
 
 export interface ReadableReview {
@@ -21,14 +21,16 @@ export function buildReadableReview(
       ? original.feeling_summary
       : null;
   const contents = Array.isArray(original.contents) ? original.contents : [];
-  const sections = contents.flatMap((item, index) => {
-    if (!isRecord(item)) return [];
-    if (typeof item.content !== "string" || !item.content.trim()) return [];
+  const sections = contents.map((item, index) => {
     const label =
-      typeof item.structuredname === "string" && item.structuredname.trim()
+      isRecord(item) &&
+      typeof item.structuredname === "string" &&
+      item.structuredname.trim()
         ? item.structuredname.trim()
         : `原文 ${index + 1}`;
-    return [{ label, content: item.content }];
+    const content =
+      isRecord(item) && typeof item.content === "string" ? item.content : null;
+    return { label, content };
   });
 
   return { summary, sections };
