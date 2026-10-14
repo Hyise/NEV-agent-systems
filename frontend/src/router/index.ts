@@ -9,6 +9,14 @@ type LazyRouteComponent = () => Promise<
   RouteComponent | { default: RouteComponent }
 >;
 
+export type McdmIntent = "criteria-discovery" | "review-annotation";
+
+export function parseMcdmIntent(value: unknown): McdmIntent | null {
+  return value === "criteria-discovery" || value === "review-annotation"
+    ? value
+    : null;
+}
+
 export interface PlatformRouteComponents {
   home: RouteComponent | LazyRouteComponent;
   collection: RouteComponent | LazyRouteComponent;

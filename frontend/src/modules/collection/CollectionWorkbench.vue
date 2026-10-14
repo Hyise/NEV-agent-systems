@@ -15,6 +15,7 @@ import {
 } from "./workspace";
 import AcquireView from "./views/AcquireView.vue";
 import AssetsView from "./views/AssetsView.vue";
+import ResearchHandoffView from "./views/ResearchHandoffView.vue";
 
 const pages: Array<{ id: CollectionPage; title: string; subtitle: string }> = [
   {
@@ -185,13 +186,10 @@ onBeforeUnmount(() =>
           v-else-if="workspace.page.value === 'assets'"
           :workspace="assetWorkspace"
         />
-        <section
+        <ResearchHandoffView
           v-else-if="workspace.page.value === 'research'"
-          class="collection-placeholder"
-        >
-          <h2>研究交接</h2>
-          <p>正在整理可分析数据范围与多准则研究入口。</p>
-        </section>
+          :workspace="assetWorkspace"
+        />
       </main>
     </div>
 

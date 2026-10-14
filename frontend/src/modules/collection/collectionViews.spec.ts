@@ -6,6 +6,8 @@ import shellSource from "./CollectionWorkbench.vue?raw";
 import drawerSource from "./components/ReviewAssetDrawer.vue?raw";
 import importerSource from "./components/ReviewImportDialog.vue?raw";
 import assetsSource from "./views/AssetsView.vue?raw";
+import researchSource from "./views/ResearchHandoffView.vue?raw";
+import mcdmSource from "../mcdm/McdmWorkbench.vue?raw";
 
 const overview = (
   series: number,
@@ -114,5 +116,20 @@ describe("guided collection views", () => {
     expect(shellSource).toContain("获取数据");
     expect(shellSource).toContain("管理数据");
     expect(shellSource).toContain("用于研究");
+  });
+
+  it("hands server summary to two explicit research intents without creating tasks", () => {
+    expect(researchSource).toContain("workspace.summary.value");
+    expect(researchSource).toContain("intent: 'criteria-discovery'");
+    expect(researchSource).toContain("intent: 'review-annotation'");
+    expect(researchSource).toContain("不可用原因");
+    expect(mcdmSource).toContain("parseMcdmIntent");
+    expect(mcdmSource).toContain("请确认本次研究的车系来源范围");
+    expect(mcdmSource).not.toContain(
+      "handoffIntent.value === 'criteria-discovery' ? reviewAnalysisWorkspace.createDiscovery",
+    );
+    expect(mcdmSource).not.toContain(
+      "handoffIntent.value === 'review-annotation' ? reviewAnalysisWorkspace.createAnnotation",
+    );
   });
 });

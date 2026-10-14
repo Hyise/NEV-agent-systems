@@ -5,10 +5,12 @@ import {
   onBeforeUnmount,
   onMounted,
   ref,
+  watch,
 } from "vue";
 import { ArrowRight, Check, Menu, Plus, X } from "lucide-vue-next";
-import { RouterLink } from "vue-router";
+import { RouterLink, useRoute, useRouter } from "vue-router";
 import AppBrand from "../../components/AppBrand.vue";
+import { parseMcdmIntent, type McdmIntent } from "../../router";
 import { createReviewAnalysisApi } from "./review-analysis/api";
 import {
   createReviewAnalysisWorkspace,
@@ -122,6 +124,9 @@ const currentProjectName = computed(
     "未选择分析项目",
 );
 const mobileMenuButton = ref<HTMLButtonElement>();
+const route = useRoute();
+const router = useRouter();
+const handoffIntent = ref<McdmIntent | null>(null);
 
 function closeMobileNavigation() {
   const shouldRestoreFocus = mobileNav.value;
@@ -138,6 +143,17 @@ function navigateTo(value: Page) {
     requestAnimationFrame(() => mobileMenuButton.value?.focus());
   }
 }
+
+function consumeResearchIntent(value: unknown) {
+  const intent = parseMcdmIntent(value);
+  if (!intent) return;
+  handoffIntent.value = intent;
+  navigate("review-analysis");
+  const { intent: _consumed, ...remainingQuery } = route.query;
+  void router.replace({ name: "mcdm", query: remainingQuery });
+}
+
+watch(() => route.query.intent, consumeResearchIntent, { immediate: true });
 
 function focusMain() {
   document.querySelector<HTMLElement>("#main-content")?.focus();
@@ -298,7 +314,25 @@ onBeforeUnmount(() =>
           <OverviewView v-if="page === 'overview'" />
           <DataView v-else-if="page === 'data'" />
           <CriteriaView v-else-if="page === 'criteria'" />
-          <ReviewAnalysisView v-else-if="page === 'review-analysis'" />
+          <template v-else-if="page === 'review-analysis'">
+            <div
+              v-if="handoffIntent"
+              class="notice info handoff-intent"
+              role="status"
+            >
+              <span>
+                已定位到{{
+                  handoffIntent === "criteria-discovery"
+                    ? "准则发现"
+                    : "逐条评论标注"
+                }}。 请确认本次研究的车系来源范围，再由你手动启动任务。
+              </span>
+              <button class="text-button" @click="handoffIntent = null">
+                知道了
+              </button>
+            </div>
+            <ReviewAnalysisView />
+          </template>
           <ScenarioView v-else-if="page === 'scenario'" />
           <SharesView v-else-if="page === 'shares'" />
           <ExperimentsView v-else-if="page === 'experiments'" />

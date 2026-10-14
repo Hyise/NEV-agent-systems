@@ -1,7 +1,7 @@
 import { defineComponent, h } from "vue";
 import { createMemoryHistory } from "vue-router";
 import { describe, expect, it } from "vitest";
-import { createPlatformRouter } from "./index";
+import { createPlatformRouter, parseMcdmIntent } from "./index";
 
 const routeComponents = {
   home: defineComponent(() => () => h("div", "platform")),
@@ -39,5 +39,19 @@ describe("createPlatformRouter", () => {
 
     expect(router.currentRoute.value.name).toBe("platform-home");
     expect(router.currentRoute.value.path).toBe("/");
+  });
+
+  it("accepts only explicit review research intents", () => {
+    expect(parseMcdmIntent("criteria-discovery")).toBe("criteria-discovery");
+    expect(parseMcdmIntent("review-annotation")).toBe("review-annotation");
+    expect(parseMcdmIntent(["criteria-discovery"])).toBeNull();
+    expect(parseMcdmIntent("create-job")).toBeNull();
+
+    const router = createPlatformRouter(createMemoryHistory(), routeComponents);
+    const resolved = router.resolve({
+      name: "mcdm",
+      query: { intent: "criteria-discovery" },
+    });
+    expect(resolved.query.intent).toBe("criteria-discovery");
   });
 });
