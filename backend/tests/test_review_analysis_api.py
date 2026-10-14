@@ -48,6 +48,43 @@ def test_sources_and_missing_key_degradation(tmp_path):
     assert repo.list_jobs('p')['total'] == 0
 
 
+def test_sources_endpoint_aggregates_manual_and_autohome_by_series(tmp_path):
+    client, repo, _ = client_for(tmp_path, configured=False)
+    timestamp = "2026-10-14T08:00:00+00:00"
+    with repo.connect() as connection:
+        connection.execute(
+            "INSERT INTO vehicle_series VALUES ('manual','1','车系一','','',1000000,?,?)",
+            (timestamp, timestamp),
+        )
+        connection.execute(
+            """
+            INSERT INTO reviews (
+                platform,review_id,series_id,series_name_snapshot,source_url,
+                original_review_json,content_hash,first_collected_at,
+                last_confirmed_at,asset_id,source_kind
+            ) VALUES ('manual','m1','1','车系一','',?,?,?, ?,
+                      'manual:m1','manual_import')
+            """,
+            (
+                json.dumps({"feeling_summary": "人工评论"}, ensure_ascii=False),
+                "2" * 64,
+                timestamp,
+                timestamp,
+            ),
+        )
+        connection.execute(
+            "INSERT INTO review_asset_metadata VALUES "
+            "('manual:m1',1,'[]','',1,?,?)",
+            (timestamp, timestamp),
+        )
+
+    response = client.get('/api/projects/p/review-analysis/sources')
+
+    assert response.status_code == 200
+    assert response.json()["total"] == 1
+    assert response.json()["rows"][0]["review_count"] == 2
+
+
 def test_discovery_requires_draft_and_annotation_requires_frozen(tmp_path):
     client, repo, service = client_for(tmp_path)
     wrong = client.post('/api/projects/p/review-analysis/discovery-jobs', json={'schema_id':'frozen','selected_series_ids':['1'],'sample_limit':10})

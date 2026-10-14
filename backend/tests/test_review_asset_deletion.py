@@ -164,6 +164,7 @@ def test_analysis_snapshot_and_results_survive_source_deletion(tmp_path):
         item = assets[0]
         return [
             ReviewSnapshot(
+                source_asset_id=item.asset_id,
                 review_id=item.review_id,
                 series_id=item.series_id,
                 series_name=item.series_name,
@@ -184,7 +185,9 @@ def test_analysis_snapshot_and_results_survive_source_deletion(tmp_path):
 
     service.delete_asset("autohome:review-1", delete_body(detail))
 
-    assert analysis.pending_review_snapshots(job["id"])[0]["analysis_text"]
+    preserved = analysis.pending_review_snapshots(job["id"])[0]
+    assert preserved["analysis_text"]
+    assert preserved["source_deleted"] is True
     assert analysis.get_proposal(job["id"])["proposal"]["criteria"][0]["name"] == "空间"
 
 

@@ -4,6 +4,10 @@ from pathlib import Path
 
 import pytest
 
+from backend.collection.asset_domain import DeleteAssetBody, MetadataPatchBody
+from backend.collection.asset_repository import ReviewAssetRepository
+from backend.collection.asset_service import ReviewAssetService
+from backend.collection.repository import CollectionRepository
 from backend.review_analysis.deepseek import JsonCompletion
 from backend.review_analysis.domain import (
     CreateJobCommand,
@@ -42,6 +46,7 @@ def seed(path: Path):
         )
     connection.commit()
     connection.close()
+    CollectionRepository(path)
 
 
 def command(**updates):
@@ -62,6 +67,7 @@ def command(**updates):
 def snapshots(assets):
     return [
         ReviewSnapshot(
+            source_asset_id=item.asset_id,
             review_id=item.review_id,
             series_id=item.series_id,
             series_name=item.series_name,
@@ -71,6 +77,116 @@ def snapshots(assets):
         )
         for index, item in enumerate(stable_stratified_sample(assets, 2))
     ]
+
+
+def test_sources_aggregate_providers_and_snapshots_use_enabled_assets_only(tmp_path):
+    path = tmp_path / "mixed.db"
+    seed(path)
+    repository = ReviewAnalysisRepository(path)
+    assets = ReviewAssetRepository(path)
+    timestamp = "2026-10-14T08:00:00+00:00"
+    with assets.connect() as connection:
+        connection.execute(
+            "INSERT INTO vehicle_series VALUES (?,?,?,?,?,?,?,?)",
+            ("manual", "1", "车系一", "", "", 1000000, timestamp, timestamp),
+        )
+        connection.execute(
+            """
+            INSERT INTO reviews (
+                platform,review_id,series_id,series_name_snapshot,source_url,
+                original_review_json,content_hash,first_collected_at,
+                last_confirmed_at,asset_id,source_kind
+            ) VALUES ('manual','manual-r4','1','车系一','',?,?,?, ?,
+                      'manual:asset-r4','manual_import')
+            """,
+            (
+                json.dumps({"feeling_summary": "人工补充"}, ensure_ascii=False),
+                "4" * 64,
+                timestamp,
+                timestamp,
+            ),
+        )
+        connection.execute(
+            "INSERT INTO review_asset_metadata VALUES "
+            "('manual:asset-r4',1,'[]','',1,?,?)",
+            (timestamp, timestamp),
+        )
+    assets.update_metadata(
+        "autohome:r2",
+        MetadataPatchBody(
+            revision=1, tags=[], note="", analysis_enabled=False
+        ),
+    )
+    detail = assets.get_asset("autohome:r3")
+    ReviewAssetService(assets).delete_asset(
+        "autohome:r3",
+        DeleteAssetBody(
+            expected_content_hash=detail["content_hash"],
+            confirmed_review_id="r3",
+            reason="删除车系二样本",
+            confirm=True,
+        ),
+    )
+
+    sources = repository.list_sources(query="车系", page=1, page_size=20)
+    job = repository.create_job_with_snapshot(
+        command(selected_series_ids=["1"], limit=10), snapshots
+    )
+    rows = repository.pending_review_snapshots(job["id"])
+
+    assert sources["total"] == 1
+    assert sources["rows"] == [
+        {
+            "series_id": "1",
+            "series_name": "车系一",
+            "discovery_rank": 1,
+            "review_count": 2,
+        }
+    ]
+    assert {row["source_asset_id"] for row in rows} == {
+        "autohome:r1",
+        "manual:asset-r4",
+    }
+
+
+def test_snapshot_source_deleted_status_is_stable_for_current_and_historical_rows(
+    tmp_path,
+):
+    path = tmp_path / "source-status.db"
+    seed(path)
+    repository = ReviewAnalysisRepository(path)
+    assets = ReviewAssetRepository(path)
+    job = repository.create_job_with_snapshot(
+        command(selected_series_ids=["1"], limit=2), snapshots
+    )
+    rows = repository.pending_review_snapshots(job["id"])
+    assert all(row["source_deleted"] is False for row in rows)
+
+    deleted_asset_id = rows[0]["source_asset_id"]
+    detail = assets.get_asset(deleted_asset_id)
+    ReviewAssetService(assets).delete_asset(
+        deleted_asset_id,
+        DeleteAssetBody(
+            expected_content_hash=detail["content_hash"],
+            confirmed_review_id=detail["review_id"],
+            reason="验证研究快照保留",
+            confirm=True,
+        ),
+    )
+    with repository.connect() as connection:
+        connection.execute(
+            "UPDATE review_analysis_job_reviews SET source_asset_id=NULL "
+            "WHERE job_id=? AND review_id=?",
+            (job["id"], rows[1]["review_id"]),
+        )
+
+    after = repository.pending_review_snapshots(job["id"])
+
+    deleted = next(row for row in after if row["source_asset_id"] == deleted_asset_id)
+    historical = next(row for row in after if row["source_asset_id"] is None)
+    assert deleted["source_deleted"] is True
+    assert deleted["analysis_text"]
+    assert historical["source_deleted"] is False
 
 
 def test_migrates_old_database_and_lists_sources(tmp_path):

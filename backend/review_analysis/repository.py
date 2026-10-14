@@ -123,6 +123,8 @@ class ReviewAnalysisRepository:
     def _snapshot(row: sqlite3.Row) -> dict[str, Any]:
         result = dict(row)
         result["series_name"] = result.pop("series_name_snapshot")
+        if "source_deleted" in result:
+            result["source_deleted"] = bool(result["source_deleted"])
         return result
 
     def list_sources(self, query: str = "", page: int = 1, page_size: int = 20):
@@ -133,20 +135,41 @@ class ReviewAnalysisRepository:
         offset = (page - 1) * page_size
         with self.connect() as connection:
             total = connection.execute(
-                "SELECT COUNT(*) FROM vehicle_series s WHERE EXISTS "
-                "(SELECT 1 FROM reviews r WHERE r.platform=s.platform AND r.series_id=s.series_id) "
-                "AND (lower(s.series_name) LIKE ? OR s.series_id LIKE ?)",
+                """
+                SELECT COUNT(*) FROM (
+                    SELECT r.series_id
+                    FROM reviews r
+                    JOIN review_asset_metadata m
+                      ON m.asset_id=r.asset_id AND m.analysis_enabled=1
+                    LEFT JOIN vehicle_series s
+                      ON s.platform=r.platform AND s.series_id=r.series_id
+                    WHERE lower(COALESCE(s.series_name,r.series_name_snapshot)) LIKE ?
+                       OR r.series_id LIKE ?
+                    GROUP BY r.series_id
+                ) enabled_series
+                """,
                 params,
             ).fetchone()[0]
             rows = connection.execute(
                 """
-                SELECT s.platform,s.series_id,s.series_name,s.discovery_rank,
-                       COUNT(r.review_id) AS review_count
-                FROM vehicle_series s JOIN reviews r
-                  ON r.platform=s.platform AND r.series_id=s.series_id
-                WHERE lower(s.series_name) LIKE ? OR s.series_id LIKE ?
-                GROUP BY s.platform,s.series_id
-                ORDER BY s.discovery_rank,s.series_id LIMIT ? OFFSET ?
+                SELECT r.series_id,
+                       COALESCE(
+                           MAX(CASE WHEN r.platform='autohome'
+                               THEN s.series_name END),
+                           MAX(s.series_name),
+                           MAX(r.series_name_snapshot)
+                       ) AS series_name,
+                       COALESCE(MIN(s.discovery_rank),1000000) AS discovery_rank,
+                       COUNT(*) AS review_count
+                FROM reviews r
+                JOIN review_asset_metadata m
+                  ON m.asset_id=r.asset_id AND m.analysis_enabled=1
+                LEFT JOIN vehicle_series s
+                  ON s.platform=r.platform AND s.series_id=r.series_id
+                WHERE lower(COALESCE(s.series_name,r.series_name_snapshot)) LIKE ?
+                   OR r.series_id LIKE ?
+                GROUP BY r.series_id
+                ORDER BY discovery_rank,r.series_id LIMIT ? OFFSET ?
                 """,
                 (*params, page_size, offset),
             ).fetchall()
@@ -179,9 +202,13 @@ class ReviewAnalysisRepository:
             series_marks = ",".join("?" for _ in command.selected_series_ids)
             rows = connection.execute(
                 f"""
-                SELECT review_id,series_id,series_name_snapshot,content_hash,original_review_json
-                FROM reviews WHERE platform='autohome' AND series_id IN ({series_marks})
-                ORDER BY series_id,review_id
+                SELECT r.asset_id,r.review_id,r.series_id,r.series_name_snapshot,
+                       r.content_hash,r.original_review_json
+                FROM reviews r
+                JOIN review_asset_metadata m
+                  ON m.asset_id=r.asset_id AND m.analysis_enabled=1
+                WHERE r.series_id IN ({series_marks})
+                ORDER BY r.series_id,r.asset_id
                 """,
                 command.selected_series_ids,
             ).fetchall()
@@ -189,7 +216,7 @@ class ReviewAnalysisRepository:
                 raise ValueError("所选车系没有已采集评论")
             assets = [
                 ReviewAsset(
-                    review_id=row["review_id"], series_id=row["series_id"],
+                    asset_id=row["asset_id"], review_id=row["review_id"], series_id=row["series_id"],
                     series_name=row["series_name_snapshot"], content_hash=row["content_hash"],
                     original_review=json.loads(row["original_review_json"]),
                 )
@@ -216,9 +243,11 @@ class ReviewAnalysisRepository:
             for snapshot in snapshots:
                 connection.execute(
                     """INSERT INTO review_analysis_job_reviews (
-                        job_id,review_id,series_id,series_name_snapshot,content_hash,analysis_text,ordinal
-                    ) VALUES (?,?,?,?,?,?,?)""",
-                    (job_id, snapshot.review_id, snapshot.series_id, snapshot.series_name,
+                        job_id,source_asset_id,review_id,series_id,series_name_snapshot,
+                        content_hash,analysis_text,ordinal
+                    ) VALUES (?,?,?,?,?,?,?,?)""",
+                    (job_id, snapshot.source_asset_id, snapshot.review_id,
+                     snapshot.series_id, snapshot.series_name,
                      snapshot.content_hash, snapshot.analysis_text, snapshot.ordinal),
                 )
             row = connection.execute("SELECT * FROM review_analysis_jobs WHERE id=?", (job_id,)).fetchone()
@@ -327,7 +356,20 @@ class ReviewAnalysisRepository:
         statuses = ("pending", "failed") if include_failed else ("pending",)
         marks = ",".join("?" for _ in statuses)
         with self.connect() as connection:
-            rows = connection.execute(f"SELECT * FROM review_analysis_job_reviews WHERE job_id=? AND status IN ({marks}) ORDER BY ordinal", (job_id, *statuses)).fetchall()
+            rows = connection.execute(
+                f"""
+                SELECT snapshot.*,
+                       CASE WHEN snapshot.source_asset_id IS NOT NULL
+                                  AND current.asset_id IS NULL
+                            THEN 1 ELSE 0 END AS source_deleted
+                FROM review_analysis_job_reviews snapshot
+                LEFT JOIN reviews current
+                  ON current.asset_id=snapshot.source_asset_id
+                WHERE snapshot.job_id=? AND snapshot.status IN ({marks})
+                ORDER BY snapshot.ordinal
+                """,
+                (job_id, *statuses),
+            ).fetchall()
         return [self._snapshot(row) for row in rows]
 
     def set_job_state(self, job_id: str, status: str, *, phase: str | None = None, error_code: str | None = None, error_message: str | None = None):
@@ -471,7 +513,17 @@ class ReviewAnalysisRepository:
                  _json({"retry_of": source_job_id}), len(failed), timestamp, timestamp),
             )
             for ordinal, row in enumerate(failed):
-                connection.execute("INSERT INTO review_analysis_job_reviews (job_id,review_id,series_id,series_name_snapshot,content_hash,analysis_text,ordinal) VALUES (?,?,?,?,?,?,?)", (new_id,row["review_id"],row["series_id"],row["series_name_snapshot"],row["content_hash"],row["analysis_text"],ordinal))
+                connection.execute(
+                    """INSERT INTO review_analysis_job_reviews (
+                        job_id,source_asset_id,review_id,series_id,
+                        series_name_snapshot,content_hash,analysis_text,ordinal
+                    ) VALUES (?,?,?,?,?,?,?,?)""",
+                    (
+                        new_id,row["source_asset_id"],row["review_id"],
+                        row["series_id"],row["series_name_snapshot"],
+                        row["content_hash"],row["analysis_text"],ordinal,
+                    ),
+                )
             job = connection.execute("SELECT * FROM review_analysis_jobs WHERE id=?", (new_id,)).fetchone()
         return self._job(job)
 
@@ -481,9 +533,14 @@ class ReviewAnalysisRepository:
             if value: clauses.append(f"{column}=?"); params.append(value)
         where = " AND ".join(clauses)
         with self.connect() as connection:
-            rows = connection.execute(f"""SELECT r.*,a.result_json,a.created_at AS annotated_at
+            rows = connection.execute(f"""SELECT r.*,a.result_json,a.created_at AS annotated_at,
+                       CASE WHEN r.source_asset_id IS NOT NULL
+                                  AND current.asset_id IS NULL
+                            THEN 1 ELSE 0 END AS source_deleted
                 FROM review_analysis_job_reviews r JOIN review_analysis_jobs j ON j.id=r.job_id
-                LEFT JOIN review_annotation_results a ON a.id=r.annotation_id WHERE {where}
+                LEFT JOIN review_annotation_results a ON a.id=r.annotation_id
+                LEFT JOIN reviews current ON current.asset_id=r.source_asset_id
+                WHERE {where}
                 ORDER BY r.ordinal""", params).fetchall()
         result=[]
         for row in rows:
@@ -534,11 +591,17 @@ class ReviewAnalysisRepository:
 
     def get_annotation(self, project_id: str, annotation_id: str):
         with self.connect() as connection:
-            row=connection.execute("""SELECT a.*,r.review_id,r.series_id,r.series_name_snapshot,r.analysis_text,r.job_id
+            row=connection.execute("""SELECT a.*,r.review_id,r.series_id,
+                       r.series_name_snapshot,r.analysis_text,r.job_id,r.source_asset_id,
+                       CASE WHEN r.source_asset_id IS NOT NULL
+                                  AND current.asset_id IS NULL
+                            THEN 1 ELSE 0 END AS source_deleted
                 FROM review_annotation_results a JOIN review_analysis_job_reviews r ON r.annotation_id=a.id
-                JOIN review_analysis_jobs j ON j.id=r.job_id WHERE a.id=? AND j.project_id=? LIMIT 1""",(annotation_id,project_id)).fetchone()
+                JOIN review_analysis_jobs j ON j.id=r.job_id
+                LEFT JOIN reviews current ON current.asset_id=r.source_asset_id
+                WHERE a.id=? AND j.project_id=? LIMIT 1""",(annotation_id,project_id)).fetchone()
         if row is None:return None
-        result=dict(row);result["series_name"]=result.pop("series_name_snapshot");result["result"]=json.loads(result.pop("result_json"));return result
+        result=dict(row);result["series_name"]=result.pop("series_name_snapshot");result["result"]=json.loads(result.pop("result_json"));result["source_deleted"]=bool(result["source_deleted"]);return result
 
     def annotation_summary(self, project_id: str, job_id: str | None = None):
         with self.connect() as connection:

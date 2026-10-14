@@ -97,6 +97,7 @@ class RenderedPrompt(StrictModel):
 class ReviewAsset(StrictModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True, frozen=True)
 
+    asset_id: str | None = Field(default=None, max_length=300)
     review_id: str = Field(min_length=1, max_length=200)
     series_id: str = Field(min_length=1, max_length=100)
     series_name: str = Field(min_length=1, max_length=200)
@@ -107,6 +108,7 @@ class ReviewAsset(StrictModel):
 class ReviewSnapshot(StrictModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True, frozen=True)
 
+    source_asset_id: str | None = Field(default=None, max_length=300)
     review_id: str = Field(min_length=1, max_length=200)
     series_id: str = Field(min_length=1, max_length=100)
     series_name: str = Field(min_length=1, max_length=200)

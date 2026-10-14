@@ -53,7 +53,8 @@ class ApplyBody(_Strict):
 
 def _snapshots(assets, limit):
     selected = stable_stratified_sample(assets, limit or len(assets))
-    return [ReviewSnapshot(review_id=item.review_id, series_id=item.series_id,
+    return [ReviewSnapshot(source_asset_id=item.asset_id,
+                           review_id=item.review_id, series_id=item.series_id,
                            series_name=item.series_name, content_hash=item.content_hash,
                            analysis_text=extract_analysis_text(item.original_review), ordinal=index)
             for index, item in enumerate(selected)]
