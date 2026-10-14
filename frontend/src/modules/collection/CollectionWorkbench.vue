@@ -1,64 +1,68 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
-import { Menu, Plus } from "lucide-vue-next";
+import { Menu } from "lucide-vue-next";
 import { RouterLink } from "vue-router";
 import AppBrand from "../../components/AppBrand.vue";
+import type { AcquisitionAction } from "./acquisitionGuidance";
+import { createAssetWorkspace } from "./assetWorkspace";
+import { createCatalogFlow } from "./catalogFlow";
+import CreateCollectionJobDialog from "./components/CreateCollectionJobDialog.vue";
+import GuidedStageBar from "./components/GuidedStageBar.vue";
 import {
   createCollectionWorkspace,
   provideCollectionWorkspace,
   type CollectionPage,
 } from "./workspace";
-import { createCatalogFlow } from "./catalogFlow";
-import CreateCollectionJobDialog from "./components/CreateCollectionJobDialog.vue";
+import AcquireView from "./views/AcquireView.vue";
+import AssetsView from "./views/AssetsView.vue";
 
-import OverviewView from "./views/OverviewView.vue";
-import JobsView from "./views/JobsView.vue";
-import ReviewsView from "./views/ReviewsView.vue";
-import SeriesView from "./views/SeriesView.vue";
-
-const pages = [
+const pages: Array<{ id: CollectionPage; title: string; subtitle: string }> = [
   {
-    id: "overview" as CollectionPage,
-    title: "总览",
-    subtitle: "查看采集规模与当前运行状态。",
+    id: "acquire",
+    title: "获取数据",
+    subtitle: "发现车系、选择范围并运行评论采集任务。",
   },
   {
-    id: "jobs" as CollectionPage,
-    title: "采集任务",
-    subtitle: "创建任务，并控制暂停、继续与停止。",
+    id: "assets",
+    title: "管理数据",
+    subtitle: "检查原始评论，维护研究标签和分析状态。",
   },
   {
-    id: "series" as CollectionPage,
-    title: "车系",
-    subtitle: "按车系名称或 series_id 查找已发现数据。",
-  },
-  {
-    id: "reviews" as CollectionPage,
-    title: "原始评论",
-    subtitle: "查看和导出未经拆分、改写的完整口碑对象。",
+    id: "research",
+    title: "用于研究",
+    subtitle: "确认可用规模，再进入多准则研究流程。",
   },
 ];
 
 const workspace = createCollectionWorkspace();
 provideCollectionWorkspace(workspace);
-const { page, busy, actionBusy, error, mobileNav, navigate, loadWorkspace } =
-  workspace;
-const catalogFlow = createCatalogFlow(undefined, loadWorkspace);
+const assetWorkspace = createAssetWorkspace();
+const catalogFlow = createCatalogFlow(undefined, workspace.loadWorkspace);
 const activePage = computed(
-  () => pages.find((item) => item.id === page.value)!,
+  () => pages.find((item) => item.id === workspace.page.value)!,
 );
 const mobileMenuButton = ref<HTMLButtonElement>();
 
 function closeMobileNavigation() {
-  const restore = mobileNav.value;
-  mobileNav.value = false;
+  const restore = workspace.mobileNav.value;
+  workspace.mobileNav.value = false;
   if (restore) requestAnimationFrame(() => mobileMenuButton.value?.focus());
 }
 
-function navigateTo(value: CollectionPage) {
-  const restore = mobileNav.value;
-  navigate(value);
+function navigateTo(page: CollectionPage) {
+  const restore = workspace.mobileNav.value;
+  workspace.navigate(page);
   if (restore) requestAnimationFrame(() => mobileMenuButton.value?.focus());
+}
+
+function runGuidedAction(action: AcquisitionAction) {
+  const activeJob = workspace.overview.value?.active_job;
+  if (action === "manage") navigateTo("assets");
+  else if (action === "resume" && activeJob)
+    void workspace.resume(activeJob.id);
+  else if (action === "monitor")
+    document.querySelector<HTMLElement>("#current-collection-job")?.focus();
+  else void catalogFlow.open();
 }
 
 function focusMain() {
@@ -67,10 +71,6 @@ function focusMain() {
 
 function escapeNavigation(event: KeyboardEvent) {
   if (event.key === "Escape") closeMobileNavigation();
-}
-
-function openCreateDialog() {
-  void catalogFlow.open();
 }
 
 onMounted(() => document.addEventListener("keydown", escapeNavigation));
@@ -85,7 +85,7 @@ onBeforeUnmount(() =>
       >跳转到主内容</a
     >
     <button
-      v-if="mobileNav"
+      v-if="workspace.mobileNav.value"
       class="nav-backdrop"
       aria-label="关闭导航"
       @click="closeMobileNavigation"
@@ -93,33 +93,33 @@ onBeforeUnmount(() =>
     <aside
       id="collection-navigation"
       class="app-sidebar"
-      :class="{ open: mobileNav }"
+      :class="{ open: workspace.mobileNav.value }"
     >
-      <RouterLink class="module-return" to="/" @click="closeMobileNavigation">
-        <span aria-hidden="true">←</span>返回研究平台
-      </RouterLink>
+      <RouterLink class="module-return" to="/" @click="closeMobileNavigation"
+        ><span aria-hidden="true">←</span>返回研究平台</RouterLink
+      >
       <button
         class="brand-link"
         type="button"
-        aria-label="返回采集总览"
-        @click="navigateTo('overview')"
+        aria-label="返回获取数据"
+        @click="navigateTo('acquire')"
       >
         <AppBrand compact />
       </button>
-      <p class="workspace-label">评论数据采集系统</p>
-      <nav aria-label="采集系统导航">
+      <p class="workspace-label">评论数据工作台</p>
+      <nav aria-label="评论数据工作台导航">
         <button
           v-for="item in pages"
           :key="item.id"
-          :class="['nav-item', { active: page === item.id }]"
-          :aria-current="page === item.id ? 'page' : undefined"
+          :class="['nav-item', { active: workspace.page.value === item.id }]"
+          :aria-current="workspace.page.value === item.id ? 'page' : undefined"
           @click="navigateTo(item.id)"
         >
-          <span>{{ item.title }}</span>
+          {{ item.title }}
         </button>
       </nav>
       <div class="sidebar-foot">
-        汽车之家数据源 <span class="mono">LOCAL</span>
+        本机研究数据 <span class="mono">LOCAL</span>
       </div>
     </aside>
 
@@ -130,15 +130,15 @@ onBeforeUnmount(() =>
           class="icon-btn mobile-menu"
           aria-label="打开导航"
           aria-controls="collection-navigation"
-          :aria-expanded="mobileNav"
-          @click="mobileNav = !mobileNav"
+          :aria-expanded="workspace.mobileNav.value"
+          @click="workspace.mobileNav.value = !workspace.mobileNav.value"
         >
           <Menu :size="22" />
         </button>
         <div class="platform-bar__identity">
-          <span class="platform-bar__module">评论数据采集系统</span>
-          <span aria-hidden="true">/</span>
-          <strong>{{ activePage.title }}</strong>
+          <span class="platform-bar__module">评论数据工作台</span
+          ><span aria-hidden="true">/</span
+          ><strong>{{ activePage.title }}</strong>
         </div>
         <RouterLink class="platform-return" to="/">返回研究平台</RouterLink>
       </header>
@@ -147,40 +147,51 @@ onBeforeUnmount(() =>
         id="main-content"
         class="collection-main"
         tabindex="-1"
-        :aria-busy="busy"
+        :aria-busy="workspace.busy.value"
       >
         <div class="heading-row">
           <div>
             <h1>{{ activePage.title }}</h1>
             <p class="subtitle">{{ activePage.subtitle }}</p>
           </div>
-          <button
-            v-if="page === 'overview' || page === 'jobs'"
-            class="btn primary"
-            :disabled="
-              busy ||
-              actionBusy ||
-              Boolean(workspace.overview.value?.active_job)
-            "
-            @click="openCreateDialog"
-          >
-            <Plus :size="17" />新建任务
+        </div>
+        <GuidedStageBar
+          :current="workspace.page.value"
+          :overview="workspace.overview.value"
+          :catalog="catalogFlow.catalogStatus.value"
+          @navigate="navigateTo"
+          @action="runGuidedAction"
+        />
+        <div v-if="workspace.error.value" class="notice error" role="alert">
+          <span>{{ workspace.error.value }}</span
+          ><button class="text-button" @click="workspace.loadWorkspace">
+            重新加载
           </button>
         </div>
-        <div v-if="error" class="notice error" role="alert">
-          <span>{{ error }}</span>
-          <button class="text-button" @click="loadWorkspace">重新加载</button>
-        </div>
-        <div v-if="busy" class="loading-line" role="status" aria-live="polite">
+        <div
+          v-if="workspace.busy.value"
+          class="loading-line"
+          role="status"
+          aria-live="polite"
+        >
           正在读取采集数据…
         </div>
-        <OverviewView
-          v-if="!busy && page === 'overview'"
-          @create="openCreateDialog"
+        <AcquireView
+          v-if="!workspace.busy.value && workspace.page.value === 'acquire'"
+          :catalog-flow="catalogFlow"
+          @manage="navigateTo('assets')"
         />
-        <JobsView v-else-if="!busy && page === 'jobs'" />
-        <SeriesView v-else-if="!busy && page === 'series'" />
-        <ReviewsView v-else-if="!busy && page === 'reviews'" />
+        <AssetsView
+          v-else-if="workspace.page.value === 'assets'"
+          :workspace="assetWorkspace"
+        />
+        <section
+          v-else-if="workspace.page.value === 'research'"
+          class="collection-placeholder"
+        >
+          <h2>研究交接</h2>
+          <p>正在整理可分析数据范围与多准则研究入口。</p>
+        </section>
       </main>
     </div>
 

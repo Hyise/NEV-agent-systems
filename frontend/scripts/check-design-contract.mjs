@@ -292,15 +292,15 @@ const collectionShellPath = "src/modules/collection/CollectionWorkbench.vue";
 expectContains(collectionShellPath, [
   "createCollectionWorkspace",
   "createCatalogFlow",
+  "createAssetWorkspace",
   "CreateCollectionJobDialog",
   "provideCollectionWorkspace",
-  "评论数据采集系统",
-  "总览",
-  "采集任务",
-  "车系",
-  "原始评论",
+  "评论数据工作台",
+  "获取数据",
+  "管理数据",
+  "用于研究",
   "返回研究平台",
-  ':aria-expanded="mobileNav"',
+  ':aria-expanded="workspace.mobileNav.value"',
   'aria-controls="collection-navigation"',
 ]);
 expectContains("src/styles/collection.css", [
@@ -318,8 +318,8 @@ expectNotContains("src/styles/collection.css", [
 expectContains("src/platform/PlatformHome.vue", [
   "发现汽车之家车系，采集并保存完整原始口碑",
 ]);
-expectContains("src/modules/collection/views/JobsView.vue", [
-  "活动任务",
+expectContains("src/modules/collection/views/AcquireView.vue", [
+  "当前采集任务",
   "功能验证",
   "正式采集",
   "暂停",
@@ -327,6 +327,7 @@ expectContains("src/modules/collection/views/JobsView.vue", [
   "停止",
   "查看事件",
   "事件与异常",
+  "人工删除跳过",
 ]);
 expectContains("src/modules/collection/catalogFlow.ts", [
   "2～4 秒",
@@ -348,18 +349,23 @@ expectNotContains(collectionShellPath, [
   'class="mode-options"',
   "productionConfirmationText",
 ]);
-expectContains("src/modules/collection/views/SeriesView.vue", [
-  "车系名称",
-  "series_id",
-  "评论数",
-  "发现顺序",
-  "最近确认",
+expectContains("src/modules/collection/views/AssetsView.vue", [
+  "来源",
+  "标签",
+  "分析状态",
+  "导入评论",
+  "ReviewAssetDrawer",
 ]);
-expectContains("src/modules/collection/views/ReviewsView.vue", [
-  "导出该车系 JSONL",
-  "查看完整 JSON",
-  "original_review",
-  "<pre>",
+expectContains("src/modules/collection/components/ReviewAssetDrawer.vue", [
+  "只读原始数据",
+  "研究引用",
+  "删除数据",
+  "JSON.stringify",
+]);
+expectContains("src/modules/collection/components/ReviewImportDialog.vue", [
+  "选择文件",
+  "校验预览",
+  "确认写入",
 ]);
 expectNotContains("src/modules/collection/api.ts", ["autohome.com.cn"]);
 expectContains(mcdmShellPath, [

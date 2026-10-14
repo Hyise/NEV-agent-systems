@@ -29,6 +29,7 @@ export interface CollectionJob {
   duplicate_count: number;
   failed_count: number;
   skipped_count: number;
+  deleted_review_skip_count?: number;
   last_success_at: string | null;
   last_error: string | null;
   created_at: string;
