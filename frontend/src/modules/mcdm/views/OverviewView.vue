@@ -37,7 +37,8 @@ const weightOption = computed(() => ({
     axisLabel: {
       color: "#435b68",
       fontSize: 12,
-      fontFamily: 'SimSun, "宋体", STSong, "Songti SC", serif',
+      fontFamily:
+        '"Microsoft YaHei UI", "PingFang SC", "Noto Sans CJK SC", sans-serif',
     },
   },
   series: [
@@ -56,7 +57,8 @@ const weightOption = computed(() => ({
         position: "right",
         formatter: (params: { value: number }) => pct(params.value),
         color: "#385564",
-        fontFamily: 'SimSun, "宋体", STSong, "Songti SC", serif',
+        fontFamily:
+          '"Microsoft YaHei UI", "PingFang SC", "Noto Sans CJK SC", sans-serif',
       },
     },
   ],
@@ -64,7 +66,7 @@ const weightOption = computed(() => ({
 </script>
 
 <template>
-  <section v-if="overview">
+  <section v-if="overview" class="research-surface overview-workspace">
     <div class="metric-strip" aria-label="研究数据概览">
       <div class="metric-strip__item">
         <span>车型月份记录</span>

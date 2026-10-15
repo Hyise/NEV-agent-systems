@@ -28,7 +28,7 @@ const {
 </script>
 
 <template>
-  <section v-if="overview" class="data-workspace">
+  <section v-if="overview" class="research-surface data-workspace">
     <header class="data-command-bar">
       <div>
         <h2>{{ overview.dataset?.name || "项目数据集" }}</h2>

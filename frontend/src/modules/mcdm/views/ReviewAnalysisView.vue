@@ -11,7 +11,10 @@ onBeforeUnmount(workspace.deactivate);
 </script>
 
 <template>
-  <section class="review-analysis-workspace" aria-label="评论语义分析工作区">
+  <section
+    class="research-surface review-analysis-workspace"
+    aria-label="评论语义分析工作区"
+  >
     <div class="notice info">
       选中的公开评论原文将发送到 DeepSeek
       API。模型结果是研究辅助材料，不代表已经人工核验。

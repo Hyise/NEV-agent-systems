@@ -51,7 +51,7 @@ function showLatestArchive() {
 </script>
 
 <template>
-  <section class="shares-workspace">
+  <section class="research-surface shares-workspace">
     <div class="notice info source-status">
       {{
         predictions.length

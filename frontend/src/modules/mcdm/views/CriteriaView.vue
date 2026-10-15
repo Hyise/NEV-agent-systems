@@ -21,7 +21,7 @@ const {
 </script>
 
 <template>
-  <section v-if="overview" class="criteria-workspace">
+  <section v-if="overview" class="research-surface criteria-workspace">
     <article class="criteria-document">
       <header class="criteria-document__header">
         <div>

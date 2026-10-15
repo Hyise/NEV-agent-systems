@@ -166,14 +166,16 @@ expectContains("src/components/BaseChart.vue", [
   "ResizeObserver",
   "axisPointer",
   "confine: true",
+  "Microsoft YaHei UI",
+  "PingFang SC",
+]);
+expectNotContains("src/components/BaseChart.vue", [
+  "Bahnschrift",
   "SimSun",
   "宋体",
 ]);
-expectNotContains("src/components/BaseChart.vue", [
-  "PingFang SC",
-  "Bahnschrift",
-]);
 expectContains("src/modules/mcdm/views/OverviewView.vue", [
+  "research-surface",
   'class="metric-strip"',
   'class="overview-evidence"',
   'class="overview-evidence__summary"',
@@ -195,7 +197,8 @@ expectContains("src/styles/pages.css", [
 ]);
 expectContains("src/styles/components.css", [".empty", ".panel", ".notice"]);
 expectContains("src/modules/mcdm/views/DataView.vue", [
-  'class="data-workspace"',
+  "research-surface",
+  "data-workspace",
   'class="data-command-bar"',
   'class="dataset-filter-bar"',
   'class="data-table-region"',
@@ -210,7 +213,8 @@ expectNotContains("src/modules/mcdm/views/DataView.vue", [
   'class="panel data-workspace"',
 ]);
 expectContains("src/modules/mcdm/views/CriteriaView.vue", [
-  'class="criteria-workspace"',
+  "research-surface",
+  "criteria-workspace",
   'class="criteria-document"',
   'class="criteria-document__meta"',
   'class="criteria-column-head"',
@@ -236,7 +240,8 @@ expectContains("src/styles/pages.css", [
   ".criteria-row",
 ]);
 expectContains("src/modules/mcdm/views/ScenarioView.vue", [
-  'class="analysis-document scenario-workspace"',
+  "research-surface",
+  "analysis-document scenario-workspace",
   "analysis-controls",
   "analysis-control-bar",
   "analysis-evidence",
@@ -246,7 +251,8 @@ expectContains("src/modules/mcdm/views/ScenarioView.vue", [
   "选择至少一个准则",
 ]);
 expectContains("src/modules/mcdm/views/SharesView.vue", [
-  'class="shares-workspace"',
+  "research-surface",
+  "shares-workspace",
   'class="analysis-document share-evidence"',
   'class="analysis-control-bar"',
   "source-status",
@@ -256,7 +262,8 @@ expectContains("src/modules/mcdm/views/SharesView.vue", [
   "delta-label",
 ]);
 expectContains("src/modules/mcdm/views/ExperimentsView.vue", [
-  'class="experiments-workspace"',
+  "research-surface",
+  "experiments-workspace",
   'class="analysis-document experiment-ledger"',
   'class="experiment-section"',
   "source-status",
@@ -268,6 +275,7 @@ expectContains("src/modules/mcdm/views/ExperimentsView.vue", [
   "训练",
 ]);
 expectContains("src/styles/pages.css", [
+  ".research-surface",
   ".scenario-workspace",
   ".shares-workspace",
   ".experiments-workspace",
@@ -444,7 +452,7 @@ expectContains(mcdmShellPath, [
   "评论语义分析",
   "ReviewAnalysisView",
 ]);
-expectContains(reviewAnalysisView, ["评论语义分析"]);
+expectContains(reviewAnalysisView, ["评论语义分析", "research-surface"]);
 expectContains(
   "src/modules/mcdm/review-analysis/components/SourceScopePanel.vue",
   ["准则发现", "逐条评论标注"],

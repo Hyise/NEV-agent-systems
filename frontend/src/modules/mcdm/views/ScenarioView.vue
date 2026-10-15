@@ -53,7 +53,10 @@ const curveOption = computed(() => ({
 </script>
 
 <template>
-  <section v-if="overview" class="analysis-document scenario-workspace">
+  <section
+    v-if="overview"
+    class="research-surface analysis-document scenario-workspace"
+  >
     <header class="analysis-heading">
       <div>
         <h2>时间压力与模型权重</h2>
