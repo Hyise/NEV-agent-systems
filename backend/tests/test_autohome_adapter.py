@@ -507,11 +507,11 @@ def test_review_detail_html_appends_every_nonempty_section_in_dom_order():
     item["contents"] = [
         {
             "structuredid": 1,
-            "structuredname": "满意",
+            "structuredname": "最满意",
             "content": "第一段完整...",
             "sourceField": "kept",
         },
-        {"structuredid": 2, "structuredname": "不满意", "content": "完整的不..."},
+        {"structuredid": 2, "structuredname": "最不满意", "content": "完整的不..."},
     ]
     review = parse_review_page(model_y(), payload, page_index=1).reviews[0]
     detail_html = (FIXTURES / "review-detail.html").read_text(encoding="utf-8")

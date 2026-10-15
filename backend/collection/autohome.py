@@ -170,6 +170,7 @@ def _complete_review_from_html(
             merged.append({"structuredname": name, "content": complete})
             continue
         section = remaining.pop(match_index)
+        section["structuredname"] = name
         section["content"] = complete
         merged.append(section)
 
