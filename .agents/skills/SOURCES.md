@@ -1,6 +1,6 @@
 # 项目内 Skill 来源清单
 
-本目录只保存本项目需要、且已人工审阅过入口说明的 Skill。下载日期均为 2026-09-26。
+本目录只保存本项目需要、且已人工审阅过入口说明的 Skill。各项下载日期见表格。
 
 | Skill | 上游来源 | 上游路径 | 下载分支 | 许可证 | 本地审计结论 |
 | --- | --- | --- | --- | --- | --- |
@@ -8,6 +8,7 @@
 | `security-threat-model` | [openai/skills](https://github.com/openai/skills) | `skills/.curated/security-threat-model` | `main` | Apache-2.0，见随附 `LICENSE.txt` | 仅 Markdown、YAML 与许可证；无脚本、无令牌读取、无主动联网逻辑。仅在明确要求威胁建模时触发。 |
 | `fastapi` | [fastapi/fastapi](https://github.com/fastapi/fastapi) | `fastapi/.agents/skills/fastapi` | `master` | 上游仓库 MIT；下载路径未单独携带许可证文件 | 仅 Markdown 说明与参考资料；无脚本、无令牌读取、无主动联网逻辑。用于 FastAPI、Pydantic、路由和依赖注入变更。 |
 | `nev-mcdm-vue` | 本项目维护 | `.agents/skills/nev-mcdm-vue` | 不适用 | 项目内部文件，随本项目授权 | 面向本项目 Vue 前端边界的轻量约束；随项目架构一起维护。 |
+| `emil-design-eng` | [emilkowalski/skills](https://github.com/emilkowalski/skills) | `skills/emil-design-eng` | `main` | 上游仓库 MIT；下载路径未单独携带许可证文件 | 2026-10-15 下载。仅含 `SKILL.md`，无脚本、无令牌读取、无主动联网逻辑。用于 UI 细节、组件反馈、动效取舍与性能审查；项目业务边界和无障碍约束优先。 |
 
 ## 下载与更新规则
 
@@ -22,3 +23,4 @@
 - `security-best-practices`：官方 `quick_validate.py` 通过。
 - `security-threat-model`：Windows 默认 GBK 环境下校验器读取 UTF-8 标点时报编码错误；设置 `PYTHONUTF8=1` 后通过，文件本身无需修改。
 - `fastapi`：官方 `quick_validate.py` 通过。
+- `emil-design-eng`：官方 `quick_validate.py` 通过；已人工确认下载目录只有 Markdown 入口文件。

@@ -35,8 +35,9 @@ Skill 只能提供方法，不能覆盖用户要求、`AGENTS.md`、项目锁定
 | `$fastapi` | 修改 FastAPI 路由、Pydantic 模型、依赖注入、响应或前端静态服务 | 先核对 FastAPI `0.128.8`；上游新特性不是自动升级许可 |
 | `$security-best-practices` | 用户明确要求安全最佳实践、安全审查/报告或安全默认实现 | 不为一般代码审查自动生成安全报告；修复前确认行为兼容性 |
 | `$security-threat-model` | 用户明确要求仓库威胁建模、攻击路径或 AppSec 模型 | 不用于一般架构摘要；最终模型前需确认暴露面、用户和部署假设 |
+| `$emil-design-eng` | 明显视觉重塑、交互细节或动效审查 | 高频研究操作优先稳定与速度；不因展示效果增加无目的动效，不覆盖项目无障碍、字体与架构约束 |
 
-三项内容位于 `.agents/skills/`，下载后已检查文件列表、入口说明、脚本和敏感命令迹象。它们不在应用启动时执行。
+以上外部 Skill 位于 `.agents/skills/`，下载后已检查文件列表、入口说明、脚本和敏感命令迹象。它们不在应用启动时执行。
 
 ## 4. 项目自建 Skill
 
@@ -59,6 +60,7 @@ Skill 只能提供方法，不能覆盖用户要求、`AGENTS.md`、项目锁定
 | 新增后端资源与页面 | brainstorming → writing-plans → TDD → `$fastapi` + `$nev-mcdm-vue` → verification |
 | 修复 CSV 校验缺陷 | systematic-debugging → TDD → `$fastapi` → verification |
 | 新增分析图表 | brainstorming → `$nev-mcdm-vue`；涉及视觉取舍再加 `frontend-design`；最后 Playwright 与 verification |
+| 全站 UI 重塑 | brainstorming → `frontend-design` + `$emil-design-eng` + `$nev-mcdm-vue` → Playwright → verification |
 | 明确的全栈安全审查 | `$security-best-practices`，分别读取 FastAPI 与 Vue 参考；按发现运行对应测试 |
 | 计划公网部署 | brainstorming → `$security-threat-model` → 架构 ADR；在鉴权和部署控制完成前不得开放 |
 | README 拼写修正 | 不加载技术 Skill；检查链接和文字即可 |
