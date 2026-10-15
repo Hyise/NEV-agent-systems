@@ -73,7 +73,7 @@ class CatalogDiscoveryResult:
 class _ReviewDetailParser(HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
-        self.sections: dict[str, str] = {}
+        self.sections: list[tuple[str, str]] = []
         self._section_depth = 0
         self._title_parts: list[str] = []
         self._content_parts: list[str] = []
@@ -122,7 +122,7 @@ class _ReviewDetailParser(HTMLParser):
                 name = self._section_name("".join(self._title_parts))
                 content = "".join(self._content_parts).replace("\r\n", "\n").strip()
                 if name and content:
-                    self.sections[name] = content
+                    self.sections.append((name, content))
 
     def handle_data(self, data: str) -> None:
         if self._in_title:
@@ -147,16 +147,39 @@ def _complete_review_from_html(
     contents = original.get("contents")
     if not isinstance(contents, list):
         raise AutohomeStructureError("汽车之家口碑记录缺少contents列表")
+    remaining: list[dict[str, Any]] = []
     for section in contents:
         if not isinstance(section, dict):
             raise AutohomeStructureError("汽车之家口碑contents包含无效分区")
+        remaining.append(section)
+
+    merged: list[dict[str, Any]] = []
+    for name, complete in parser.sections:
+        match_index = next(
+            (
+                index
+                for index, section in enumerate(remaining)
+                if _ReviewDetailParser._section_name(
+                    str(section.get("structuredname") or "")
+                )
+                == name
+            ),
+            None,
+        )
+        if match_index is None:
+            merged.append({"structuredname": name, "content": complete})
+            continue
+        section = remaining.pop(match_index)
+        section["content"] = complete
+        merged.append(section)
+
+    for section in remaining:
         name = str(section.get("structuredname") or "").strip()
-        complete = parser.sections.get(name)
         current = str(section.get("content") or "").rstrip()
-        if complete:
-            section["content"] = complete
-        elif current.endswith(("...", "…")):
+        if current.endswith(("...", "…")):
             raise AutohomeStructureError(f"详情页缺少完整的{name or '评论'}正文")
+        merged.append(section)
+    original["contents"] = merged
     return CollectedReview(
         platform=review.platform,
         review_id=review.review_id,
