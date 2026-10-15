@@ -33,10 +33,10 @@
   --adaptive-accent: #6a6580;
 
   --font-display: SimSun, "宋体", STSong, "Songti SC", serif;
-  --font-body: "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC",
-    sans-serif;
-  --font-data: "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC",
-    sans-serif;
+  --font-body:
+    "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+  --font-data:
+    "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", sans-serif;
 
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);

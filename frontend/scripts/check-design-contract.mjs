@@ -95,7 +95,16 @@ expectContains("src/platform/PlatformHome.vue", [
   "researchModules",
   "<RouterLink",
   '@click.prevent="focusDirectory"',
+  'class="platform-evidence-chain"',
+  "发现车系",
+  "原始评论",
+  "准则证据",
+  "决策复核",
+  "module-entry--collection",
+  "module-entry--mcdm",
+  'class="adaptive-entry"',
 ]);
+expectNotContains("src/platform/PlatformHome.vue", ['class="research-path"']);
 expectContains("src/platform/AdaptiveIntroduction.vue", [
   "自适应评估系统",
   "研究材料待接入",
