@@ -468,6 +468,10 @@ expectContains("../scripts/start-site.ps1", [
   "NoBrowser",
   "npm.cmd",
 ]);
+expectContains("../docs/运行须知.md", [
+  "powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\start-site.ps1 -Port 8029",
+  "powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\stop-local.ps1",
+]);
 
 if (failures.length > 0) {
   console.error(
