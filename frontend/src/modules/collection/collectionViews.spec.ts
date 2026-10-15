@@ -126,6 +126,10 @@ describe("guided collection views", () => {
     expect(shellSource).toContain("管理数据");
     expect(shellSource).toContain("用于研究");
     expect(shellSource).toContain("assetWorkspace.refresh()");
+    for (const source of [shellSource, mcdmSource]) {
+      expect(source).toContain(':is="item.icon"');
+      expect(source).toContain('class="nav-item__icon"');
+    }
   });
 
   it("hands server summary to two explicit research intents without creating tasks", () => {

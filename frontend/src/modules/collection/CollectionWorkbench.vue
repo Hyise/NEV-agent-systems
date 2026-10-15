@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { Menu } from "lucide-vue-next";
+import type { Component } from "vue";
+import { Download, FlaskConical, Library, Menu } from "lucide-vue-next";
 import { RouterLink } from "vue-router";
 import AppBrand from "../../components/AppBrand.vue";
 import type { AcquisitionAction } from "./acquisitionGuidance";
@@ -17,21 +18,29 @@ import AcquireView from "./views/AcquireView.vue";
 import AssetsView from "./views/AssetsView.vue";
 import ResearchHandoffView from "./views/ResearchHandoffView.vue";
 
-const pages: Array<{ id: CollectionPage; title: string; subtitle: string }> = [
+const pages: Array<{
+  id: CollectionPage;
+  title: string;
+  subtitle: string;
+  icon: Component;
+}> = [
   {
     id: "acquire",
     title: "获取数据",
     subtitle: "发现车系、选择范围并运行评论采集任务。",
+    icon: Download,
   },
   {
     id: "assets",
     title: "管理数据",
     subtitle: "检查原始评论，维护研究标签和分析状态。",
+    icon: Library,
   },
   {
     id: "research",
     title: "用于研究",
     subtitle: "确认可用规模，再进入多准则研究流程。",
+    icon: FlaskConical,
   },
 ];
 
@@ -125,7 +134,13 @@ onBeforeUnmount(() =>
           :aria-current="workspace.page.value === item.id ? 'page' : undefined"
           @click="navigateTo(item.id)"
         >
-          {{ item.title }}
+          <component
+            :is="item.icon"
+            class="nav-item__icon"
+            :size="16"
+            aria-hidden="true"
+          />
+          <span>{{ item.title }}</span>
         </button>
       </nav>
       <div class="sidebar-foot">

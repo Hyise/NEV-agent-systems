@@ -7,7 +7,21 @@ import {
   ref,
   watch,
 } from "vue";
-import { ArrowRight, Check, Menu, Plus, X } from "lucide-vue-next";
+import type { Component } from "vue";
+import {
+  Activity,
+  Archive,
+  ArrowRight,
+  Check,
+  Database,
+  FileText,
+  Home,
+  ListChecks,
+  Menu,
+  PieChart,
+  Plus,
+  X,
+} from "lucide-vue-next";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import AppBrand from "../../components/AppBrand.vue";
 import { parseMcdmIntent, type McdmIntent } from "../../router";
@@ -36,41 +50,53 @@ const ExperimentsView = defineAsyncComponent(
   () => import("./views/ExperimentsView.vue"),
 );
 
-const pages = [
+const pages: Array<{
+  id: Page;
+  title: string;
+  subtitle: string;
+  icon: Component;
+}> = [
   {
     id: "overview" as Page,
     title: "研究总览",
     subtitle: "从用户评价，理解市场选择。",
+    icon: Home,
   },
   {
     id: "data" as Page,
     title: "数据中心",
     subtitle: "追溯每一次分析的数据起点。",
+    icon: Database,
   },
   {
     id: "criteria" as Page,
     title: "准则工作台",
     subtitle: "让评价维度有定义，让研究版本可追溯。",
+    icon: ListChecks,
   },
   {
     id: "review-analysis" as Page,
     title: "评论语义分析",
     subtitle: "从完整评论发现准则，并按冻结体系逐条提取评价证据。",
+    icon: FileText,
   },
   {
     id: "scenario" as Page,
     title: "情景分析",
     subtitle: "观察时间压力下的权重变化。",
+    icon: Activity,
   },
   {
     id: "shares" as Page,
     title: "份额分析",
     subtitle: "在同一候选集内，对照真实份额与模型估计。",
+    icon: PieChart,
   },
   {
     id: "experiments" as Page,
     title: "实验档案",
     subtitle: "保留研究证据，也保留它的适用边界。",
+    icon: Archive,
   },
 ];
 
@@ -224,6 +250,12 @@ onBeforeUnmount(() =>
             :aria-current="page === item.id ? 'page' : undefined"
             @click="navigateTo(item.id)"
           >
+            <component
+              :is="item.icon"
+              class="nav-item__icon"
+              :size="16"
+              aria-hidden="true"
+            />
             <span>{{ item.title }}</span>
           </button>
         </section>

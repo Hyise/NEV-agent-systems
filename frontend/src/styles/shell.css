@@ -1,6 +1,6 @@
 .mcdm-shell {
-  --sidebar-width: 176px;
-  --header-height: 52px;
+  --sidebar-width: 208px;
+  --header-height: 56px;
 
   min-height: 100vh;
   background: var(--canvas);
@@ -15,7 +15,7 @@
   flex-direction: column;
   border-right: 1px solid var(--line);
   background: var(--surface);
-  padding: 18px 14px 15px;
+  padding: 18px 16px 15px;
   color: var(--ink);
 }
 
@@ -47,7 +47,7 @@
   border-bottom: 1px solid var(--line);
   border-radius: 0;
   background: transparent;
-  padding: 0 5px 16px;
+  padding: 0 5px 18px;
   color: inherit;
   text-align: left;
 }
@@ -65,7 +65,7 @@
   flex: 0 0 43px;
   place-items: center;
   border: 1px solid var(--line);
-  background: #f9fbfb;
+  background: var(--surface-raised);
 }
 
 .app-brand__mark svg {
@@ -139,7 +139,7 @@
 }
 
 .workspace-label {
-  margin: 15px 7px 7px;
+  margin: 18px 8px 8px;
   color: var(--ink);
   font-size: 12px;
   font-weight: 700;
@@ -170,13 +170,14 @@
   position: relative;
   display: flex;
   width: 100%;
-  min-height: 38px;
+  min-height: 42px;
   align-items: center;
   border: 0;
-  border-radius: 0;
+  gap: 10px;
+  border-radius: var(--radius-sm);
   background: transparent;
-  color: #596b78;
-  padding: 8px 9px 8px 13px;
+  color: #53625b;
+  padding: 9px 10px 9px 13px;
   text-align: left;
   transition:
     background-color 140ms ease,
@@ -192,14 +193,21 @@
   content: "";
 }
 
-.nav-item:hover {
-  color: var(--ink);
+.nav-item__icon {
+  width: 16px;
+  flex: 0 0 16px;
+  color: var(--muted-soft);
+  stroke-width: 1.7;
 }
 
 .nav-item.active {
   background: color-mix(in srgb, var(--mcdm-accent) 8%, transparent);
   color: var(--mcdm-accent);
   font-weight: 700;
+}
+
+.nav-item.active .nav-item__icon {
+  color: currentColor;
 }
 
 .nav-item.active::before {
@@ -232,7 +240,7 @@
   justify-content: space-between;
   border-bottom: 1px solid var(--line);
   background: var(--surface);
-  padding: 0 30px;
+  padding: 0 32px;
 }
 
 .platform-bar__identity {
@@ -259,7 +267,7 @@
 .mcdm-main {
   width: min(100%, 1460px);
   margin: 0 auto;
-  padding: 30px 34px 22px;
+  padding: 32px 36px 24px;
 }
 
 .heading-row {
@@ -301,6 +309,18 @@
 
   .mcdm-main {
     padding-inline: 24px;
+  }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .module-return:hover,
+  .platform-return:hover {
+    color: var(--mcdm-accent);
+  }
+
+  .nav-item:hover:not(.active) {
+    background: rgb(24 35 31 / 4%);
+    color: var(--ink);
   }
 }
 

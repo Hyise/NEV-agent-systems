@@ -150,13 +150,14 @@ expectContains(mcdmShellPath, [
   ':title="currentProjectName"',
   "aria-current=\"page === item.id ? 'page' : undefined\"",
   'class="app-sidebar"',
+  ':is="item.icon"',
+  'class="nav-item__icon"',
 ]);
 expectNotContains(mcdmShellPath, [
   "NEW ENERGY VEHICLE",
   "NEW RESEARCH",
   'class="evidence-rail"',
   "阶段一 · 数据与准则",
-  '<component :is="item.icon"',
   "icon: LayoutDashboard",
 ]);
 expectContains("src/components/BaseChart.vue", [
@@ -286,12 +287,14 @@ expectContains("src/styles/foundation.css", [
   "-webkit-tap-highlight-color",
 ]);
 expectContains("src/styles/shell.css", [
+  "--sidebar-width: 208px",
   "@media (max-width: 1199px)",
   "@media (max-width: 767px)",
   ".nav-backdrop",
   "overscroll-behavior: contain",
   "var(--ease-out)",
   "@media (prefers-reduced-motion: reduce)",
+  ".nav-item__icon",
 ]);
 expectContains("src/styles/components.css", [
   ".table-scroll",
@@ -321,6 +324,8 @@ expectContains(collectionShellPath, [
   "返回研究平台",
   ':aria-expanded="workspace.mobileNav.value"',
   'aria-controls="collection-navigation"',
+  ':is="item.icon"',
+  'class="nav-item__icon"',
 ]);
 expectContains("src/styles/collection.css", [
   ".collection-shell",

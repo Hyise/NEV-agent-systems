@@ -1,6 +1,6 @@
 .collection-shell {
-  --sidebar-width: 176px;
-  --header-height: 52px;
+  --sidebar-width: 208px;
+  --header-height: 56px;
   --collection-soft: #edf3ef;
 
   min-height: 100vh;
@@ -16,6 +16,10 @@
 
 .collection-shell .nav-item.active::before {
   background: var(--collection-accent, #3f6655);
+}
+
+.collection-shell .nav-item.active {
+  background: color-mix(in srgb, var(--collection-accent) 8%, transparent);
 }
 
 .collection-shell .app-sidebar nav {
@@ -37,13 +41,13 @@
   justify-content: space-between;
   border-bottom: 1px solid var(--line);
   background: var(--surface);
-  padding: 0 30px;
+  padding: 0 32px;
 }
 
 .collection-main {
   width: min(100%, 1280px);
   margin: 0 auto;
-  padding: 30px 34px 22px;
+  padding: 32px 36px 24px;
 }
 
 .guided-stage {
