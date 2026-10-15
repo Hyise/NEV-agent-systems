@@ -42,7 +42,7 @@ function dateTime(value: string) {
 
 <template>
   <section class="assets-workspace" aria-label="管理评论数据">
-    <div class="asset-summary-line">
+    <div class="asset-summary-line asset-command-area">
       <span
         >资产总数
         <strong class="mono">{{

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { CatalogStatus, CollectionOverview } from "./api";
 import { resolveAcquisitionGuidance } from "./acquisitionGuidance";
 import shellSource from "./CollectionWorkbench.vue?raw";
+import stageSource from "./components/GuidedStageBar.vue?raw";
 import drawerSource from "./components/ReviewAssetDrawer.vue?raw";
 import importerSource from "./components/ReviewImportDialog.vue?raw";
 import assetsSource from "./views/AssetsView.vue?raw";
@@ -137,6 +138,7 @@ describe("guided collection views", () => {
     expect(researchSource).toContain("intent: 'criteria-discovery'");
     expect(researchSource).toContain("intent: 'review-annotation'");
     expect(researchSource).toContain("不可用原因");
+    expect(researchSource).toContain("不会自动调用大模型");
     expect(mcdmSource).toContain("parseMcdmIntent");
     expect(mcdmSource).toContain("请确认本次研究的车系来源范围");
     expect(mcdmSource).toContain("当前是准则草稿");
@@ -147,6 +149,13 @@ describe("guided collection views", () => {
     expect(mcdmSource).not.toContain(
       "handoffIntent.value === 'review-annotation' ? reviewAnalysisWorkspace.createAnnotation",
     );
+  });
+
+  it("shows a continuous acquisition path with real catalog and review counts", () => {
+    expect(stageSource).toContain('class="guided-stage__status"');
+    expect(stageSource).toContain("catalog?.series_count");
+    expect(stageSource).toContain("overview?.review_count");
+    expect(stageSource).toContain("确认研究范围");
   });
 
   it("shows deleted-source traceability in historical research", () => {

@@ -72,7 +72,7 @@ async function remove() {
     @cancel.prevent="close"
     @close="restoreFocus?.focus()"
   >
-    <article v-if="workspace.detail.value">
+    <article v-if="workspace.detail.value" class="asset-drawer__content">
       <header class="asset-drawer__header">
         <div>
           <p class="collection-eyebrow">评论资产</p>

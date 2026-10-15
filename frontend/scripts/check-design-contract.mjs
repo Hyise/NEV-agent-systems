@@ -329,6 +329,10 @@ expectContains(collectionShellPath, [
 ]);
 expectContains("src/styles/collection.css", [
   ".collection-shell",
+  ".collection-metric-strip",
+  ".guided-stage__status",
+  ".asset-command-area",
+  ".asset-drawer__content",
   ".catalog-dialog",
   ".catalog-series-row",
   "font-family: inherit",

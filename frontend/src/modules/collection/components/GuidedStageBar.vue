@@ -34,6 +34,16 @@ const actionLabel: Record<AcquisitionAction, string> = {
   monitor: "查看任务",
   manage: "管理评论",
 };
+
+function stageDetail(stage: CollectionPage) {
+  if (stage === "acquire") {
+    return `${props.catalog?.series_count ?? 0} 个车系`;
+  }
+  if (stage === "assets") {
+    return `${props.overview?.review_count ?? 0} 条原始评论`;
+  }
+  return "确认研究范围";
+}
 </script>
 
 <template>
@@ -48,6 +58,9 @@ const actionLabel: Record<AcquisitionAction, string> = {
         >
           <span class="mono">{{ stage.number }}</span>
           <strong>{{ stage.label }}</strong>
+          <small class="guided-stage__status">{{
+            stageDetail(stage.id)
+          }}</small>
         </button>
       </li>
     </ol>

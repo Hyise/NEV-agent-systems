@@ -48,20 +48,22 @@ defineExpose({ suggestedAction });
 
 <template>
   <section class="acquire-workspace" aria-label="获取评论数据">
-    <div class="collection-summary-line">
-      <span
+    <div class="collection-summary-line collection-metric-strip">
+      <span class="collection-metric"
         >车系目录
         <strong class="mono">{{ overview?.series_count ?? 0 }}</strong></span
       >
-      <span
+      <span class="collection-metric"
         >已保存评论
         <strong class="mono">{{ overview?.review_count ?? 0 }}</strong></span
       >
-      <span
+      <span class="collection-metric"
         >异常记录
         <strong class="mono">{{ overview?.pending_errors ?? 0 }}</strong></span
       >
-      <span>来源 <strong>汽车之家新能源汽车口碑</strong></span>
+      <span class="collection-metric collection-metric--source"
+        >来源 <strong>汽车之家新能源汽车口碑</strong></span
+      >
     </div>
 
     <section
