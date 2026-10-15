@@ -109,15 +109,20 @@ expectNotContains("src/platform/AdaptiveIntroduction.vue", [
   '"/api',
 ]);
 expectContains("src/styles/foundation.css", [
-  "#f3f5f6",
-  "#ffffff",
-  "#1e2b38",
-  "#d9e0e5",
-  "#0f7c82",
-  "#c65a3a",
+  "#f1f3f2",
+  "#fbfcfb",
+  "#18231f",
+  "#d7deda",
+  "#3f6655",
+  "#23616a",
+  "#b65a3a",
+  "--surface-raised",
   "--font-display",
   "--font-body",
   "--font-data",
+  '"Microsoft YaHei UI"',
+  "--ease-out",
+  "--ease-in-out",
   "prefers-reduced-motion",
 ]);
 read("src/components/AppBrand.vue");
@@ -276,6 +281,8 @@ expectContains("src/styles/shell.css", [
   "@media (max-width: 767px)",
   ".nav-backdrop",
   "overscroll-behavior: contain",
+  "var(--ease-out)",
+  "@media (prefers-reduced-motion: reduce)",
 ]);
 expectContains("src/styles/components.css", [
   ".table-scroll",
@@ -283,6 +290,9 @@ expectContains("src/styles/components.css", [
   "position: relative",
   "@media (max-width: 767px)",
   "min-height: 44px",
+  ".btn:active:not(:disabled)",
+  "transform: scale(0.98)",
+  "@media (hover: hover) and (pointer: fine)",
 ]);
 expectContains("src/styles/platform.css", [
   "@media (max-width: 1199px)",

@@ -11,27 +11,20 @@
   border: 1px solid transparent;
   white-space: nowrap;
   transition:
-    background 0.15s ease,
-    border-color 0.15s ease,
-    color 0.15s ease;
+    transform 140ms var(--ease-out),
+    background-color 140ms ease,
+    border-color 140ms ease,
+    color 140ms ease;
 }
 .primary {
   background: var(--review);
   color: var(--surface);
   border-color: var(--review);
 }
-.primary:hover:not(:disabled) {
-  background: #0a686d;
-  border-color: #0a686d;
-}
 .secondary {
   background: var(--surface);
   border-color: var(--line);
   color: var(--ink);
-}
-.secondary:hover:not(:disabled) {
-  background: #f7f9f9;
-  border-color: #b9c5cb;
 }
 .full-width {
   width: 100%;
@@ -46,9 +39,33 @@
   border-radius: 4px;
   background: transparent;
   color: var(--muted);
+  transition:
+    transform 140ms var(--ease-out),
+    background-color 140ms ease,
+    color 140ms ease;
 }
-.icon-btn:hover:not(:disabled) {
-  background: #eef3f3;
+
+.btn:active:not(:disabled),
+.icon-btn:active:not(:disabled),
+.text-button:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .primary:hover:not(:disabled) {
+    border-color: #194e55;
+    background: #194e55;
+  }
+
+  .secondary:hover:not(:disabled) {
+    border-color: #b8c4be;
+    background: #f4f7f5;
+  }
+
+  .icon-btn:hover:not(:disabled) {
+    background: #e8eeeb;
+    color: var(--ink);
+  }
 }
 .button-group {
   display: flex;

@@ -1,41 +1,47 @@
 :root {
-  color: #1e2b38;
-  background: #f3f5f6;
+  color: #18231f;
+  background: #f1f3f2;
   font-family: var(--font-body);
   font-synthesis: none;
   font-size: 14px;
   line-height: 1.6;
   text-rendering: optimizeLegibility;
 
-  --canvas: #f3f5f6;
-  --surface: #ffffff;
-  --ink: #1e2b38;
-  --line: #d9e0e5;
-  --review: #0f7c82;
-  --market: #c65a3a;
-  --muted: #687987;
-  --muted-soft: #8b99a4;
-  --review-soft: #e7f2f1;
-  --market-soft: #f8ece8;
-  --navy: #1e2b38;
-  --teal: #0f7c82;
+  --canvas: #f1f3f2;
+  --surface: #fbfcfb;
+  --surface-raised: #ffffff;
+  --ink: #18231f;
+  --line: #d7deda;
+  --review: #23616a;
+  --market: #b65a3a;
+  --muted: #66736d;
+  --muted-soft: #87928c;
+  --review-soft: #e6efed;
+  --market-soft: #f5eae5;
+  --navy: #18231f;
+  --teal: #23616a;
   --white: #ffffff;
   --amber: #c65a3a;
 
-  --platform-canvas: #f4f6f7;
-  --platform-surface: #ffffff;
-  --platform-ink: #18232d;
-  --platform-muted: #65717c;
-  --platform-line: #d6dce0;
+  --platform-canvas: #f1f3f2;
+  --platform-surface: #fbfcfb;
+  --platform-ink: #18231f;
+  --platform-muted: #66736d;
+  --platform-line: #d7deda;
   --collection-accent: #3f6655;
-  --mcdm-accent: #235f68;
-  --adaptive-accent: #625c82;
+  --mcdm-accent: #23616a;
+  --adaptive-accent: #6a6580;
 
   --font-display: SimSun, "宋体", STSong, "Songti SC", serif;
-  --font-body: SimSun, "宋体", STSong, "Songti SC", serif;
-  --font-data: SimSun, "宋体", STSong, "Songti SC", serif;
+  --font-body: "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC",
+    sans-serif;
+  --font-data: "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC",
+    sans-serif;
 
-  --shadow-soft: 0 10px 30px rgb(30 43 56 / 5%);
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+
+  --shadow-soft: 0 12px 34px rgb(24 35 31 / 7%);
   --radius-sm: 4px;
   --radius-md: 8px;
   --sidebar-width: 232px;
@@ -184,5 +190,10 @@ h3 {
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
+  }
+
+  button:active,
+  a:active {
+    transform: none !important;
   }
 }
