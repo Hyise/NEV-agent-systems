@@ -95,6 +95,25 @@ function api(overrides: Partial<ReviewAssetApi> = {}): ReviewAssetApi {
       duplicate_count: 0,
       asset_ids: ["manual:1"],
     }),
+    validateReviewImportFile: vi.fn().mockResolvedValue({
+      importable: [
+        {
+          line: 1,
+          series_id: "5769",
+          series_name: "Model Y",
+          review_id: "file-1",
+          content_hash: "d".repeat(64),
+        },
+      ],
+      duplicates: [],
+      errors: [],
+      validation_fingerprint: "e".repeat(64),
+    }),
+    confirmReviewImportFile: vi.fn().mockResolvedValue({
+      imported_count: 1,
+      duplicate_count: 0,
+      asset_ids: ["manual:file-1"],
+    }),
     deleteReviewAsset: vi.fn().mockResolvedValue({
       asset_id: "autohome:r1",
       review_id: "r1",
@@ -131,6 +150,44 @@ function deferred<T>() {
 
 describe("review asset workspace", () => {
   beforeEach(() => vi.unstubAllGlobals());
+
+  it("sends raw files and the validation fingerprint through the file API", async () => {
+    const fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          importable: [],
+          duplicates: [],
+          errors: [],
+          validation_fingerprint: "f".repeat(64),
+        }),
+    });
+    vi.stubGlobal("fetch", fetch);
+    const file = new Blob(["series_id"], {
+      type: "application/octet-stream",
+    }) as File;
+    Object.defineProperty(file, "name", { value: "reviews.csv" });
+
+    await collectionApi.validateReviewImportFile(file);
+    await collectionApi.confirmReviewImportFile(file, "f".repeat(64));
+
+    expect(fetch).toHaveBeenNthCalledWith(
+      1,
+      "/api/collection/review-assets/import-file/validate?filename=reviews.csv",
+      expect.objectContaining({ method: "POST", body: file }),
+    );
+    expect(fetch).toHaveBeenNthCalledWith(
+      2,
+      "/api/collection/review-assets/import-file?filename=reviews.csv",
+      expect.objectContaining({
+        method: "POST",
+        body: file,
+        headers: expect.objectContaining({
+          "X-Validation-Fingerprint": "f".repeat(64),
+        }),
+      }),
+    );
+  });
 
   it("filters, resets pagination, pages, and opens and closes details", async () => {
     const client = api({
@@ -202,28 +259,124 @@ describe("review asset workspace", () => {
     expect(client.getReviewAssetSummary).toHaveBeenCalled();
   });
 
-  it("validates and confirms imports as a three-step flow", async () => {
-    const client = api();
+  it("validates every selected file before confirming them in order", async () => {
+    const client = api({
+      validateReviewImportFile: vi
+        .fn()
+        .mockResolvedValueOnce({
+          importable: [
+            {
+              line: 1,
+              series_id: "5769",
+              series_name: "Model Y",
+              review_id: "first",
+              content_hash: "1".repeat(64),
+            },
+          ],
+          duplicates: [],
+          errors: [],
+          validation_fingerprint: "a".repeat(64),
+        })
+        .mockResolvedValueOnce({
+          importable: [
+            {
+              line: 1,
+              series_id: "5346",
+              series_name: "Model 3",
+              review_id: "second",
+              content_hash: "2".repeat(64),
+            },
+          ],
+          duplicates: [{ line: 2, reason: "内容已存在" }],
+          errors: [],
+          validation_fingerprint: "b".repeat(64),
+        }),
+      confirmReviewImportFile: vi
+        .fn()
+        .mockResolvedValueOnce({
+          imported_count: 1,
+          duplicate_count: 0,
+          asset_ids: ["manual:first"],
+        })
+        .mockResolvedValueOnce({
+          imported_count: 1,
+          duplicate_count: 1,
+          asset_ids: ["manual:second"],
+        }),
+    });
     const workspace = createAssetWorkspace(client, false);
-    const items = [
-      {
-        series_id: "5769",
-        series_name: "Model Y",
-        original_review: { feeling_summary: "评论" },
-      },
-    ];
+    const first = { name: "first.xlsx", size: 120 } as File;
+    const second = { name: "second.csv", size: 80 } as File;
 
     workspace.beginImport();
-    await workspace.validateImport(items, 128);
+    await workspace.validateImportFiles([first, second]);
     expect(workspace.importStep.value).toBe("preview");
-    await workspace.confirmImport();
-    expect(client.confirmReviewImport).toHaveBeenCalledWith({
-      items,
-      payload_bytes: 128,
-      validation_fingerprint: "c".repeat(64),
+    expect(workspace.importTotals.value).toEqual({
+      files: 2,
+      importable: 2,
+      duplicates: 1,
+      errors: 0,
     });
+    expect(client.confirmReviewImportFile).not.toHaveBeenCalled();
+    await workspace.confirmImport();
+    expect(client.confirmReviewImportFile).toHaveBeenNthCalledWith(
+      1,
+      first,
+      "a".repeat(64),
+    );
+    expect(client.confirmReviewImportFile).toHaveBeenNthCalledWith(
+      2,
+      second,
+      "b".repeat(64),
+    );
     expect(workspace.importStep.value).toBe("complete");
+    expect(workspace.importResult.value).toEqual({
+      imported_count: 2,
+      duplicate_count: 1,
+      asset_ids: ["manual:first", "manual:second"],
+    });
     expect(client.getReviewAssetSummary).toHaveBeenCalled();
+  });
+
+  it("does not confirm any file when one validation contains errors", async () => {
+    const client = api({
+      validateReviewImportFile: vi
+        .fn()
+        .mockResolvedValueOnce({
+          importable: [],
+          duplicates: [],
+          errors: [
+            { line: 0, type: "file_parse_error", message: "缺少必要列" },
+          ],
+          validation_fingerprint: "a".repeat(64),
+        })
+        .mockResolvedValueOnce({
+          importable: [
+            {
+              line: 1,
+              series_id: "5769",
+              series_name: "Model Y",
+              review_id: "valid",
+              content_hash: "1".repeat(64),
+            },
+          ],
+          duplicates: [],
+          errors: [],
+          validation_fingerprint: "b".repeat(64),
+        }),
+    });
+    const workspace = createAssetWorkspace(client, false);
+
+    await workspace.validateImportFiles([
+      { name: "invalid.xlsx", size: 10 } as File,
+      { name: "valid.csv", size: 10 } as File,
+    ]);
+    await workspace.confirmImport();
+
+    expect(workspace.importTotals.value.errors).toBe(1);
+    expect(workspace.error.value).toContain("错误");
+    expect(client.confirmReviewImportFile).not.toHaveBeenCalled();
+    expect(workspace.importStep.value).toBe("preview");
   });
 
   it("deletes permanently, clears selection, and exposes Chinese recovery messages", async () => {

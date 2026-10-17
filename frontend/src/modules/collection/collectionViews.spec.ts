@@ -117,6 +117,11 @@ describe("guided collection views", () => {
       expect(content).toContain("focus()");
       expect(content).toContain("aria-labelledby");
     }
+    expect(importerSource).toContain("JSON / JSONL / CSV / XLSX");
+    expect(importerSource).toContain("multiple");
+    expect(importerSource).toContain(".csv,.xlsx");
+    expect(importerSource).toContain("workspace.importFilePreviews.value");
+    expect(importerSource).toContain("文件校验结果");
   });
 
   it("assembles one owner for collection, catalog, and asset state", () => {

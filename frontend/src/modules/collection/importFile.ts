@@ -1,6 +1,6 @@
 import type { ReviewImportItem } from "./api";
 
-export const MAX_REVIEW_IMPORT_BYTES = 8 * 1024 * 1024;
+export const MAX_REVIEW_IMPORT_FILE_BYTES = 32 * 1024 * 1024;
 
 export function decodeReviewImport(bytes: Uint8Array): string {
   try {

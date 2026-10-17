@@ -508,7 +508,7 @@
 
 .import-counts {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   border: 1px solid var(--line);
 }
 
@@ -540,6 +540,34 @@
 .import-feedback p {
   margin-top: 5px;
   color: var(--muted);
+  font-size: 11px;
+}
+
+.import-file-results {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.import-file-results > h3 {
+  margin: 0;
+}
+
+.import-file-result {
+  border: 1px solid var(--line);
+  padding: 12px;
+}
+
+.import-file-result > header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.import-file-result > header span {
+  color: var(--muted);
+  font-family: var(--font-data);
   font-size: 11px;
 }
 

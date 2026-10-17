@@ -373,6 +373,11 @@ export interface ReviewAssetApi {
     payload_bytes: number;
     validation_fingerprint: string;
   }): Promise<ReviewImportResult>;
+  validateReviewImportFile(file: File): Promise<ReviewImportValidation>;
+  confirmReviewImportFile(
+    file: File,
+    validationFingerprint: string,
+  ): Promise<ReviewImportResult>;
   deleteReviewAsset(
     assetId: string,
     input: {
@@ -441,6 +446,27 @@ export const collectionApi: CollectionApi & ReviewAssetApi = {
   validateReviewImport: (input) =>
     post("/review-assets/import/validate", input),
   confirmReviewImport: (input) => post("/review-assets/import", input),
+  validateReviewImportFile: (file) =>
+    request(
+      `/review-assets/import-file/validate?filename=${encodeURIComponent(file.name)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/octet-stream" },
+        body: file,
+      },
+    ),
+  confirmReviewImportFile: (file, validationFingerprint) =>
+    request(
+      `/review-assets/import-file?filename=${encodeURIComponent(file.name)}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/octet-stream",
+          "X-Validation-Fingerprint": validationFingerprint,
+        },
+        body: file,
+      },
+    ),
   deleteReviewAsset: (assetId, input) =>
     remove(`/review-assets/${encodeURIComponent(assetId)}`, input),
   getReviewAssetSummary: () => request("/review-assets/summary"),

@@ -1,10 +1,12 @@
 import {
+  computed,
   onActivated,
   onBeforeUnmount,
   onDeactivated,
   onMounted,
   reactive,
   ref,
+  shallowRef,
 } from "vue";
 import {
   ApiError,
@@ -19,12 +21,20 @@ import {
   type ReviewAssetSummary,
   type ReviewAssetSummaryStats,
   type ReviewDeletion,
-  type ReviewImportItem,
   type ReviewImportResult,
   type ReviewImportValidation,
 } from "./api";
 
 export type ImportStep = "select" | "preview" | "complete";
+
+export interface ReviewImportFilePreview {
+  file: File;
+  validation: ReviewImportValidation;
+}
+
+export interface ReviewImportFileResult extends ReviewImportResult {
+  file_name: string;
+}
 
 const emptyPage = (): Page<ReviewAssetSummary> => ({
   rows: [],
@@ -84,10 +94,25 @@ export function createAssetWorkspace(
 
   const importOpen = ref(false);
   const importStep = ref<ImportStep>("select");
-  const importItems = ref<ReviewImportItem[]>([]);
-  const importPayloadBytes = ref(0);
+  const importFilePreviews = shallowRef<ReviewImportFilePreview[]>([]);
+  const importFileResults = ref<ReviewImportFileResult[]>([]);
   const importPreview = ref<ReviewImportValidation | null>(null);
   const importResult = ref<ReviewImportResult | null>(null);
+  const importTotals = computed(() => ({
+    files: importFilePreviews.value.length,
+    importable: importFilePreviews.value.reduce(
+      (total, item) => total + item.validation.importable.length,
+      0,
+    ),
+    duplicates: importFilePreviews.value.reduce(
+      (total, item) => total + item.validation.duplicates.length,
+      0,
+    ),
+    errors: importFilePreviews.value.reduce(
+      (total, item) => total + item.validation.errors.length,
+      0,
+    ),
+  }));
 
   let active = !registerLifecycle;
   let lifecycleId = 0;
@@ -272,8 +297,8 @@ export function createAssetWorkspace(
   function beginImport() {
     importOpen.value = true;
     importStep.value = "select";
-    importItems.value = [];
-    importPayloadBytes.value = 0;
+    importFilePreviews.value = [];
+    importFileResults.value = [];
     importPreview.value = null;
     importResult.value = null;
     error.value = "";
@@ -285,23 +310,31 @@ export function createAssetWorkspace(
     actionBusy.value = false;
   }
 
-  async function validateImport(
-    items: ReviewImportItem[],
-    payloadBytes: number,
-  ) {
+  async function validateImportFiles(files: File[]) {
+    if (!files.length) return;
     const request = ++actionRequestId;
     const lifecycle = lifecycleId;
     actionBusy.value = true;
     error.value = "";
-    importItems.value = items;
-    importPayloadBytes.value = payloadBytes;
+    importFilePreviews.value = [];
+    importFileResults.value = [];
+    importPreview.value = null;
+    importResult.value = null;
     try {
-      const result = await client.validateReviewImport({
-        items,
-        payload_bytes: payloadBytes,
-      });
+      const previews: ReviewImportFilePreview[] = [];
+      for (const file of files) {
+        const validation = await client.validateReviewImportFile(file);
+        if (!current(lifecycle) || request !== actionRequestId) return;
+        previews.push({ file, validation });
+      }
       if (!current(lifecycle) || request !== actionRequestId) return;
-      importPreview.value = result;
+      importFilePreviews.value = previews;
+      importPreview.value = {
+        importable: previews.flatMap((item) => item.validation.importable),
+        duplicates: previews.flatMap((item) => item.validation.duplicates),
+        errors: previews.flatMap((item) => item.validation.errors),
+        validation_fingerprint: "",
+      };
       importStep.value = "preview";
     } catch (cause) {
       if (current(lifecycle) && request === actionRequestId) {
@@ -314,28 +347,47 @@ export function createAssetWorkspace(
   }
 
   async function confirmImport() {
-    if (!importPreview.value) return;
+    if (!importFilePreviews.value.length) return;
+    if (importTotals.value.errors) {
+      error.value = "文件校验结果仍有错误，修正后才能写入";
+      return;
+    }
+    if (!importTotals.value.importable) {
+      error.value = "没有可写入的新评论";
+      return;
+    }
     const request = ++actionRequestId;
     const lifecycle = lifecycleId;
     actionBusy.value = true;
     error.value = "";
     try {
-      const result = await client.confirmReviewImport({
-        items: importItems.value,
-        payload_bytes: importPayloadBytes.value,
-        validation_fingerprint: importPreview.value.validation_fingerprint,
-      });
+      const fileResults: ReviewImportFileResult[] = [];
+      for (const preview of importFilePreviews.value) {
+        const result = await client.confirmReviewImportFile(
+          preview.file,
+          preview.validation.validation_fingerprint,
+        );
+        if (!current(lifecycle) || request !== actionRequestId) return;
+        fileResults.push({ file_name: preview.file.name, ...result });
+        importFileResults.value = [...fileResults];
+      }
       if (!current(lifecycle) || request !== actionRequestId) return;
-      importResult.value = result;
+      importResult.value = {
+        imported_count: fileResults.reduce(
+          (total, item) => total + item.imported_count,
+          0,
+        ),
+        duplicate_count: fileResults.reduce(
+          (total, item) => total + item.duplicate_count,
+          0,
+        ),
+        asset_ids: fileResults.flatMap((item) => item.asset_ids),
+      };
       importStep.value = "complete";
       await Promise.all([loadAssets(), loadSummary()]);
     } catch (cause) {
       if (current(lifecycle) && request === actionRequestId) {
         error.value = message(cause, "评论导入失败");
-        if (cause instanceof ApiError && cause.status === 409) {
-          importStep.value = "select";
-          importPreview.value = null;
-        }
       }
     } finally {
       if (current(lifecycle) && request === actionRequestId)
@@ -487,10 +539,11 @@ export function createAssetWorkspace(
     error,
     importOpen,
     importStep,
-    importItems,
-    importPayloadBytes,
+    importFilePreviews,
+    importFileResults,
     importPreview,
     importResult,
+    importTotals,
     loadAssets,
     loadSummary,
     applyFilters,
@@ -503,7 +556,7 @@ export function createAssetWorkspace(
     batchUpdate,
     beginImport,
     closeImport,
-    validateImport,
+    validateImportFiles,
     confirmImport,
     deleteCurrent,
     loadDeletions,
