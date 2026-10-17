@@ -156,6 +156,38 @@ def test_import_confirm_with_stale_fingerprint_returns_409(asset_client):
     assert response.status_code == 409
 
 
+def test_tabular_file_import_routes_validate_then_preserve_full_text(asset_client):
+    full_text = "最满意：空间宽敞。\n续航：高速续航稳定，完整结尾。"
+    payload = (
+        "series_id,series_name,koubei_id,show_id,分项评论全文,详情URL\n"
+        f'5769,Model Y,,show-file-1,"{full_text}",https://example.test/1\n'
+    ).encode("utf-8")
+
+    preview = asset_client.post(
+        "/api/collection/review-assets/import-file/validate",
+        params={"filename": "reviews.csv"},
+        content=payload,
+        headers={"content-type": "application/octet-stream"},
+    )
+    confirmed = asset_client.post(
+        "/api/collection/review-assets/import-file",
+        params={"filename": "reviews.csv"},
+        content=payload,
+        headers={
+            "content-type": "application/octet-stream",
+            "x-validation-fingerprint": preview.json()["validation_fingerprint"],
+        },
+    )
+
+    assert preview.status_code == 200
+    assert preview.json()["importable"][0]["review_id"] == "show-file-1"
+    assert confirmed.status_code == 201
+    detail = asset_client.get(
+        f"/api/collection/review-assets/{confirmed.json()['asset_ids'][0]}"
+    )
+    assert detail.json()["original_review"]["分项评论全文"] == full_text
+
+
 def test_delete_audit_and_allow_recollection_routes(asset_client):
     asset_client.app.state.collection_repository.set_status(
         "job-1",

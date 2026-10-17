@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Body, Header, HTTPException, Query
 
 from .asset_domain import (
     AssetConflict,
@@ -22,6 +22,11 @@ from .asset_service import ReviewAssetService
 
 Page = Annotated[int, Query(ge=1)]
 PageSize = Annotated[int, Query(ge=1, le=100)]
+ImportFilename = Annotated[str, Query(min_length=1, max_length=255)]
+ValidationFingerprint = Annotated[
+    str, Header(alias="X-Validation-Fingerprint", pattern=r"^[0-9a-f]{64}$")
+]
+ImportFileBody = Annotated[bytes, Body(media_type="application/octet-stream")]
 
 
 def _run(action):
@@ -82,6 +87,24 @@ def create_review_asset_router(
         return _run(
             lambda: service.import_validated(
                 body.items, body.payload_bytes, body.validation_fingerprint
+            )
+        )
+
+    @router.post("/review-assets/import-file/validate")
+    def validate_import_file(
+        payload: ImportFileBody, filename: ImportFilename
+    ) -> dict[str, Any]:
+        return service.validate_import_file(filename, payload)
+
+    @router.post("/review-assets/import-file", status_code=201)
+    def import_file(
+        payload: ImportFileBody,
+        filename: ImportFilename,
+        validation_fingerprint: ValidationFingerprint,
+    ) -> dict[str, Any]:
+        return _run(
+            lambda: service.import_validated_file(
+                filename, payload, validation_fingerprint
             )
         )
 

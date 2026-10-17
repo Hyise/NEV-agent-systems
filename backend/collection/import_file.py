@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 import posixpath
 import re
 import zipfile
@@ -249,7 +250,27 @@ def _parse_xlsx(payload: bytes) -> list[dict[str, Any]]:
     return items
 
 
-def parse_review_import_file(filename: str, payload: bytes) -> list[dict[str, Any]]:
+def _parse_json(payload: bytes, *, lines: bool) -> list[Any]:
+    try:
+        text = payload.decode("utf-8-sig")
+    except UnicodeDecodeError as error:
+        raise ReviewImportFileError("JSON 文件必须使用 UTF-8 编码") from error
+    if not text.strip():
+        raise ReviewImportFileError("文件内容为空")
+    try:
+        if lines:
+            items = [json.loads(line) for line in text.splitlines() if line.strip()]
+        else:
+            value = json.loads(text)
+            items = value if isinstance(value, list) else [value]
+    except json.JSONDecodeError as error:
+        raise ReviewImportFileError(f"JSON 格式错误：第 {error.lineno} 行") from error
+    if not items:
+        raise ReviewImportFileError("文件没有可导入的评论")
+    return items
+
+
+def parse_review_import_file(filename: str, payload: bytes) -> list[Any]:
     """Convert one supported tabular file into the existing import contract."""
 
     extension = PurePosixPath(filename.replace("\\", "/")).suffix.lower()
@@ -257,5 +278,9 @@ def parse_review_import_file(filename: str, payload: bytes) -> list[dict[str, An
         return _parse_csv(payload)
     if extension == ".xlsx":
         return _parse_xlsx(payload)
-    raise ReviewImportFileError("仅支持 CSV 或 XLSX 表格文件")
+    if extension == ".json":
+        return _parse_json(payload, lines=False)
+    if extension == ".jsonl":
+        return _parse_json(payload, lines=True)
+    raise ReviewImportFileError("仅支持 JSON、JSONL、CSV 或 XLSX 文件")
 

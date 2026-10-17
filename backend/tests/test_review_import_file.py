@@ -170,3 +170,23 @@ def test_xlsx_import_requires_comment_sheet():
             "reviews.xlsx", build_shared_string_xlsx(sheet_name="抓取信息")
         )
 
+
+@pytest.mark.parametrize(
+    "filename,payload",
+    [
+        (
+            "reviews.json",
+            b'[{"series_id":"1","series_name":"A","original_review":{"feeling_summary":"ok"}}]',
+        ),
+        (
+            "reviews.jsonl",
+            b'{"series_id":"1","series_name":"A","original_review":{"feeling_summary":"ok"}}\n',
+        ),
+    ],
+)
+def test_json_and_jsonl_file_imports_remain_compatible(filename, payload):
+    items = parse_review_import_file(filename, payload)
+
+    assert items[0]["series_id"] == "1"
+    assert items[0]["original_review"] == {"feeling_summary": "ok"}
+

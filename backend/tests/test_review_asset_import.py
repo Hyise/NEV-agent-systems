@@ -2,6 +2,7 @@ import sqlite3
 
 import pytest
 
+import backend.collection.asset_service as asset_service_module
 from backend.collection.asset_domain import AssetConflict, ImportValidationError
 from backend.collection.asset_repository import ReviewAssetRepository
 from backend.collection.asset_service import ReviewAssetService
@@ -52,8 +53,16 @@ def test_validate_import_reports_line_errors_and_duplicates(tmp_path):
 @pytest.mark.parametrize(
     "items,payload_bytes,error_type",
     [
-        ([valid_item()], 8 * 1024 * 1024 + 1, "payload_too_large"),
-        ([valid_item()] * 10001, 1024, "too_many_items"),
+        (
+            [valid_item()],
+            asset_service_module.MAX_IMPORT_BYTES + 1,
+            "payload_too_large",
+        ),
+        (
+            [valid_item()] * (asset_service_module.MAX_IMPORT_ITEMS + 1),
+            1024,
+            "too_many_items",
+        ),
         (
             [
                 {
@@ -77,10 +86,57 @@ def test_validate_import_enforces_batch_and_json_limits(
     assert result["errors"][0]["type"] == error_type
 
 
-def test_validate_import_measures_items_instead_of_trusting_declared_size(tmp_path):
-    service, repository = service_for(tmp_path)
-    items = [valid_item(content="大" * (8 * 1024 * 1024))]
+def test_validate_import_file_supports_real_csv_contract(tmp_path):
+    service, _ = service_for(tmp_path)
+    full_text = "最满意：空间宽敞。\n续航：高速续航稳定，完整结尾。"
+    payload = (
+        "series_id,series_name,koubei_id,show_id,分项评论全文,详情URL\n"
+        f'5769,Model Y,,show-1,"{full_text}",https://example.test/1\n'
+    ).encode("utf-8")
 
+    validation = service.validate_import_file("reviews.csv", payload)
+    result = service.import_validated_file(
+        "reviews.csv", payload, validation["validation_fingerprint"]
+    )
+
+    assert validation["importable"][0]["review_id"] == "show-1"
+    assert result["imported_count"] == 1
+
+
+def test_validate_import_file_reports_parse_and_file_size_errors(tmp_path, monkeypatch):
+    service, _ = service_for(tmp_path)
+    invalid = service.validate_import_file("reviews.csv", b"series_id\n1\n")
+    assert invalid["errors"] == [
+        {
+            "line": 0,
+            "type": "file_parse_error",
+            "message": "表格缺少必要列：series_name、show_id、分项评论全文、详情URL",
+        }
+    ]
+
+    monkeypatch.setattr(asset_service_module, "MAX_IMPORT_FILE_BYTES", 4)
+    oversized = service.validate_import_file("reviews.csv", b"12345")
+    assert oversized["errors"][0]["type"] == "payload_too_large"
+    assert "32 MB" in oversized["errors"][0]["message"]
+
+
+def test_expanded_limits_cover_verified_source_shape(tmp_path):
+    service, _ = service_for(tmp_path)
+    items = [valid_item(review_id=f"source-{index}", content=f"内容{index}") for index in range(10_001)]
+
+    result = service.validate_import(items, payload_bytes=16 * 1024 * 1024)
+
+    assert len(result["importable"]) == 10_001
+    assert result["errors"] == []
+
+
+def test_validate_import_measures_items_instead_of_trusting_declared_size(
+    tmp_path, monkeypatch
+):
+    service, repository = service_for(tmp_path)
+    items = [valid_item(content="大" * 1024)]
+
+    monkeypatch.setattr(asset_service_module, "MAX_IMPORT_BYTES", 100)
     validation = service.validate_import(items, payload_bytes=1)
 
     assert validation["importable"] == []

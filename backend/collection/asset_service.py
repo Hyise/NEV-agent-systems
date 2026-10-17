@@ -18,10 +18,12 @@ from .asset_domain import (
     ImportValidationError,
 )
 from .asset_repository import ReviewAssetRepository
+from .import_file import ReviewImportFileError, parse_review_import_file
 from .domain import canonical_review_hash
 
-MAX_IMPORT_BYTES = 8 * 1024 * 1024
-MAX_IMPORT_ITEMS = 10_000
+MAX_IMPORT_FILE_BYTES = 32 * 1024 * 1024
+MAX_IMPORT_BYTES = 128 * 1024 * 1024
+MAX_IMPORT_ITEMS = 20_000
 
 
 def _now() -> str:
@@ -78,7 +80,7 @@ class ReviewAssetService:
                 {
                     "line": 0,
                     "type": "payload_too_large",
-                    "message": "导入文件不能超过8 MB",
+                    "message": "规范化导入内容不能超过 128 MB",
                 }
             ], {"review_ids": set(), "content_hashes": set()}
         if len(items) > MAX_IMPORT_ITEMS:
@@ -86,7 +88,7 @@ class ReviewAssetService:
                 {
                     "line": 0,
                     "type": "too_many_items",
-                    "message": "单次最多导入10000条评论",
+                    "message": "单个文件最多导入 20000 条评论",
                 }
             ], {"review_ids": set(), "content_hashes": set()}
 
@@ -166,6 +168,55 @@ class ReviewAssetService:
     ) -> dict[str, Any]:
         result, _, _ = self._validation_details(items, payload_bytes)
         return result
+
+    @staticmethod
+    def _file_error(
+        filename: str, payload: bytes, error_type: str, message: str
+    ) -> dict[str, Any]:
+        fingerprint = hashlib.sha256(
+            filename.encode("utf-8") + b"\0" + payload
+        ).hexdigest()
+        return {
+            "importable": [],
+            "duplicates": [],
+            "errors": [{"line": 0, "type": error_type, "message": message}],
+            "validation_fingerprint": fingerprint,
+        }
+
+    def _file_items(
+        self, filename: str, payload: bytes
+    ) -> tuple[list[Any] | None, dict[str, Any] | None]:
+        if len(payload) > MAX_IMPORT_FILE_BYTES:
+            return None, self._file_error(
+                filename,
+                payload,
+                "payload_too_large",
+                "单个导入文件不能超过 32 MB",
+            )
+        try:
+            return parse_review_import_file(filename, payload), None
+        except ReviewImportFileError as error:
+            return None, self._file_error(
+                filename, payload, "file_parse_error", str(error)
+            )
+
+    def validate_import_file(
+        self, filename: str, payload: bytes
+    ) -> dict[str, Any]:
+        items, error = self._file_items(filename, payload)
+        if error is not None:
+            return error
+        assert items is not None
+        return self.validate_import(items, len(payload))
+
+    def import_validated_file(
+        self, filename: str, payload: bytes, validation_fingerprint: str
+    ) -> dict[str, Any]:
+        items, error = self._file_items(filename, payload)
+        if error is not None:
+            raise ImportValidationError(error)
+        assert items is not None
+        return self.import_validated(items, len(payload), validation_fingerprint)
 
     def import_validated(
         self,
