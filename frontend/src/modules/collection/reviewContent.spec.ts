@@ -2,6 +2,18 @@ import { describe, expect, it } from "vitest";
 import { buildReadableReview } from "./reviewContent";
 
 describe("buildReadableReview", () => {
+  it("shows the complete tabular review as one untouched source text", () => {
+    const fullText = "最满意：空间宽敞。\n续航：高速续航稳定，保留完整结尾。";
+
+    expect(
+      buildReadableReview({
+        分项评论全文: fullText,
+        feeling_summary: "不应替代完整表格正文",
+        contents: [{ structuredname: "满意", content: "不应拼接" }],
+      }),
+    ).toEqual({ summary: fullText, sections: [] });
+  });
+
   it("preserves every original content section in source order without truncation", () => {
     const fullText = `高速行驶时的续航表现${"依然稳定，".repeat(80)}没有省略结尾。`;
 

@@ -4,6 +4,10 @@ from typing import Any, Mapping
 
 
 def extract_analysis_text(original_review: Mapping[str, Any]) -> str:
+    tabular_full_text = original_review.get("分项评论全文")
+    if isinstance(tabular_full_text, str) and tabular_full_text.strip():
+        return tabular_full_text
+
     parts: list[str] = []
     seen_content: set[str] = set()
 

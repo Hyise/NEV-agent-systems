@@ -28,6 +28,18 @@ def test_extract_analysis_text_preserves_sections_and_removes_exact_duplicates()
     )
 
 
+def test_extract_analysis_text_prefers_tabular_full_review_without_rewriting():
+    full_text = "最满意：空间宽敞。\n续航：高速续航稳定，保留完整结尾。"
+
+    assert extract_analysis_text(
+        {
+            "分项评论全文": full_text,
+            "feeling_summary": "不应替代完整表格正文",
+            "contents": [{"structuredname": "满意", "content": "不应拼接"}],
+        }
+    ) == full_text
+
+
 @pytest.mark.parametrize("review", [{}, {"contents": []}, {"feeling_summary": "  "}])
 def test_extract_analysis_text_rejects_empty_review(review):
     with pytest.raises(ValueError, match="没有可分析文本"):

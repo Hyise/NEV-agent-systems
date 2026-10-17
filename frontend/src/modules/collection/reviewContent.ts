@@ -15,6 +15,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export function buildReadableReview(
   original: Record<string, unknown>,
 ): ReadableReview {
+  const tabularFullText = original["分项评论全文"];
+  if (typeof tabularFullText === "string" && tabularFullText.trim()) {
+    return { summary: tabularFullText, sections: [] };
+  }
+
   const summary =
     typeof original.feeling_summary === "string" &&
     original.feeling_summary.trim()
