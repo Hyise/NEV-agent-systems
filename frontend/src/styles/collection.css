@@ -500,10 +500,98 @@
   padding: 22px;
 }
 
-.file-field input {
-  margin-top: 8px;
+.import-source-heading {
+  margin: 0 0 12px;
+  font-size: 14px;
+}
+
+.import-source-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.import-source-option {
+  display: grid;
+  min-width: 0;
   border: 1px solid var(--line);
-  padding: 14px;
+  border-top: 3px solid var(--collection-accent);
+  padding: 16px;
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.import-source-option--folder {
+  border-top-color: var(--market);
+}
+
+.import-source-option:focus-within {
+  outline: 3px solid rgb(15 124 130 / 35%);
+  outline-offset: 2px;
+}
+
+.import-source-option > strong {
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.import-source-option > span {
+  min-height: 34px;
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.import-source-option input {
+  width: 100%;
+  margin-top: 12px;
+  font-size: 11px;
+}
+
+.import-selection-notice {
+  margin: 12px 0 0;
+  border-left: 2px solid var(--collection-accent);
+  padding-left: 10px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.import-progress {
+  margin: 16px 0;
+  border: 1px solid var(--line);
+  padding: 12px 14px;
+  background: #f8faf9;
+}
+
+.import-progress header,
+.import-complete__files li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.import-progress header span,
+.import-progress p,
+.import-complete__files li span:last-child {
+  color: var(--muted);
+  font-family: var(--font-data);
+  font-size: 11px;
+}
+
+.import-progress progress {
+  width: 100%;
+  height: 5px;
+  margin-top: 10px;
+  accent-color: var(--collection-accent);
+}
+
+.import-progress p {
+  overflow: hidden;
+  margin: 7px 0 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .import-counts {
@@ -574,6 +662,31 @@
 .dialog-actions,
 .import-complete {
   margin-top: 20px;
+}
+
+.import-complete details {
+  margin: 14px 0;
+  border: 1px solid var(--line);
+  padding: 10px 12px;
+}
+
+.import-complete summary {
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.import-complete__files {
+  max-height: 220px;
+  margin: 10px 0 0;
+  overflow: auto;
+  padding: 0;
+  list-style: none;
+}
+
+.import-complete__files li {
+  padding: 7px 0;
+  border-top: 1px solid var(--line);
+  font-size: 11px;
 }
 
 .dialog-actions {
@@ -1465,6 +1578,30 @@
 
   .import-steps li {
     padding-inline: 9px;
+  }
+
+  .import-source-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .import-counts {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .import-counts div:nth-child(3) {
+    border-top: 1px solid var(--line);
+    border-left: 0;
+  }
+
+  .import-counts div:nth-child(4) {
+    border-top: 1px solid var(--line);
+  }
+
+  .import-file-result > header,
+  .import-complete__files li {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
   }
 
   .handoff-heading,

@@ -1,6 +1,64 @@
 import type { ReviewImportItem } from "./api";
 
 export const MAX_REVIEW_IMPORT_FILE_BYTES = 32 * 1024 * 1024;
+export const MAX_REVIEW_IMPORT_FILES = 200;
+
+const SUPPORTED_REVIEW_IMPORT_FILE = /\.(json|jsonl|csv|xlsx)$/i;
+
+export interface PreparedReviewImportFiles {
+  files: File[];
+  skippedCount: number;
+}
+
+export function reviewImportFileLabel(file: File): string {
+  return file.webkitRelativePath || file.name;
+}
+
+export function prepareReviewImportFiles(
+  input: File[],
+  options: { fromDirectory?: boolean } = {},
+): PreparedReviewImportFiles {
+  const files: File[] = [];
+  let skippedCount = 0;
+
+  for (const file of input) {
+    const temporary = file.name.startsWith("~$");
+    const supported = SUPPORTED_REVIEW_IMPORT_FILE.test(file.name);
+    if (options.fromDirectory && (temporary || !supported)) {
+      skippedCount += 1;
+      continue;
+    }
+    if (temporary) throw new Error(`${file.name} 是 Excel 临时文件`);
+    if (!supported) throw new Error(`${file.name} 不是支持的数据文件`);
+    files.push(file);
+  }
+
+  if (!files.length) {
+    throw new Error(
+      options.fromDirectory
+        ? "所选文件夹中没有可导入的数据文件"
+        : "请选择评论数据文件",
+    );
+  }
+  if (files.length > MAX_REVIEW_IMPORT_FILES) {
+    throw new Error(`一次最多批量导入 ${MAX_REVIEW_IMPORT_FILES} 个文件`);
+  }
+  const oversized = files.find(
+    (file) => file.size > MAX_REVIEW_IMPORT_FILE_BYTES,
+  );
+  if (oversized) throw new Error(`${oversized.name} 超过 32 MB`);
+
+  if (options.fromDirectory) {
+    files.sort((left, right) =>
+      reviewImportFileLabel(left).localeCompare(
+        reviewImportFileLabel(right),
+        "zh-CN",
+        { numeric: true },
+      ),
+    );
+  }
+  return { files, skippedCount };
+}
 
 export function decodeReviewImport(bytes: Uint8Array): string {
   try {

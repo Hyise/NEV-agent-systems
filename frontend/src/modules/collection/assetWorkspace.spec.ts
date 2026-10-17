@@ -8,6 +8,7 @@ import {
   type ReviewAssetMetadata,
   type ReviewAssetSummary,
   type ReviewDeletion,
+  type ReviewImportValidation,
 } from "./api";
 import { createAssetWorkspace } from "./assetWorkspace";
 
@@ -377,6 +378,57 @@ describe("review asset workspace", () => {
     expect(workspace.error.value).toContain("错误");
     expect(client.confirmReviewImportFile).not.toHaveBeenCalled();
     expect(workspace.importStep.value).toBe("preview");
+  });
+
+  it("reports live progress while validating a folder batch", async () => {
+    const firstValidation = deferred<ReviewImportValidation>();
+    const secondValidation = deferred<ReviewImportValidation>();
+    const client = api({
+      validateReviewImportFile: vi
+        .fn()
+        .mockReturnValueOnce(firstValidation.promise)
+        .mockReturnValueOnce(secondValidation.promise),
+    });
+    const workspace = createAssetWorkspace(client, false);
+    const first = { name: "first.xlsx", size: 10 } as File;
+    const second = { name: "second.xlsx", size: 10 } as File;
+
+    const validating = workspace.validateImportFiles([first, second]);
+    expect(workspace.importProgress.value).toEqual({
+      phase: "validating",
+      completed: 0,
+      total: 2,
+      currentFile: "first.xlsx",
+    });
+
+    firstValidation.resolve({
+      importable: [],
+      duplicates: [],
+      errors: [],
+      validation_fingerprint: "a".repeat(64),
+    });
+    await vi.waitFor(() => {
+      expect(workspace.importProgress.value).toEqual({
+        phase: "validating",
+        completed: 1,
+        total: 2,
+        currentFile: "second.xlsx",
+      });
+    });
+    secondValidation.resolve({
+      importable: [],
+      duplicates: [],
+      errors: [],
+      validation_fingerprint: "b".repeat(64),
+    });
+    await validating;
+
+    expect(workspace.importProgress.value).toEqual({
+      phase: null,
+      completed: 2,
+      total: 2,
+      currentFile: "",
+    });
   });
 
   it("deletes permanently, clears selection, and exposes Chinese recovery messages", async () => {

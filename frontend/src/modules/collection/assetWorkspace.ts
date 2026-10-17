@@ -36,6 +36,20 @@ export interface ReviewImportFileResult extends ReviewImportResult {
   file_name: string;
 }
 
+export interface ReviewImportProgress {
+  phase: "validating" | "writing" | null;
+  completed: number;
+  total: number;
+  currentFile: string;
+}
+
+const emptyImportProgress = (): ReviewImportProgress => ({
+  phase: null,
+  completed: 0,
+  total: 0,
+  currentFile: "",
+});
+
 const emptyPage = (): Page<ReviewAssetSummary> => ({
   rows: [],
   total: 0,
@@ -96,6 +110,7 @@ export function createAssetWorkspace(
   const importStep = ref<ImportStep>("select");
   const importFilePreviews = shallowRef<ReviewImportFilePreview[]>([]);
   const importFileResults = ref<ReviewImportFileResult[]>([]);
+  const importProgress = ref<ReviewImportProgress>(emptyImportProgress());
   const importPreview = ref<ReviewImportValidation | null>(null);
   const importResult = ref<ReviewImportResult | null>(null);
   const importTotals = computed(() => ({
@@ -301,6 +316,7 @@ export function createAssetWorkspace(
     importFileResults.value = [];
     importPreview.value = null;
     importResult.value = null;
+    importProgress.value = emptyImportProgress();
     error.value = "";
   }
 
@@ -308,6 +324,7 @@ export function createAssetWorkspace(
     actionRequestId += 1;
     importOpen.value = false;
     actionBusy.value = false;
+    importProgress.value = emptyImportProgress();
   }
 
   async function validateImportFiles(files: File[]) {
@@ -320,12 +337,21 @@ export function createAssetWorkspace(
     importFileResults.value = [];
     importPreview.value = null;
     importResult.value = null;
+    importProgress.value = {
+      phase: "validating",
+      completed: 0,
+      total: files.length,
+      currentFile: files[0]?.name ?? "",
+    };
     try {
       const previews: ReviewImportFilePreview[] = [];
       for (const file of files) {
+        importProgress.value.currentFile = file.name;
         const validation = await client.validateReviewImportFile(file);
         if (!current(lifecycle) || request !== actionRequestId) return;
         previews.push({ file, validation });
+        importFilePreviews.value = [...previews];
+        importProgress.value.completed = previews.length;
       }
       if (!current(lifecycle) || request !== actionRequestId) return;
       importFilePreviews.value = previews;
@@ -336,9 +362,13 @@ export function createAssetWorkspace(
         validation_fingerprint: "",
       };
       importStep.value = "preview";
+      importProgress.value.phase = null;
+      importProgress.value.currentFile = "";
     } catch (cause) {
       if (current(lifecycle) && request === actionRequestId) {
         error.value = message(cause, "导入校验失败");
+        importProgress.value.phase = null;
+        importProgress.value.currentFile = "";
       }
     } finally {
       if (current(lifecycle) && request === actionRequestId)
@@ -360,9 +390,16 @@ export function createAssetWorkspace(
     const lifecycle = lifecycleId;
     actionBusy.value = true;
     error.value = "";
+    importProgress.value = {
+      phase: "writing",
+      completed: 0,
+      total: importFilePreviews.value.length,
+      currentFile: importFilePreviews.value[0]?.file.name ?? "",
+    };
     try {
       const fileResults: ReviewImportFileResult[] = [];
       for (const preview of importFilePreviews.value) {
+        importProgress.value.currentFile = preview.file.name;
         const result = await client.confirmReviewImportFile(
           preview.file,
           preview.validation.validation_fingerprint,
@@ -370,6 +407,7 @@ export function createAssetWorkspace(
         if (!current(lifecycle) || request !== actionRequestId) return;
         fileResults.push({ file_name: preview.file.name, ...result });
         importFileResults.value = [...fileResults];
+        importProgress.value.completed = fileResults.length;
       }
       if (!current(lifecycle) || request !== actionRequestId) return;
       importResult.value = {
@@ -384,10 +422,14 @@ export function createAssetWorkspace(
         asset_ids: fileResults.flatMap((item) => item.asset_ids),
       };
       importStep.value = "complete";
+      importProgress.value.phase = null;
+      importProgress.value.currentFile = "";
       await Promise.all([loadAssets(), loadSummary()]);
     } catch (cause) {
       if (current(lifecycle) && request === actionRequestId) {
         error.value = message(cause, "评论导入失败");
+        importProgress.value.phase = null;
+        importProgress.value.currentFile = "";
       }
     } finally {
       if (current(lifecycle) && request === actionRequestId)
@@ -541,6 +583,7 @@ export function createAssetWorkspace(
     importStep,
     importFilePreviews,
     importFileResults,
+    importProgress,
     importPreview,
     importResult,
     importTotals,

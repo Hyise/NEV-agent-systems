@@ -2,13 +2,18 @@
 import { nextTick, ref, watch } from "vue";
 import { X } from "lucide-vue-next";
 import type { AssetWorkspace } from "../assetWorkspace";
-import { MAX_REVIEW_IMPORT_FILE_BYTES } from "../importFile";
+import {
+  MAX_REVIEW_IMPORT_FILES,
+  prepareReviewImportFiles,
+  reviewImportFileLabel,
+} from "../importFile";
 
 const props = defineProps<{ workspace: AssetWorkspace }>();
 const dialog = ref<HTMLDialogElement>();
 const fileInput = ref<HTMLInputElement>();
 const restoreFocus = ref<HTMLElement | null>(null);
 const parseError = ref("");
+const selectionNotice = ref("");
 
 watch(
   () => props.workspace.importOpen.value,
@@ -16,6 +21,7 @@ watch(
     if (open) {
       restoreFocus.value = document.activeElement as HTMLElement | null;
       parseError.value = "";
+      selectionNotice.value = "";
       dialog.value?.showModal();
       await nextTick();
       fileInput.value?.focus();
@@ -31,22 +37,22 @@ function close() {
   requestAnimationFrame(() => restoreFocus.value?.focus());
 }
 
-async function chooseFiles(event: Event) {
-  const files = Array.from((event.target as HTMLInputElement).files ?? []);
+async function chooseFiles(event: Event, fromDirectory = false) {
+  const input = event.target as HTMLInputElement;
+  const files = Array.from(input.files ?? []);
   if (!files.length) return;
   parseError.value = "";
+  selectionNotice.value = "";
   try {
-    const oversized = files.find(
-      (file) => file.size > MAX_REVIEW_IMPORT_FILE_BYTES,
-    );
-    if (oversized) throw new Error(`${oversized.name} 超过 32 MB`);
-    const unsupported = files.find(
-      (file) => !/\.(json|jsonl|csv|xlsx)$/i.test(file.name),
-    );
-    if (unsupported) throw new Error(`${unsupported.name} 不是支持的数据文件`);
-    await props.workspace.validateImportFiles(files);
+    const prepared = prepareReviewImportFiles(files, { fromDirectory });
+    if (prepared.skippedCount) {
+      selectionNotice.value = `已忽略 ${prepared.skippedCount} 个临时或不支持的文件`;
+    }
+    await props.workspace.validateImportFiles(prepared.files);
   } catch (error) {
     parseError.value = error instanceof Error ? error.message : "文件解析失败";
+  } finally {
+    input.value = "";
   }
 }
 </script>
@@ -89,26 +95,85 @@ async function chooseFiles(event: Event) {
         {{ parseError || workspace.error.value }}
       </div>
       <section v-if="workspace.importStep.value === 'select'">
-        <label class="file-field"
-          >选择一个或多个评论数据文件
-          <input
-            ref="fileInput"
-            type="file"
-            accept=".json,.jsonl,.csv,.xlsx,application/json,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            multiple
-            aria-label="选择评论数据文件"
-            @change="chooseFiles"
-          />
-        </label>
-        <p class="section-help">
-          每个文件最大 32 MB、最多 20,000 条。所有文件先校验，不会直接写入。
+        <h3 class="import-source-heading">选择导入方式</h3>
+        <div class="import-source-grid">
+          <label class="import-source-option">
+            <strong>选择文件</strong>
+            <span>手动选择一个或多个表格或 JSON 文件</span>
+            <input
+              ref="fileInput"
+              type="file"
+              accept=".json,.jsonl,.csv,.xlsx,application/json,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              multiple
+              aria-label="选择评论数据文件"
+              :disabled="workspace.actionBusy.value"
+              @change="chooseFiles"
+            />
+          </label>
+          <label class="import-source-option import-source-option--folder">
+            <strong>选择文件夹批量导入</strong>
+            <span>自动识别文件夹内支持的评论数据文件</span>
+            <input
+              type="file"
+              multiple
+              webkitdirectory
+              aria-label="选择评论数据文件夹"
+              :disabled="workspace.actionBusy.value"
+              @change="chooseFiles($event, true)"
+            />
+          </label>
+        </div>
+        <p v-if="selectionNotice" class="import-selection-notice" role="status">
+          {{ selectionNotice }}
         </p>
+        <p class="section-help">
+          每次最多 {{ MAX_REVIEW_IMPORT_FILES }} 个文件；每个文件最大 32
+          MB、最多 20,000 条。所有文件先校验，不会直接写入。
+        </p>
+        <div
+          v-if="workspace.importProgress.value.phase === 'validating'"
+          class="import-progress"
+          role="status"
+          aria-live="polite"
+        >
+          <header>
+            <strong>正在校验文件</strong>
+            <span>
+              {{ workspace.importProgress.value.completed }} /
+              {{ workspace.importProgress.value.total }}
+            </span>
+          </header>
+          <progress
+            :max="workspace.importProgress.value.total"
+            :value="workspace.importProgress.value.completed"
+          />
+          <p>{{ workspace.importProgress.value.currentFile }}</p>
+        </div>
       </section>
 
       <section
         v-else-if="workspace.importStep.value === 'preview'"
         aria-label="校验预览"
       >
+        <div
+          v-if="workspace.importProgress.value.phase === 'writing'"
+          class="import-progress"
+          role="status"
+          aria-live="polite"
+        >
+          <header>
+            <strong>正在写入评论</strong>
+            <span>
+              {{ workspace.importProgress.value.completed }} /
+              {{ workspace.importProgress.value.total }}
+            </span>
+          </header>
+          <progress
+            :max="workspace.importProgress.value.total"
+            :value="workspace.importProgress.value.completed"
+          />
+          <p>{{ workspace.importProgress.value.currentFile }}</p>
+        </div>
         <dl class="import-counts">
           <div>
             <dt>文件</dt>
@@ -131,11 +196,11 @@ async function chooseFiles(event: Event) {
           <h3>文件校验结果</h3>
           <article
             v-for="preview in workspace.importFilePreviews.value"
-            :key="preview.file.name"
+            :key="reviewImportFileLabel(preview.file)"
             class="import-file-result"
           >
             <header>
-              <strong>{{ preview.file.name }}</strong>
+              <strong>{{ reviewImportFileLabel(preview.file) }}</strong>
               <span>
                 可导入 {{ preview.validation.importable.length }} · 重复
                 {{ preview.validation.duplicates.length }} · 错误
@@ -184,7 +249,7 @@ async function chooseFiles(event: Event) {
             "
             @click="workspace.confirmImport"
           >
-            确认写入
+            {{ workspace.actionBusy.value ? "正在写入…" : "确认写入" }}
           </button>
         </div>
       </section>
@@ -196,6 +261,23 @@ async function chooseFiles(event: Event) {
           {{ workspace.importResult.value?.imported_count ?? 0 }} 条，跳过重复
           {{ workspace.importResult.value?.duplicate_count ?? 0 }} 条。
         </p>
+        <details v-if="workspace.importFileResults.value.length">
+          <summary>
+            查看 {{ workspace.importFileResults.value.length }} 个文件的结果
+          </summary>
+          <ul class="import-complete__files">
+            <li
+              v-for="result in workspace.importFileResults.value"
+              :key="result.file_name"
+            >
+              <span>{{ result.file_name }}</span>
+              <span>
+                写入 {{ result.imported_count }} · 重复
+                {{ result.duplicate_count }}
+              </span>
+            </li>
+          </ul>
+        </details>
         <button class="btn primary" @click="close">返回资产列表</button>
       </section>
     </div>
