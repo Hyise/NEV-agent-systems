@@ -161,7 +161,11 @@ def _sheet_path(archive: zipfile.ZipFile) -> tuple[str, bool]:
         target = relationship.attrib.get("Target", "")
         if not target:
             break
-        normalized = posixpath.normpath(posixpath.join("xl", target.lstrip("/")))
+        normalized = posixpath.normpath(
+            target.lstrip("/")
+            if target.startswith("/")
+            else posixpath.join("xl", target)
+        )
         if PurePosixPath(normalized).parts[:1] != ("xl",):
             raise ReviewImportFileError("XLSX 工作表路径无效")
         return normalized, uses_1904_epoch

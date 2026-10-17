@@ -121,12 +121,16 @@
 | PATCH | `/api/collection/review-assets/metadata` | 批量设置分析状态或增删标签；不支持批量删除 |
 | POST | `/api/collection/review-assets/import/validate` | 预检 JSON 数组并返回可导入、重复、错误及校验指纹 |
 | POST | `/api/collection/review-assets/import` | 使用同一输入和校验指纹原子确认导入 |
+| POST | `/api/collection/review-assets/import-file/validate?filename=...` | 以原始字节预检 JSON、JSONL、CSV 或 XLSX 文件 |
+| POST | `/api/collection/review-assets/import-file?filename=...` | 使用 `X-Validation-Fingerprint` 重新解析并确认单个文件 |
 | DELETE | `/api/collection/review-assets/{asset_id}` | 校验哈希、评论 ID、原因和明确确认后永久删除原文 |
 | GET | `/api/collection/review-assets/summary` | 返回总数、启用/禁用、来源与车系统计 |
 | GET | `/api/collection/deletions` | 分页读取不含原文的删除审计 |
 | POST | `/api/collection/deletions/{asset_id}/allow-recollection` | 仅解除未来同来源评论的重采阻止 |
 
-人工导入请求使用 `{items, payload_bytes}`；确认请求额外提交 `validation_fingerprint`。文件须为 UTF-8 JSON/JSONL，最大 8 MB、最多 10,000 条。每条必须含数字字符串 `series_id`、非空 `series_name` 和可提取正文的 `original_review`；`source_url` 省略或使用 HTTPS。脱敏示例见 `backend/tests/fixtures/import/reviews-valid.jsonl`，错误行示例见同目录 `reviews-invalid.jsonl`。
+旧版对象接口继续接受 `{items, payload_bytes}`，确认请求额外提交 `validation_fingerprint`。新版文件接口接收 `application/octet-stream` 原始字节，支持 UTF-8 JSON/JSONL、UTF-8 或 GB18030 CSV，以及 XLSX；单文件最大 32 MB、最多 20,000 条，解析后的规范化 JSON 最大 128 MB。脱敏 JSONL 示例见 `backend/tests/fixtures/import/reviews-valid.jsonl`，错误行示例见同目录 `reviews-invalid.jsonl`。
+
+CSV/XLSX 表格必须包含 `series_id`、`series_name`、`show_id`、`分项评论全文` 和 `详情URL`；XLSX 读取“评论”工作表。`review_id` 优先使用非空 `koubei_id`，否则使用 `show_id`；`详情URL` 映射为 `source_url`。所有表格列及其原始值写入 `original_review`，“分项评论全文”不拆分、不拼接、不改写，前端原文阅读和评论语义分析均优先使用该字段。日期单元格只转换为稳定的 ISO 字符串，以满足 JSON 存储。每条记录的 `source_url` 省略或使用 HTTPS。
 
 元数据 revision 冲突、导入指纹过期、活动采集任务或删除哈希变化返回 409；当前资产不存在返回 404；已永久删除返回 410，并只返回最小删除审计；输入或文件结构不合法返回 422。永久删除会移除当前原文和管理元数据，同时写入 `review_deletion_audits` 墓碑。墓碑默认阻止采集任务静默写回同一来源评论；解除重采只影响未来采集，不恢复旧原文。
 

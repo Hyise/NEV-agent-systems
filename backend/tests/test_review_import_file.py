@@ -30,7 +30,9 @@ HEADERS = [
 ]
 
 
-def build_shared_string_xlsx(*, sheet_name: str = "评论") -> bytes:
+def build_shared_string_xlsx(
+    *, sheet_name: str = "评论", absolute_sheet_target: bool = False
+) -> bytes:
     values = HEADERS + [
         "5769",
         "Model Y",
@@ -66,6 +68,11 @@ def build_shared_string_xlsx(*, sheet_name: str = "评论") -> bytes:
         '<c r="N2" t="s"><v>24</v></c>',
     ]
     payload = io.BytesIO()
+    sheet_target = (
+        "/xl/worksheets/sheet1.xml"
+        if absolute_sheet_target
+        else "worksheets/sheet1.xml"
+    )
     with zipfile.ZipFile(payload, "w", zipfile.ZIP_DEFLATED) as archive:
         archive.writestr(
             "xl/workbook.xml",
@@ -77,9 +84,9 @@ def build_shared_string_xlsx(*, sheet_name: str = "评论") -> bytes:
         )
         archive.writestr(
             "xl/_rels/workbook.xml.rels",
-            '''<?xml version="1.0" encoding="UTF-8"?>
+            f'''<?xml version="1.0" encoding="UTF-8"?>
             <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-              <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+              <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="{sheet_target}"/>
             </Relationships>''',
         )
         archive.writestr(
@@ -152,6 +159,14 @@ def test_xlsx_import_keeps_sparse_columns_and_uses_show_id_fallback():
     assert item["original_review"]["分项评论全文"] == (
         "最满意：空间宽敞\n续航：高速续航稳定，没有截断。"
     )
+
+
+def test_xlsx_import_accepts_absolute_workbook_relationship_target():
+    items = parse_review_import_file(
+        "reviews.xlsx", build_shared_string_xlsx(absolute_sheet_target=True)
+    )
+
+    assert items[0]["series_id"] == "5769"
 
 
 def test_csv_import_accepts_gb18030_and_reports_missing_required_columns():
