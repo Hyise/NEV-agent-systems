@@ -97,8 +97,37 @@ function dateTime(value: string) {
           <option value="false">暂不分析</option>
         </select></label
       >
-      <button class="btn secondary" type="submit">应用筛选</button>
+      <div class="asset-filter-actions">
+        <button
+          class="btn secondary"
+          type="submit"
+          :disabled="workspace.busy.value"
+        >
+          {{ workspace.busy.value ? "筛选中…" : "应用筛选" }}
+        </button>
+        <button
+          class="text-button"
+          type="button"
+          :disabled="workspace.busy.value || !workspace.canResetFilters.value"
+          @click="workspace.resetFilters"
+        >
+          清空筛选
+        </button>
+      </div>
     </form>
+
+    <div class="asset-filter-status" role="status" aria-live="polite">
+      <span>
+        {{ workspace.activeFilters.value.length ? "筛选结果" : "全部评论" }}
+        <strong class="mono">{{ workspace.assets.value.total }}</strong> 条
+      </span>
+      <ul v-if="workspace.activeFilters.value.length" aria-label="已生效条件">
+        <li v-for="item in workspace.activeFilters.value" :key="item.key">
+          {{ item.label }}
+        </li>
+      </ul>
+      <span v-else>填写条件后按 Enter 或点击“应用筛选”</span>
+    </div>
 
     <div v-if="workspace.error.value" class="notice error" role="alert">
       {{ workspace.error.value }}

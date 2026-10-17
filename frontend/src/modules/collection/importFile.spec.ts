@@ -46,9 +46,18 @@ describe("review import file parsing", () => {
     expect(result.skippedCount).toBe(2);
   });
 
-  it("rejects folders containing more than 200 supported files", () => {
+  it("accepts up to 600 folder files and rejects the 601st", () => {
+    const allowedFiles = Array.from(
+      { length: 600 },
+      (_, index) =>
+        ({
+          name: `${index}.xlsx`,
+          size: 10,
+          webkitRelativePath: `评论/${index}.xlsx`,
+        }) as File,
+    );
     const files = Array.from(
-      { length: 201 },
+      { length: 601 },
       (_, index) =>
         ({
           name: `${index}.xlsx`,
@@ -57,8 +66,11 @@ describe("review import file parsing", () => {
         }) as File,
     );
 
+    expect(
+      prepareReviewImportFiles(allowedFiles, { fromDirectory: true }).files,
+    ).toHaveLength(600);
     expect(() =>
       prepareReviewImportFiles(files, { fromDirectory: true }),
-    ).toThrow("200");
+    ).toThrow("600");
   });
 });

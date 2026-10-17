@@ -43,6 +43,27 @@ export interface ReviewImportProgress {
   currentFile: string;
 }
 
+interface AssetFilterState {
+  keyword: string;
+  series_id: string;
+  source_kind: ReviewAssetSourceKind | "";
+  tag: string;
+  analysis_enabled: "" | "true" | "false";
+}
+
+interface ActiveAssetFilter {
+  key: keyof AssetFilterState;
+  label: string;
+}
+
+const emptyFilters = (): AssetFilterState => ({
+  keyword: "",
+  series_id: "",
+  source_kind: "",
+  tag: "",
+  analysis_enabled: "",
+});
+
 const emptyImportProgress = (): ReviewImportProgress => ({
   phase: null,
   completed: 0,
@@ -79,19 +100,8 @@ export function createAssetWorkspace(
   client: ReviewAssetApi = collectionApi,
   registerLifecycle = true,
 ) {
-  const filters = reactive<{
-    keyword: string;
-    series_id: string;
-    source_kind: ReviewAssetSourceKind | "";
-    tag: string;
-    analysis_enabled: "" | "true" | "false";
-  }>({
-    keyword: "",
-    series_id: "",
-    source_kind: "",
-    tag: "",
-    analysis_enabled: "",
-  });
+  const filters = reactive<AssetFilterState>(emptyFilters());
+  const appliedFilters = reactive<AssetFilterState>(emptyFilters());
   const page = ref(1);
   const pageSize = ref(20);
   const assets = ref<Page<ReviewAssetSummary>>(emptyPage());
@@ -128,6 +138,43 @@ export function createAssetWorkspace(
       0,
     ),
   }));
+  const activeFilters = computed<ActiveAssetFilter[]>(() => {
+    const result: ActiveAssetFilter[] = [];
+    if (appliedFilters.keyword)
+      result.push({
+        key: "keyword",
+        label: `关键词：${appliedFilters.keyword}`,
+      });
+    if (appliedFilters.series_id)
+      result.push({
+        key: "series_id",
+        label: `车系 ID：${appliedFilters.series_id}`,
+      });
+    if (appliedFilters.source_kind)
+      result.push({
+        key: "source_kind",
+        label: `来源：${
+          appliedFilters.source_kind === "autohome"
+            ? "汽车之家采集"
+            : "人工导入"
+        }`,
+      });
+    if (appliedFilters.tag)
+      result.push({ key: "tag", label: `标签：${appliedFilters.tag}` });
+    if (appliedFilters.analysis_enabled)
+      result.push({
+        key: "analysis_enabled",
+        label: `分析状态：${
+          appliedFilters.analysis_enabled === "true" ? "参与分析" : "暂不分析"
+        }`,
+      });
+    return result;
+  });
+  const canResetFilters = computed(
+    () =>
+      activeFilters.value.length > 0 ||
+      Object.values(filters).some((value) => value !== ""),
+  );
 
   let active = !registerLifecycle;
   let lifecycleId = 0;
@@ -142,14 +189,14 @@ export function createAssetWorkspace(
 
   function query(): ReviewAssetFilters {
     return {
-      keyword: filters.keyword || undefined,
-      series_id: filters.series_id || undefined,
-      source_kind: filters.source_kind || undefined,
-      tag: filters.tag || undefined,
+      keyword: appliedFilters.keyword || undefined,
+      series_id: appliedFilters.series_id || undefined,
+      source_kind: appliedFilters.source_kind || undefined,
+      tag: appliedFilters.tag || undefined,
       analysis_enabled:
-        filters.analysis_enabled === ""
+        appliedFilters.analysis_enabled === ""
           ? undefined
-          : filters.analysis_enabled === "true",
+          : appliedFilters.analysis_enabled === "true",
       page: page.value,
       page_size: pageSize.value,
     };
@@ -188,7 +235,24 @@ export function createAssetWorkspace(
   }
 
   async function applyFilters() {
+    Object.assign(appliedFilters, {
+      keyword: filters.keyword.trim(),
+      series_id: filters.series_id.trim(),
+      source_kind: filters.source_kind,
+      tag: filters.tag.trim(),
+      analysis_enabled: filters.analysis_enabled,
+    });
+    Object.assign(filters, appliedFilters);
     page.value = 1;
+    selectedAssetIds.value = [];
+    await loadAssets();
+  }
+
+  async function resetFilters() {
+    Object.assign(filters, emptyFilters());
+    Object.assign(appliedFilters, emptyFilters());
+    page.value = 1;
+    selectedAssetIds.value = [];
     await loadAssets();
   }
 
@@ -566,6 +630,9 @@ export function createAssetWorkspace(
 
   return {
     filters,
+    appliedFilters,
+    activeFilters,
+    canResetFilters,
     page,
     pageSize,
     assets,
@@ -590,6 +657,7 @@ export function createAssetWorkspace(
     loadAssets,
     loadSummary,
     applyFilters,
+    resetFilters,
     previousPage,
     nextPage,
     openAsset,

@@ -1,7 +1,7 @@
 import type { ReviewImportItem } from "./api";
 
 export const MAX_REVIEW_IMPORT_FILE_BYTES = 32 * 1024 * 1024;
-export const MAX_REVIEW_IMPORT_FILES = 200;
+export const MAX_REVIEW_IMPORT_FILES = 600;
 
 const SUPPORTED_REVIEW_IMPORT_FILE = /\.(json|jsonl|csv|xlsx)$/i;
 

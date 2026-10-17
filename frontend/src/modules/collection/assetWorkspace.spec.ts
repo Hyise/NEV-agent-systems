@@ -218,6 +218,50 @@ describe("review asset workspace", () => {
     expect(workspace.detail.value).toBeNull();
   });
 
+  it("keeps pagination on applied filters and clears filters safely", async () => {
+    const client = api({
+      listReviewAssets: vi
+        .fn()
+        .mockResolvedValue({ ...resultPage([asset()]), total: 41 }),
+    });
+    const workspace = createAssetWorkspace(client, false);
+    workspace.filters.keyword = " 续航 ";
+    workspace.filters.source_kind = "autohome";
+    workspace.selectedAssetIds.value = ["autohome:r1"];
+
+    await workspace.applyFilters();
+
+    expect(workspace.appliedFilters.keyword).toBe("续航");
+    expect(workspace.activeFilters.value.map((item) => item.label)).toEqual([
+      "关键词：续航",
+      "来源：汽车之家采集",
+    ]);
+    expect(workspace.selectedAssetIds.value).toEqual([]);
+
+    workspace.filters.keyword = "空间";
+    await workspace.nextPage();
+    expect(client.listReviewAssets).toHaveBeenLastCalledWith(
+      expect.objectContaining({ keyword: "续航", page: 2 }),
+    );
+
+    workspace.selectedAssetIds.value = ["autohome:r1"];
+    await workspace.resetFilters();
+    expect(workspace.page.value).toBe(1);
+    expect(workspace.filters.keyword).toBe("");
+    expect(workspace.appliedFilters.keyword).toBe("");
+    expect(workspace.activeFilters.value).toEqual([]);
+    expect(workspace.selectedAssetIds.value).toEqual([]);
+    expect(client.listReviewAssets).toHaveBeenLastCalledWith({
+      keyword: undefined,
+      series_id: undefined,
+      source_kind: undefined,
+      tag: undefined,
+      analysis_enabled: undefined,
+      page: 1,
+      page_size: 20,
+    });
+  });
+
   it("saves metadata, reloads a revision conflict, batches, and refreshes summary", async () => {
     const conflictClient = api({
       updateReviewAssetMetadata: vi
