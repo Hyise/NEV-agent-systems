@@ -46,9 +46,9 @@ describe("review import file parsing", () => {
     expect(result.skippedCount).toBe(2);
   });
 
-  it("accepts up to 600 folder files and rejects the 601st", () => {
+  it("accepts up to 800 folder files and rejects the 801st", () => {
     const allowedFiles = Array.from(
-      { length: 600 },
+      { length: 800 },
       (_, index) =>
         ({
           name: `${index}.xlsx`,
@@ -57,7 +57,7 @@ describe("review import file parsing", () => {
         }) as File,
     );
     const files = Array.from(
-      { length: 601 },
+      { length: 801 },
       (_, index) =>
         ({
           name: `${index}.xlsx`,
@@ -68,9 +68,9 @@ describe("review import file parsing", () => {
 
     expect(
       prepareReviewImportFiles(allowedFiles, { fromDirectory: true }).files,
-    ).toHaveLength(600);
+    ).toHaveLength(800);
     expect(() =>
       prepareReviewImportFiles(files, { fromDirectory: true }),
-    ).toThrow("600");
+    ).toThrow("800");
   });
 });
