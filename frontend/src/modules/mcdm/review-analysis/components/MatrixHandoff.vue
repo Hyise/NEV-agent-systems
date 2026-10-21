@@ -35,10 +35,22 @@ async function enterExperiments() {
     </header>
 
     <div v-if="preview" class="matrix-preview-grid" aria-label="评价矩阵预览">
-      <div><strong>{{ preview.stats.source_reviews }}</strong><span>去重评论</span></div>
-      <div><strong>{{ preview.stats.groups }}</strong><span>月份 × 车系</span></div>
-      <div><strong>{{ preview.stats.records }}</strong><span>可生成记录</span></div>
-      <div><strong>{{ preview.stats.blocked_groups }}</strong><span>阻塞分组</span></div>
+      <div>
+        <strong>{{ preview.stats.source_reviews }}</strong
+        ><span>去重评论</span>
+      </div>
+      <div>
+        <strong>{{ preview.stats.groups }}</strong
+        ><span>月份 × 车系</span>
+      </div>
+      <div>
+        <strong>{{ preview.stats.records }}</strong
+        ><span>可生成记录</span>
+      </div>
+      <div>
+        <strong>{{ preview.stats.blocked_groups }}</strong
+        ><span>阻塞分组</span>
+      </div>
     </div>
     <div v-else class="empty compact">
       <TableProperties :size="28" />
@@ -53,13 +65,19 @@ async function enterExperiments() {
       class="notice warning"
       role="status"
     >
-      有 {{ preview.stats.missing_date_reviews }} 条评论缺少评论日期，需补齐后才能生成。
+      有
+      {{ preview.stats.missing_date_reviews }}
+      条评论缺少评论日期，需补齐后才能生成。
     </div>
     <div v-if="preview?.failed_reviews" class="notice warning" role="status">
-      本次任务仍有 {{ preview.failed_reviews }} 条失败评论；可先重试失败项再生成矩阵。
+      本次任务仍有
+      {{ preview.failed_reviews }} 条失败评论；可先重试失败项再生成矩阵。
     </div>
     <ul v-if="preview?.blockers.length" class="matrix-blockers">
-      <li v-for="item in preview.blockers" :key="item.month + ':' + item.series_id">
+      <li
+        v-for="item in preview.blockers"
+        :key="item.month + ':' + item.series_id"
+      >
         <strong>{{ item.month }} · {{ item.series_name }}</strong>
         <span>{{ item.reasons.join("；") }}</span>
       </li>
@@ -76,11 +94,18 @@ async function enterExperiments() {
       <span v-if="preview && !canMaterialize">处理完上方阻塞项后即可生成</span>
     </div>
 
-    <div v-if="workspace.generatedDataset.value" class="dataset-success" role="status">
+    <div
+      v-if="workspace.generatedDataset.value"
+      class="dataset-success"
+      role="status"
+    >
       <Check :size="18" />
       <div>
         <strong>{{ workspace.generatedDataset.value.name }}</strong>
-        <span>{{ workspace.generatedDataset.value.records }} 条记录 · 快照 {{ workspace.generatedDataset.value.sha256.slice(0, 10) }}</span>
+        <span
+          >{{ workspace.generatedDataset.value.records }} 条记录 · 快照
+          {{ workspace.generatedDataset.value.sha256.slice(0, 10) }}</span
+        >
       </div>
       <button class="btn secondary" @click="enterExperiments">
         进入模型实验 <ArrowRight :size="15" />
