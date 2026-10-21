@@ -2,6 +2,7 @@
 import { computed } from "vue";
 import { Activity, Check } from "lucide-vue-next";
 import BaseChart from "../../../components/BaseChart.vue";
+import { formatTimePressure } from "../timePressure";
 import { pct, useWorkspace } from "../workspace";
 
 const palette = [
@@ -60,7 +61,7 @@ const curveOption = computed(() => ({
     <header class="analysis-heading">
       <div>
         <h2>时间压力与模型权重</h2>
-        <p>沿真实月度观察点展示，不补造新情景下的计算结果。</p>
+        <p>沿真实月度观察点展示；2026年起不再施加时间压力。</p>
       </div>
       <span class="badge neutral">月度归档</span>
     </header>
@@ -137,14 +138,16 @@ const curveOption = computed(() => ({
             <thead>
               <tr>
                 <th>月份</th>
-                <th>时间压力</th>
+                <th>时间压力（2026年前）</th>
                 <th v-for="name in curveCriteria" :key="name">{{ name }}</th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="row in selectedCurves" :key="row.month">
                 <td class="mono">{{ row.month }}</td>
-                <td class="mono">{{ row.pressure.toFixed(3) }}</td>
+                <td class="mono">
+                  {{ formatTimePressure(row.month, row.pressure) }}
+                </td>
                 <td v-for="name in curveCriteria" :key="name" class="mono">
                   {{ pct(row.values[name]!) }}
                 </td>
@@ -157,7 +160,9 @@ const curveOption = computed(() => ({
     <div v-else class="empty">
       <Activity :size="34" />
       <h3>当前项目尚无模型运行结果</h3>
-      <p>自定义准则不会复用预置研究的权重。新训练将在算法接入阶段开放。</p>
+      <p>
+        自定义准则不会复用预置研究的权重；新实验的权重不会自动发布为此页的归档情景曲线。
+      </p>
     </div>
   </section>
 </template>

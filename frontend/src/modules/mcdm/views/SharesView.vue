@@ -56,7 +56,7 @@ function showLatestArchive() {
       {{
         predictions.length
           ? "归档模型在训练时见过评估月份；此页用于研究复核，不作为独立测试成绩或未来销量承诺。"
-          : "所选月份没有归档预测。预置研究仅提供2025年11月和12月结果，自定义项目需后续训练。"
+          : "所选月份没有归档预测。预置研究仅提供2025年11月和12月结果；新运行的测试结果请在模型实验中复核。"
       }}
     </div>
     <div v-if="predictions.length" class="analysis-document share-evidence">

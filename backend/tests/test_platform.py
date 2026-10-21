@@ -125,6 +125,37 @@ def test_duplicate_rows_and_month_pressure(client):
     assert import_csv(client, base, schema, text).status_code == 422
 
 
+@pytest.mark.parametrize('pressure', ['', '0.8', '1.5', 'not-a-number'])
+def test_2026_dataset_treats_time_pressure_as_absent(client, pressure):
+    base, schema = new_custom(client)
+    schema = freeze(client, base, schema)
+    text = simple_csv(
+        schema['criteria'],
+        {'观察区间': '2026-01', '时间压力': pressure},
+    )
+
+    result = import_csv(client, base, schema, text)
+
+    assert result.status_code == 201, result.text
+    rows = client.get(base + '/data?month=2026-01').json()['rows']
+    assert {row['pressure'] for row in rows} == {0.0}
+
+
+def test_pre_2026_dataset_still_requires_valid_time_pressure(client):
+    base, schema = new_custom(client)
+    schema = freeze(client, base, schema)
+
+    result = import_csv(
+        client,
+        base,
+        schema,
+        simple_csv(schema['criteria'], {'时间压力': ''}),
+    )
+
+    assert result.status_code == 422
+    assert '时间压力必须是数字' in result.text
+
+
 def test_json_key_order_is_canonical(client):
     base, schema = new_custom(client)
     schema = freeze(client, base, schema)

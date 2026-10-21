@@ -5,7 +5,13 @@ import io
 import json
 from pathlib import Path
 
-from .domain import CRITERIA, month_key, parse_dataset, preset_criteria
+from .domain import (
+    CRITERIA,
+    effective_time_pressure,
+    month_key,
+    parse_dataset,
+    preset_criteria,
+)
 
 NOTES = [
     '当前预测与实验指标来自原研究归档，本系统未重新训练。',
@@ -34,8 +40,15 @@ class Research:
 
     def curves(self, kind):
         filename = 'weights.csv' if kind == 'weights' else 'rationality.csv'
-        return [{'month': month_key(r['Time']), 'pressure': float(r['Pressure']),
-                 'values': {c: float(r[c]) for c in CRITERIA}} for r in self.read(filename)]
+        rows = []
+        for row in self.read(filename):
+            month = month_key(row['Time'])
+            rows.append({
+                'month': month,
+                'pressure': effective_time_pressure(month, row['Pressure']),
+                'values': {criterion: float(row[criterion]) for criterion in CRITERIA},
+            })
+        return rows
 
     def experiments(self):
         baseline = [{'model': r['model'], **{k: float(r[k]) for k in ['RMSE', 'WAPE', 'R2']}}

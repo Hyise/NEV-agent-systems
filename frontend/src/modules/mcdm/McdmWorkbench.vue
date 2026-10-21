@@ -10,11 +10,11 @@ import {
 import type { Component } from "vue";
 import {
   Activity,
-  Archive,
   ArrowRight,
   Check,
   Database,
   FileText,
+  FlaskConical,
   Home,
   ListChecks,
   Menu,
@@ -30,6 +30,11 @@ import {
   createReviewAnalysisWorkspace,
   provideReviewAnalysisWorkspace,
 } from "./review-analysis/workspace";
+import { createModelExperimentApi } from "./model-experiments/api";
+import {
+  createModelExperimentWorkspace,
+  provideModelExperimentWorkspace,
+} from "./model-experiments/workspace";
 import { createWorkspace, provideWorkspace, type Page } from "./workspace";
 
 const OverviewView = defineAsyncComponent(
@@ -83,7 +88,7 @@ const pages: Array<{
   {
     id: "scenario" as Page,
     title: "情景分析",
-    subtitle: "观察时间压力下的权重变化。",
+    subtitle: "查看历史时间压力下的权重变化；2026年起不再施加。",
     icon: Activity,
   },
   {
@@ -94,9 +99,9 @@ const pages: Array<{
   },
   {
     id: "experiments" as Page,
-    title: "实验档案",
-    subtitle: "保留研究证据，也保留它的适用边界。",
-    icon: Archive,
+    title: "模型实验",
+    subtitle: "用冻结数据运行模型，并保留每一次可复核结果。",
+    icon: FlaskConical,
   },
 ];
 
@@ -141,6 +146,12 @@ const reviewAnalysisWorkspace = createReviewAnalysisWorkspace(
   computed(() => overview.value?.schema.status ?? "draft"),
 );
 provideReviewAnalysisWorkspace(reviewAnalysisWorkspace);
+const modelExperimentWorkspace = createModelExperimentWorkspace(
+  createModelExperimentApi(),
+  projectId,
+  workspace.schemaId,
+);
+provideModelExperimentWorkspace(modelExperimentWorkspace);
 const activePage = computed(
   () => pages.find((item) => item.id === page.value)!,
 );
@@ -462,7 +473,7 @@ onBeforeUnmount(() =>
           </label>
         </fieldset>
         <p class="caption">
-          此阶段已提供数据、准则与评论语义分析工作流；新模型训练将在后续接入。
+          已提供数据、准则、评论语义分析和版本化模型实验；评论标注不会自动生成训练矩阵。
         </p>
         <p v-if="error" class="form-error" role="alert">{{ error }}</p>
         <button

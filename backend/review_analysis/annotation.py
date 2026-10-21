@@ -5,6 +5,43 @@ from .deepseek import LlmInvalidResponseError, LlmTransientError
 from .domain import CriterionSnapshot, ControlAction, parse_review_annotation
 
 
+def _retain_verbatim_evidence(payload, review_text: str):
+    if not isinstance(payload, dict):
+        return payload
+    annotations = payload.get("annotations")
+    unmatched = payload.get("unmatched_evidence")
+    if not isinstance(annotations, list) or not isinstance(unmatched, list):
+        return payload
+
+    cleaned_annotations = []
+    for item in annotations:
+        if not isinstance(item, dict) or not isinstance(item.get("evidence"), list):
+            cleaned_annotations.append(item)
+            continue
+        evidence = list(
+            dict.fromkeys(
+                value
+                for value in item["evidence"]
+                if isinstance(value, str) and value in review_text
+            )
+        )
+        if evidence:
+            cleaned_annotations.append({**item, "evidence": evidence})
+
+    cleaned_unmatched = list(
+        dict.fromkeys(
+            value
+            for value in unmatched
+            if isinstance(value, str) and value in review_text
+        )
+    )
+    return {
+        **payload,
+        "annotations": cleaned_annotations,
+        "unmatched_evidence": cleaned_unmatched,
+    }
+
+
 class ReviewAnnotationPipeline:
     def __init__(self, repository, renderer, executor):
         self.repository = repository
@@ -34,8 +71,12 @@ class ReviewAnnotationPipeline:
             try:
                 result, completion = self.executor.call(
                     prompt,
-                    lambda payload: parse_review_annotation(payload, criteria=criteria, review_text=row["analysis_text"]),
-                    max_tokens=1_500,
+                    lambda payload: parse_review_annotation(
+                        _retain_verbatim_evidence(payload, row["analysis_text"]),
+                        criteria=criteria,
+                        review_text=row["analysis_text"],
+                    ),
+                    max_tokens=3_000,
                     attempts=2,
                 )
             except (LlmInvalidResponseError, LlmTransientError) as exc:

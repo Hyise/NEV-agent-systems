@@ -8,9 +8,10 @@ from backend.review_analysis.structured_calls import StructuredCallExecutor
 
 
 class Client:
-    def __init__(self, payloads): self.payloads = deque(payloads); self.calls = 0
+    def __init__(self, payloads): self.payloads = deque(payloads); self.calls = 0; self.max_tokens = []
     def complete_json(self, prompt, *, max_tokens):
         self.calls += 1
+        self.max_tokens.append(max_tokens)
         return JsonCompletion(self.payloads.popleft(), 5, 2, 7, 0, "stop")
 
 
@@ -74,6 +75,44 @@ def test_invalid_annotation_isolated_and_following_review_continues():
     assert repo.failures == {"r1": "invalid_response"}
     assert "r2" in repo.links
     assert repo.states[-1] == "partial_failed"
+
+
+def test_annotation_discards_non_verbatim_evidence_without_rewriting_text():
+    payload = {
+        "annotations": [
+            {
+                "criterion": "空间",
+                "label": "宽敞",
+                "evidence": ["后排很宽敞", "后排非常宽敞"],
+                "basis": "空间评价",
+            },
+            {
+                "criterion": "续航",
+                "label": "不足",
+                "evidence": ["续航不太够"],
+                "basis": "无原文证据",
+            },
+        ],
+        "unmatched_evidence": ["冬季续航不足", "不存在的原文"],
+    }
+    repo = Repo([row("r1")])
+    client = Client([payload])
+
+    ReviewAnnotationPipeline(
+        repo, PromptRenderer(), StructuredCallExecutor(client)
+    ).run("j", lambda: None)
+
+    saved = next(iter(repo.results.values()))["result"]
+    assert saved["annotations"] == [
+        {
+            "criterion": "空间",
+            "label": "宽敞",
+            "evidence": ["后排很宽敞"],
+            "basis": "空间评价",
+        }
+    ]
+    assert saved["unmatched_evidence"] == ["冬季续航不足"]
+    assert client.max_tokens == [3000]
 
 
 def test_pause_before_call_does_not_process_item():

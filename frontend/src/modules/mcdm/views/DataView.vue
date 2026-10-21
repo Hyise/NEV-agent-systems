@@ -7,6 +7,7 @@ import {
   Plus,
   Search,
 } from "lucide-vue-next";
+import { formatTimePressure } from "../timePressure";
 import { count, pct, useWorkspace } from "../workspace";
 
 const {
@@ -78,7 +79,7 @@ const {
       {{
         overview.schema.status === "draft"
           ? "先在准则工作台保存并冻结版本，再导入数据。"
-          : '上传UTF-8 CSV；列含产品型号、观察区间、时间压力、Real_Sales及各准则。准则单元格为 {"L0":0.7,"L1":0.3} 形式的概率对象，等级数需匹配当前版本。'
+          : '上传UTF-8 CSV；列含产品型号、观察区间、时间压力、Real_Sales及各准则。2026年起时间压力可留空并统一按无压力处理。准则单元格为 {"L0":0.7,"L1":0.3} 形式的概率对象，等级数需匹配当前版本。'
       }}
     </div>
     <div class="dataset-toolbar">
@@ -106,7 +107,7 @@ const {
               <th>观察月份</th>
               <th class="numeric">销量 / 辆</th>
               <th class="numeric">样本内份额</th>
-              <th class="numeric">时间压力</th>
+              <th class="numeric">时间压力（2026年前）</th>
               <th class="numeric">准则覆盖</th>
             </tr>
           </thead>
@@ -118,7 +119,9 @@ const {
               <td class="mono">{{ row.month }}</td>
               <td class="numeric mono">{{ count(row.sales) }}</td>
               <td class="numeric mono">{{ pct(row.share) }}</td>
-              <td class="numeric mono">{{ row.pressure.toFixed(3) }}</td>
+              <td class="numeric mono">
+                {{ formatTimePressure(row.month, row.pressure) }}
+              </td>
               <td class="numeric">
                 <span class="badge teal"
                   >{{ Object.keys(row.probabilities).length }} /

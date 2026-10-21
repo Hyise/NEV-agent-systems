@@ -63,6 +63,18 @@ const weightOption = computed(() => ({
     },
   ],
 }));
+
+const workflow = computed(() => [
+  { name: "数据准备", status: "已开放", available: true },
+  { name: "准则确认", status: "已开放", available: true },
+  { name: "评论标注", status: "已开放", available: true },
+  { name: "模型实验", status: "已开放", available: true },
+  {
+    name: "决策复核",
+    status: isPreset.value ? "含历史归档" : "查看实验结果",
+    available: true,
+  },
+]);
 </script>
 
 <template>
@@ -178,33 +190,20 @@ const weightOption = computed(() => ({
       <header class="research-process__heading">
         <div>
           <h2>研究流程</h2>
-          <p>完整评论采集与语义标注已接入；训练与新预测仍需独立研究设计。</p>
+          <p>
+            从完整评论到冻结准则、加工矩阵和可执行模型实验，各阶段分别保留来源与版本。
+          </p>
         </div>
       </header>
       <div class="workflow">
         <div
-          v-for="(step, index) in [
-            '数据准备',
-            '准则确认',
-            '评论标注',
-            '模型训练',
-            '决策分析',
-          ]"
-          :key="step"
-          :class="[
-            'workflow-step',
-            { available: index < 3 || (index === 4 && isPreset) },
-          ]"
+          v-for="(step, index) in workflow"
+          :key="step.name"
+          :class="['workflow-step', { available: step.available }]"
         >
           <span class="step-number mono">{{ index + 1 }}</span>
-          <strong>{{ step }}</strong>
-          <small>{{
-            index < 3
-              ? "已开放"
-              : index === 4 && isPreset
-                ? "可查看归档"
-                : "后续接入"
-          }}</small>
+          <strong>{{ step.name }}</strong>
+          <small>{{ step.status }}</small>
         </div>
       </div>
     </section>

@@ -13,6 +13,7 @@ CRITERIA = ['空间实用性', '驾驶体验', '续航与能耗可靠性', '智�
             '内饰品质与健康感知', '外观设计认同度', '成本效益与全周期价值',
             'NVH静谧性', '安全性与被动防护信任', '性价比合理性']
 LEVEL_COUNTS = [4, 4, 5, 4, 4, 5, 4, 4, 4, 4]
+TIME_PRESSURE_CUTOFF = '2026-01'
 
 
 class StrictModel(BaseModel):
@@ -97,6 +98,13 @@ def number(value, name: str, low: float = 0, high: float = math.inf):
     return result
 
 
+def effective_time_pressure(month: str, value) -> float:
+    """Return the research pressure in force for an observation month."""
+    if month >= TIME_PRESSURE_CUTOFF:
+        return 0.0
+    return number(value, '时间压力', 0, 1)
+
+
 def unique_json_pairs(pairs):
     obj = {}
     for key, value in pairs:
@@ -126,7 +134,7 @@ def parse_dataset(text: str, criteria: list[dict]) -> list[dict]:
             if key in seen:
                 raise ValueError(f'车型月份重复：{month} / {model}')
             seen.add(key)
-            pressure = number(row['时间压力'], '时间压力', 0, 1)
+            pressure = effective_time_pressure(month, row['时间压力'])
             sales = number(row['Real_Sales'], '销量')
             if month in pressures and abs(pressures[month] - pressure) > 1e-6:
                 raise ValueError('同月各车型的时间压力必须一致')

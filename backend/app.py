@@ -31,6 +31,11 @@ from .domain import (
     parse_dataset,
     preset_criteria,
 )
+from .model_experiments.api import create_model_experiment_router
+from .model_experiments.dataset import build_snapshot
+from .model_experiments.engine import ExperimentEngine
+from .model_experiments.repository import ModelExperimentRepository
+from .model_experiments.service import ModelExperimentService
 from .research import NOTES, Research
 from .review_analysis.annotation import ReviewAnnotationPipeline
 from .review_analysis.api import create_review_analysis_router
@@ -41,6 +46,9 @@ from .review_analysis.prompting import PromptRenderer
 from .review_analysis.repository import ReviewAnalysisRepository
 from .review_analysis.service import ReviewAnalysisService
 from .review_analysis.structured_calls import StructuredCallExecutor
+from .sales_collection.api import create_sales_collection_router
+from .sales_collection.repository import SalesCollectionRepository
+from .sales_collection.service import SalesCollectionService
 from .store import Store
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -60,12 +68,31 @@ def create_app(
     collection_service_factory=None,
     catalog_service_factory=None,
     review_analysis_service_factory=None,
+    model_experiment_service_factory=None,
+    sales_collection_service_factory=None,
 ):
     database_path = db_path or Path(os.environ.get('NEV_DB_PATH', ROOT / '.runtime/platform.sqlite3'))
     store = Store(database_path)
     research = Research(research_dir or ROOT / 'backend/data/research')
+    model_experiment_repository = ModelExperimentRepository(database_path)
+    model_experiment_engine = ExperimentEngine()
+    model_experiment_service = (
+        model_experiment_service_factory(model_experiment_repository, model_experiment_engine)
+        if model_experiment_service_factory is not None
+        else ModelExperimentService(model_experiment_repository, model_experiment_engine)
+    )
     collection_repository = CollectionRepository(database_path)
     external_access_coordinator = ExternalAccessCoordinator()
+    sales_collection_repository = SalesCollectionRepository(database_path)
+    sales_collection_service = (
+        sales_collection_service_factory(
+            sales_collection_repository, external_access_coordinator
+        )
+        if sales_collection_service_factory is not None
+        else SalesCollectionService(
+            sales_collection_repository, external_access_coordinator
+        )
+    )
     catalog_repository = SeriesCatalogRepository(database_path)
     collection_service = (
         collection_service_factory(collection_repository)
@@ -101,6 +128,8 @@ def create_app(
     async def lifespan(application):
         collection_repository.pause_interrupted_jobs(now())
         catalog_repository.fail_interrupted_runs(now())
+        sales_collection_repository.fail_interrupted_jobs(now())
+        model_experiment_repository.fail_interrupted()
         if review_analysis_service is None:
             review_analysis_repository.pause_interrupted_jobs()
         try:
@@ -108,8 +137,10 @@ def create_app(
         finally:
             catalog_service.shutdown()
             collection_service.shutdown()
+            sales_collection_service.shutdown()
             if review_analysis_service is not None:
                 review_analysis_service.shutdown()
+            model_experiment_service.shutdown()
 
     app = FastAPI(
         title='新能源汽车情景多准则决策分析系统',
@@ -122,10 +153,14 @@ def create_app(
     app.state.catalog_repository = catalog_repository
     app.state.catalog_service = catalog_service
     app.state.external_access_coordinator = external_access_coordinator
+    app.state.sales_collection_repository = sales_collection_repository
+    app.state.sales_collection_service = sales_collection_service
     app.state.review_analysis_repository = review_analysis_repository
     app.state.review_analysis_service = review_analysis_service
     app.state.review_asset_repository = review_asset_repository
     app.state.review_asset_service = review_asset_service
+    app.state.model_experiment_repository = model_experiment_repository
+    app.state.model_experiment_service = model_experiment_service
     with store.connect() as conn:
         conn.execute('INSERT OR IGNORE INTO projects VALUES (?,?,?,?)',
                      ('research-archive', '新能源汽车消费者决策研究', 'preset', now()))
@@ -162,6 +197,17 @@ def create_app(
         months = sorted({r['month'] for r in records})
         return project, schema, records, dataset, months
 
+    def model_snapshot(project_id, schema_id=None, validate_only=False):
+        project, schema = project_and_schema(project_id, schema_id)
+        if validate_only:
+            return None
+        if schema['status'] != 'frozen':
+            raise HTTPException(409, '模型实验只能使用冻结的准则版本')
+        records, dataset = dataset_for(project, schema)
+        if not records or dataset is None:
+            raise HTTPException(409, '当前准则版本尚无可用于模型实验的评价矩阵')
+        return build_snapshot(records, schema['criteria'], dataset)
+
     @app.get('/api/health')
     def health():
         return {'status': 'ok', 'version': '0.1.0', 'app_id': 'nev-mcdm-platform'}
@@ -176,10 +222,23 @@ def create_app(
     )
     app.include_router(create_catalog_router(catalog_repository, catalog_service))
     app.include_router(
+        create_sales_collection_router(
+            sales_collection_repository,
+            sales_collection_service,
+            external_access_coordinator,
+        )
+    )
+    app.include_router(
         create_review_asset_router(review_asset_repository, review_asset_service)
     )
     app.include_router(create_review_analysis_router(
         review_analysis_repository, review_analysis_service, deepseek_settings
+    ))
+    app.include_router(create_model_experiment_router(
+        model_experiment_repository,
+        model_experiment_service,
+        model_experiment_engine,
+        model_snapshot,
     ))
 
     @app.get('/api/projects')

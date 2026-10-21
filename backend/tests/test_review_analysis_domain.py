@@ -8,6 +8,7 @@ from backend.review_analysis.domain import (
     parse_criteria_proposal,
     parse_review_annotation,
     schema_fingerprint,
+    stable_month_series_stratified_sample,
     stable_stratified_sample,
 )
 from backend.review_analysis.text import extract_analysis_text
@@ -76,6 +77,34 @@ def test_stable_stratified_sample_is_reproducible_and_balanced():
         "2": 2,
         "3": 2,
     }
+
+
+def test_month_series_sample_balances_months_before_series():
+    rows = []
+    for month, series_id, count in (
+        ("2026-01-01", "1", 5),
+        ("2026-01-02", "2", 3),
+        ("2026-02-01", "1", 4),
+        ("2026-02-02", "3", 4),
+    ):
+        for index in range(count):
+            rows.append(
+                ReviewAsset(
+                    review_id=f"{month}-{series_id}-{index}",
+                    series_id=series_id,
+                    series_name=f"车系{series_id}",
+                    content_hash=f"{len(rows) + 1:064x}",
+                    original_review={"feeling_summary": "评论"},
+                    review_date=month,
+                )
+            )
+
+    selected = stable_month_series_stratified_sample(rows, 8)
+
+    assert len(selected) == 8
+    assert [item.review_date[:7] for item in selected].count("2026-01") == 4
+    assert [item.review_date[:7] for item in selected].count("2026-02") == 4
+    assert {item.series_id for item in selected} == {"1", "2", "3"}
 
 
 def test_criteria_proposal_is_strict_and_rejects_long_basis():
