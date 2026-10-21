@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from datetime import date
 from enum import StrEnum
 from typing import Any, Literal, Sequence
 
@@ -12,6 +13,16 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+
+def validate_review_date(value: str | None) -> str | None:
+    if value is None:
+        return None
+    try:
+        date.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError("评论日期是无效日期") from exc
+    return value
 
 
 class CriterionSnapshot(StrictModel):
@@ -103,6 +114,12 @@ class ReviewAsset(StrictModel):
     series_name: str = Field(min_length=1, max_length=200)
     content_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
     original_review: dict[str, Any]
+    review_date: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+
+    @field_validator("review_date")
+    @classmethod
+    def valid_review_date(cls, value: str | None) -> str | None:
+        return validate_review_date(value)
 
 
 class ReviewSnapshot(StrictModel):
@@ -114,7 +131,13 @@ class ReviewSnapshot(StrictModel):
     series_name: str = Field(min_length=1, max_length=200)
     content_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
     analysis_text: str = Field(min_length=1)
+    review_date: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
     ordinal: int = Field(ge=0)
+
+    @field_validator("review_date")
+    @classmethod
+    def valid_review_date(cls, value: str | None) -> str | None:
+        return validate_review_date(value)
 
 
 class CreateJobCommand(StrictModel):
@@ -128,6 +151,9 @@ class CreateJobCommand(StrictModel):
     prompt_manifests: list[PromptManifest] = Field(min_length=1, max_length=2)
     schema_fingerprint: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     criteria: list[CriterionSnapshot] = Field(default_factory=list, max_length=20)
+    review_date_from: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    review_date_to: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    sampling: Literal["series", "month_series"] = "series"
 
     @field_validator("selected_series_ids")
     @classmethod
@@ -135,6 +161,17 @@ class CreateJobCommand(StrictModel):
         if len(values) != len(set(values)):
             raise ValueError("车系不能重复")
         return values
+
+    @field_validator("review_date_from", "review_date_to")
+    @classmethod
+    def valid_review_dates(cls, value: str | None) -> str | None:
+        return validate_review_date(value)
+
+    @model_validator(mode="after")
+    def valid_review_date_range(self):
+        if self.review_date_from and self.review_date_to and self.review_date_from > self.review_date_to:
+            raise ValueError("评论开始日期不能晚于结束日期")
+        return self
 
 
 class ControlAction(StrEnum):
@@ -168,6 +205,35 @@ def stable_stratified_sample(rows: Sequence[ReviewAsset], limit: int) -> list[Re
         for series_id in series_ids:
             if index < len(groups[series_id]) and len(result) < limit:
                 result.append(groups[series_id][index])
+                added = True
+        if not added:
+            break
+        index += 1
+    return result
+
+
+def stable_month_series_stratified_sample(
+    rows: Sequence[ReviewAsset], limit: int
+) -> list[ReviewAsset]:
+    if limit < 1:
+        raise ValueError("样本上限必须大于0")
+    if any(row.review_date is None for row in rows):
+        raise ValueError("按月份抽样要求每条评论都有评论日期")
+    groups: dict[str, list[ReviewAsset]] = {}
+    for row in rows:
+        groups.setdefault(row.review_date[:7], []).append(row)
+    ordered = {
+        month: stable_stratified_sample(values, len(values))
+        for month, values in groups.items()
+    }
+    result: list[ReviewAsset] = []
+    index = 0
+    months = sorted(ordered)
+    while len(result) < min(limit, len(rows)):
+        added = False
+        for month in months:
+            if index < len(ordered[month]) and len(result) < limit:
+                result.append(ordered[month][index])
                 added = True
         if not added:
             break

@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from backend.collection.asset_migrations import ensure_review_asset_schema
+from backend.collection.asset_migrations import REVIEW_DATE_SQL, ensure_review_asset_schema
 
 from .domain import CreateJobCommand, ReviewAsset, ReviewSnapshot
 
@@ -58,7 +58,7 @@ class ReviewAnalysisRepository:
                     snapshot_id TEXT NOT NULL, source_asset_id TEXT,
                     review_id TEXT NOT NULL, series_id TEXT NOT NULL,
                     series_name_snapshot TEXT NOT NULL, content_hash TEXT NOT NULL,
-                    analysis_text TEXT NOT NULL, ordinal INTEGER NOT NULL,
+                    analysis_text TEXT NOT NULL, review_date TEXT, ordinal INTEGER NOT NULL,
                     status TEXT NOT NULL DEFAULT 'pending', attempt_count INTEGER NOT NULL DEFAULT 0,
                     annotation_id TEXT, error_code TEXT, error_message TEXT,
                     PRIMARY KEY(job_id,snapshot_id), UNIQUE(job_id,ordinal)
@@ -94,6 +94,16 @@ class ReviewAnalysisRepository:
             columns = {row[1] for row in connection.execute("PRAGMA table_info(review_analysis_jobs)")}
             if "schema_revision" not in columns:
                 connection.execute("ALTER TABLE review_analysis_jobs ADD COLUMN schema_revision INTEGER")
+            snapshot_columns = {
+                row[1]
+                for row in connection.execute(
+                    "PRAGMA table_info(review_analysis_job_reviews)"
+                )
+            }
+            if "review_date" not in snapshot_columns:
+                connection.execute(
+                    "ALTER TABLE review_analysis_job_reviews ADD COLUMN review_date TEXT"
+                )
             ensure_review_asset_schema(connection)
 
     @contextmanager
@@ -201,17 +211,28 @@ class ReviewAnalysisRepository:
             ).fetchone():
                 raise ValueError("已有活动大模型任务")
             series_marks = ",".join("?" for _ in command.selected_series_ids)
+            date_clauses: list[str] = []
+            query_params: list[Any] = list(command.selected_series_ids)
+            if command.review_date_from:
+                date_clauses.append(f"{REVIEW_DATE_SQL}>=?")
+                query_params.append(command.review_date_from)
+            if command.review_date_to:
+                date_clauses.append(f"{REVIEW_DATE_SQL}<=?")
+                query_params.append(command.review_date_to)
+            date_where = "" if not date_clauses else " AND " + " AND ".join(date_clauses)
             rows = connection.execute(
                 f"""
                 SELECT r.asset_id,r.review_id,r.series_id,r.series_name_snapshot,
-                       r.content_hash,r.original_review_json
+                       r.content_hash,r.original_review_json,
+                       {REVIEW_DATE_SQL} AS review_date
                 FROM reviews r
                 JOIN review_asset_metadata m
                   ON m.asset_id=r.asset_id AND m.analysis_enabled=1
                 WHERE r.series_id IN ({series_marks})
+                  {date_where}
                 ORDER BY r.series_id,r.asset_id
                 """,
-                command.selected_series_ids,
+                query_params,
             ).fetchall()
             if not rows:
                 raise ValueError("所选车系没有已采集评论")
@@ -220,6 +241,7 @@ class ReviewAnalysisRepository:
                     asset_id=row["asset_id"], review_id=row["review_id"], series_id=row["series_id"],
                     series_name=row["series_name_snapshot"], content_hash=row["content_hash"],
                     original_review=json.loads(row["original_review_json"]),
+                    review_date=row["review_date"],
                 )
                 for row in rows
             ]
@@ -239,18 +261,25 @@ class ReviewAnalysisRepository:
                  command.model, _json([item.model_dump() for item in command.prompt_manifests]),
                  command.schema_fingerprint, command.schema_revision, _json([item.model_dump() for item in command.criteria]),
                  _json({"selected_series_ids": command.selected_series_ids, "limit": command.limit,
-                        "sampling": "sha256-stratified-round-robin"}), len(snapshots), timestamp, timestamp),
+                        "review_date_from": command.review_date_from,
+                        "review_date_to": command.review_date_to,
+                        "sampling": (
+                            "month-series-sha256-round-robin"
+                            if command.sampling == "month_series"
+                            else "sha256-stratified-round-robin"
+                        )}), len(snapshots), timestamp, timestamp),
             )
             for snapshot in snapshots:
                 connection.execute(
                     """INSERT INTO review_analysis_job_reviews (
                         job_id,snapshot_id,source_asset_id,review_id,series_id,series_name_snapshot,
-                        content_hash,analysis_text,ordinal
-                    ) VALUES (?,?,?,?,?,?,?,?,?)""",
+                        content_hash,analysis_text,review_date,ordinal
+                    ) VALUES (?,?,?,?,?,?,?,?,?,?)""",
                     (job_id, snapshot.source_asset_id or snapshot.review_id,
                      snapshot.source_asset_id, snapshot.review_id,
                      snapshot.series_id, snapshot.series_name,
-                     snapshot.content_hash, snapshot.analysis_text, snapshot.ordinal),
+                     snapshot.content_hash, snapshot.analysis_text,
+                     snapshot.review_date, snapshot.ordinal),
                 )
             row = connection.execute("SELECT * FROM review_analysis_jobs WHERE id=?", (job_id,)).fetchone()
         return self._job(row)
@@ -528,12 +557,12 @@ class ReviewAnalysisRepository:
                 connection.execute(
                     """INSERT INTO review_analysis_job_reviews (
                         job_id,snapshot_id,source_asset_id,review_id,series_id,
-                        series_name_snapshot,content_hash,analysis_text,ordinal
-                    ) VALUES (?,?,?,?,?,?,?,?,?)""",
+                        series_name_snapshot,content_hash,analysis_text,review_date,ordinal
+                    ) VALUES (?,?,?,?,?,?,?,?,?,?)""",
                     (
                         new_id,row["snapshot_id"],row["source_asset_id"],row["review_id"],
                         row["series_id"],row["series_name_snapshot"],
-                        row["content_hash"],row["analysis_text"],ordinal,
+                        row["content_hash"],row["analysis_text"],row["review_date"],ordinal,
                     ),
                 )
             job = connection.execute("SELECT * FROM review_analysis_jobs WHERE id=?", (new_id,)).fetchone()
@@ -640,3 +669,122 @@ class ReviewAnalysisRepository:
                 criteria[item["criterion"]]=criteria.get(item["criterion"],0)+1
                 key=f'{item["criterion"]}/{item["label"]}';labels[key]=labels.get(key,0)+1
         return {"annotated_reviews":len(rows),"criteria":criteria,"labels":labels}
+
+    def matrix_inputs(self, project_id: str, job_id: str):
+        with self.connect() as connection:
+            root = connection.execute(
+                "SELECT * FROM review_analysis_jobs WHERE id=? AND project_id=?",
+                (job_id, project_id),
+            ).fetchone()
+            if root is None:
+                return None
+            all_jobs = connection.execute(
+                "SELECT * FROM review_analysis_jobs WHERE project_id=?",
+                (project_id,),
+            ).fetchall()
+            included = {job_id}
+            changed = True
+            while changed:
+                changed = False
+                for row in all_jobs:
+                    source = json.loads(row["source_config_json"])
+                    if source.get("retry_of") in included and row["id"] not in included:
+                        included.add(row["id"])
+                        changed = True
+            marks = ",".join("?" for _ in included)
+            rows = connection.execute(
+                f"""
+                SELECT snapshot.snapshot_id,snapshot.review_id,snapshot.series_id,
+                       snapshot.series_name_snapshot AS series_name,
+                       snapshot.status,snapshot.annotation_id,
+                       COALESCE(
+                           snapshot.review_date,
+                           date(json_extract(current.original_review_json,'$.posttime')),
+                           date(json_extract(current.original_review_json,'$.发表日期'))
+                       ) AS review_date,
+                       result.result_json
+                FROM review_analysis_job_reviews snapshot
+                LEFT JOIN review_annotation_results result
+                  ON result.id=snapshot.annotation_id
+                LEFT JOIN reviews current
+                  ON current.asset_id=snapshot.source_asset_id
+                WHERE snapshot.job_id IN ({marks})
+                ORDER BY snapshot.snapshot_id,snapshot.job_id
+                """,
+                tuple(sorted(included)),
+            ).fetchall()
+            annotations = []
+            for row in rows:
+                item = dict(row)
+                item["result"] = (
+                    json.loads(item.pop("result_json"))
+                    if item.get("result_json")
+                    else None
+                )
+                annotations.append(item)
+            sales = []
+            has_sales = connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='sales_records'"
+            ).fetchone()
+            if has_sales:
+                sales = [
+                    dict(row)
+                    for row in connection.execute(
+                        """
+                        SELECT record.month,record.platform,record.sales_volume,
+                               match.review_series_id,match.review_series_name
+                        FROM sales_records record
+                        JOIN sales_series_matches match
+                          ON match.platform=record.platform
+                         AND match.month=record.month
+                         AND match.platform_series_id=record.series_id
+                        WHERE match.match_status='matched'
+                          AND match.review_series_id IS NOT NULL
+                        """
+                    )
+                ]
+        return {
+            "job": self._job(root),
+            "annotations": annotations,
+            "sales": sales,
+        }
+
+    def save_matrix_dataset(
+        self,
+        *,
+        dataset_id: str,
+        project_id: str,
+        schema_id: str,
+        name: str,
+        digest: str,
+        records: list[dict[str, Any]],
+        created_at: str,
+    ):
+        with self.connect() as connection:
+            existing = connection.execute(
+                "SELECT * FROM datasets WHERE project_id=? AND schema_id=? AND sha256=?",
+                (project_id, schema_id, digest),
+            ).fetchone()
+            if existing is None:
+                connection.execute(
+                    "INSERT INTO datasets VALUES (?,?,?,?,?,?,?)",
+                    (
+                        dataset_id,
+                        project_id,
+                        schema_id,
+                        name,
+                        digest,
+                        _json(records),
+                        created_at,
+                    ),
+                )
+                existing = connection.execute(
+                    "SELECT * FROM datasets WHERE id=?", (dataset_id,)
+                ).fetchone()
+        return {
+            "id": existing["id"],
+            "name": existing["name"],
+            "records": len(json.loads(existing["records"])),
+            "sha256": existing["sha256"],
+            "created_at": existing["created_at"],
+        }

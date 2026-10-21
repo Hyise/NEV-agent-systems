@@ -5,9 +5,19 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from .domain import CreateJobCommand, CriterionSnapshot, ProposalCriterion, ReviewSnapshot, schema_fingerprint, stable_stratified_sample
+from .domain import (
+    CreateJobCommand,
+    CriterionSnapshot,
+    ProposalCriterion,
+    ReviewSnapshot,
+    schema_fingerprint,
+    stable_month_series_stratified_sample,
+    stable_stratified_sample,
+    validate_review_date,
+)
 from .prompting import PromptRenderer
 from .text import extract_analysis_text
+from .matrix import ReviewMatrixService
 
 
 class _Strict(BaseModel):
@@ -25,17 +35,30 @@ class DiscoveryBody(_Strict):
         if len(values) != len(set(values)): raise ValueError("车系不能重复")
         return values
 
-
 class AnnotationBody(_Strict):
     schema_id: str
     selected_series_ids: list[str] = Field(min_length=1, max_length=1000)
     limit: int | None = Field(default=100, ge=1, le=5000)
+    review_date_from: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    review_date_to: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    sampling: Literal["series", "month_series"] = "series"
 
     @field_validator("selected_series_ids")
     @classmethod
     def unique(cls, values):
         if len(values) != len(set(values)): raise ValueError("车系不能重复")
         return values
+
+    @field_validator("review_date_from", "review_date_to")
+    @classmethod
+    def valid_review_dates(cls, value):
+        return validate_review_date(value)
+
+    @model_validator(mode="after")
+    def valid_date_range(self):
+        if self.review_date_from and self.review_date_to and self.review_date_from > self.review_date_to:
+            raise ValueError("评论开始日期不能晚于结束日期")
+        return self
 
 
 class ApplyBody(_Strict):
@@ -51,18 +74,27 @@ class ApplyBody(_Strict):
         return self
 
 
-def _snapshots(assets, limit):
-    selected = stable_stratified_sample(assets, limit or len(assets))
+def _snapshots(assets, limit, sampling="series"):
+    sampler = (
+        stable_month_series_stratified_sample
+        if sampling == "month_series"
+        else stable_stratified_sample
+    )
+    selected = sampler(assets, limit or len(assets))
     return [ReviewSnapshot(source_asset_id=item.asset_id,
                            review_id=item.review_id, series_id=item.series_id,
                            series_name=item.series_name, content_hash=item.content_hash,
-                           analysis_text=extract_analysis_text(item.original_review), ordinal=index)
+                           analysis_text=extract_analysis_text(item.original_review),
+                           review_date=item.review_date, ordinal=index)
             for index, item in enumerate(selected)]
 
 
-def create_review_analysis_router(repository, service, settings) -> APIRouter:
+def create_review_analysis_router(
+    repository, service, settings, matrix_service=None
+) -> APIRouter:
     router = APIRouter(prefix="/api/projects/{project_id}/review-analysis", tags=["review-analysis"])
     renderer = PromptRenderer()
+    matrices = matrix_service or ReviewMatrixService(repository)
 
     def configured():
         if settings is None or service is None:
@@ -81,7 +113,10 @@ def create_review_analysis_router(repository, service, settings) -> APIRouter:
 
     def create(command, limit):
         try:
-            job = repository.create_job_with_snapshot(command, lambda assets: _snapshots(assets, limit))
+            job = repository.create_job_with_snapshot(
+                command,
+                lambda assets: _snapshots(assets, limit, command.sampling),
+            )
             service.start(job["id"])
             return job
         except ValueError as exc:
@@ -117,7 +152,10 @@ def create_review_analysis_router(repository, service, settings) -> APIRouter:
             job_type="review_annotation", selected_series_ids=body.selected_series_ids,
             schema_revision=schema["revision"],
             limit=body.limit, model=settings.model, prompt_manifests=[prompt.manifest],
-            schema_fingerprint=schema_fingerprint(criteria), criteria=criteria)
+            schema_fingerprint=schema_fingerprint(criteria), criteria=criteria,
+            review_date_from=body.review_date_from,
+            review_date_to=body.review_date_to,
+            sampling=body.sampling)
         return create(command, body.limit)
 
     @router.get("/jobs")
@@ -126,6 +164,26 @@ def create_review_analysis_router(repository, service, settings) -> APIRouter:
     @router.get("/jobs/{job_id}")
     def job(project_id: str, job_id: str):
         return project_job(project_id, job_id)
+
+    @router.get("/jobs/{job_id}/matrix-preview")
+    def matrix_preview(project_id: str, job_id: str):
+        project_job(project_id, job_id)
+        try:
+            return matrices.preview(project_id, job_id)
+        except KeyError as exc:
+            raise HTTPException(404, "任务不存在") from exc
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+
+    @router.post("/jobs/{job_id}/datasets", status_code=201)
+    def materialize_dataset(project_id: str, job_id: str):
+        project_job(project_id, job_id)
+        try:
+            return matrices.materialize(project_id, job_id)
+        except KeyError as exc:
+            raise HTTPException(404, "任务不存在") from exc
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
 
     @router.post("/jobs/{job_id}/{action}")
     def control(project_id: str, job_id: str, action: Literal["pause", "resume", "cancel", "retry-failures"]):
