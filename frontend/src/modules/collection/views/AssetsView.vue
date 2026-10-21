@@ -3,6 +3,7 @@ import { ref } from "vue";
 import type { AssetWorkspace } from "../assetWorkspace";
 import ReviewAssetDrawer from "../components/ReviewAssetDrawer.vue";
 import ReviewImportDialog from "../components/ReviewImportDialog.vue";
+import SeriesAssetIndex from "../components/SeriesAssetIndex.vue";
 
 const props = defineProps<{ workspace: AssetWorkspace }>();
 const batchTag = ref("");
@@ -66,197 +67,233 @@ function dateTime(value: string) {
       </button>
     </div>
 
-    <form
-      class="asset-filters"
-      aria-label="评论资产筛选"
-      @submit.prevent="workspace.applyFilters"
-    >
-      <label
-        >关键词<input
-          v-model="workspace.filters.keyword"
-          type="search"
-          placeholder="评论 ID、车系或正文"
-      /></label>
-      <label
-        >车系 ID<input
-          v-model="workspace.filters.series_id"
-          inputmode="numeric"
-      /></label>
-      <label
-        >来源<select v-model="workspace.filters.source_kind">
-          <option value="">全部来源</option>
-          <option value="autohome">汽车之家采集</option>
-          <option value="manual_import">人工导入</option>
-        </select></label
-      >
-      <label>标签<input v-model="workspace.filters.tag" /></label>
-      <label
-        >分析状态<select v-model="workspace.filters.analysis_enabled">
-          <option value="">全部状态</option>
-          <option value="true">参与分析</option>
-          <option value="false">暂不分析</option>
-        </select></label
-      >
-      <div class="asset-filter-actions">
-        <button
-          class="btn secondary"
-          type="submit"
-          :disabled="workspace.busy.value"
+    <div class="asset-library-layout">
+      <SeriesAssetIndex
+        :series="workspace.summary.value?.by_series ?? []"
+        :selected-series-id="workspace.appliedFilters.series_id"
+        :total-reviews="workspace.summary.value?.total ?? 0"
+        :busy="workspace.busy.value"
+        @select="workspace.selectSeries"
+      />
+
+      <div class="asset-library-main">
+        <form
+          class="asset-filters"
+          aria-label="评论资产筛选"
+          @submit.prevent="workspace.applyFilters"
         >
-          {{ workspace.busy.value ? "筛选中…" : "应用筛选" }}
-        </button>
-        <button
-          class="text-button"
-          type="button"
-          :disabled="workspace.busy.value || !workspace.canResetFilters.value"
-          @click="workspace.resetFilters"
-        >
-          清空筛选
-        </button>
-      </div>
-    </form>
-
-    <div class="asset-filter-status" role="status" aria-live="polite">
-      <span>
-        {{ workspace.activeFilters.value.length ? "筛选结果" : "全部评论" }}
-        <strong class="mono">{{ workspace.assets.value.total }}</strong> 条
-      </span>
-      <ul v-if="workspace.activeFilters.value.length" aria-label="已生效条件">
-        <li v-for="item in workspace.activeFilters.value" :key="item.key">
-          {{ item.label }}
-        </li>
-      </ul>
-      <span v-else>填写条件后按 Enter 或点击“应用筛选”</span>
-    </div>
-
-    <div v-if="workspace.error.value" class="notice error" role="alert">
-      {{ workspace.error.value }}
-    </div>
-
-    <div class="asset-batch-bar" aria-label="批量管理">
-      <span
-        >已选
-        <strong class="mono">{{
-          workspace.selectedAssetIds.value.length
-        }}</strong>
-        条</span
-      >
-      <button
-        class="text-button"
-        :disabled="!workspace.selectedAssetIds.value.length"
-        @click="batchEnable(true)"
-      >
-        设为参与分析
-      </button>
-      <button
-        class="text-button"
-        :disabled="!workspace.selectedAssetIds.value.length"
-        @click="batchEnable(false)"
-      >
-        设为暂不分析
-      </button>
-      <label>批量添加标签<input v-model="batchTag" maxlength="30" /></label>
-      <button
-        class="text-button"
-        :disabled="!workspace.selectedAssetIds.value.length || !batchTag.trim()"
-        @click="addBatchTag"
-      >
-        添加标签
-      </button>
-    </div>
-
-    <div class="asset-table-region" :aria-busy="workspace.busy.value">
-      <div class="table-scroll">
-        <table>
-          <thead>
-            <tr>
-              <th><span class="visually-hidden">选择</span></th>
-              <th>评论 ID</th>
-              <th>车系</th>
-              <th>来源</th>
-              <th>评论摘要</th>
-              <th>标签</th>
-              <th>分析状态</th>
-              <th>采集 / 导入时间</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              v-for="item in workspace.assets.value.rows"
-              :key="item.asset_id"
+          <label
+            >关键词<input
+              v-model="workspace.filters.keyword"
+              type="search"
+              placeholder="评论 ID、车系或正文"
+          /></label>
+          <label
+            >车系 ID<input
+              v-model="workspace.filters.series_id"
+              inputmode="numeric"
+          /></label>
+          <label
+            >来源<select v-model="workspace.filters.source_kind">
+              <option value="">全部来源</option>
+              <option value="autohome">汽车之家采集</option>
+              <option value="manual_import">人工导入</option>
+            </select></label
+          >
+          <label>标签<input v-model="workspace.filters.tag" /></label>
+          <label
+            >分析状态<select v-model="workspace.filters.analysis_enabled">
+              <option value="">全部状态</option>
+              <option value="true">参与分析</option>
+              <option value="false">暂不分析</option>
+            </select></label
+          >
+          <fieldset class="asset-date-filter">
+            <legend>评论时间</legend>
+            <label
+              >从<input
+                v-model="workspace.filters.review_date_from"
+                type="date"
+            /></label>
+            <label
+              >至<input v-model="workspace.filters.review_date_to" type="date"
+            /></label>
+          </fieldset>
+          <div class="asset-filter-actions">
+            <button
+              class="btn secondary"
+              type="submit"
+              :disabled="workspace.busy.value"
             >
-              <td>
-                <input
-                  type="checkbox"
-                  :checked="checked(item.asset_id)"
-                  :aria-label="`选择评论 ${item.review_id}`"
-                  @change="toggle(item.asset_id)"
-                />
-              </td>
-              <td>
-                <span class="mono">{{ item.review_id }}</span>
-              </td>
-              <td>
-                {{ item.series_name
-                }}<small class="mono">{{ item.series_id }}</small>
-              </td>
-              <td>
-                {{
-                  item.source_kind === "manual_import" ? "人工导入" : "汽车之家"
-                }}
-              </td>
-              <td class="asset-excerpt">{{ item.excerpt }}</td>
-              <td>
-                <span v-if="item.tags.length">{{ item.tags.join("、") }}</span
-                ><span v-else>—</span>
-              </td>
-              <td>{{ item.analysis_enabled ? "参与分析" : "暂不分析" }}</td>
-              <td>{{ dateTime(item.first_collected_at) }}</td>
-              <td>
-                <button
-                  class="asset-id-button"
-                  type="button"
-                  :aria-label="`查看评论 ${item.review_id} 的完整原文`"
-                  @click="workspace.openAsset(item.asset_id)"
-                >
-                  查看原文
-                </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <p
-        v-if="!workspace.busy.value && !workspace.assets.value.rows.length"
-        class="collection-empty-inline"
-      >
-        当前筛选下没有评论资产。
-      </p>
-      <footer class="asset-pagination">
-        <span
-          >第 {{ workspace.page.value }} 页 · 共
-          {{ workspace.assets.value.total }} 条</span
-        >
-        <div>
+              {{ workspace.busy.value ? "筛选中…" : "应用筛选" }}
+            </button>
+            <button
+              class="text-button"
+              type="button"
+              :disabled="
+                workspace.busy.value || !workspace.canResetFilters.value
+              "
+              @click="workspace.resetFilters"
+            >
+              清空筛选
+            </button>
+          </div>
+        </form>
+
+        <div class="asset-filter-status" role="status" aria-live="polite">
+          <span>
+            {{ workspace.activeFilters.value.length ? "筛选结果" : "全部评论" }}
+            <strong class="mono">{{ workspace.assets.value.total }}</strong> 条
+          </span>
+          <ul
+            v-if="workspace.activeFilters.value.length"
+            aria-label="已生效条件"
+          >
+            <li v-for="item in workspace.activeFilters.value" :key="item.key">
+              {{ item.label }}
+            </li>
+          </ul>
+          <span v-else>填写条件后按 Enter 或点击“应用筛选”</span>
+        </div>
+
+        <div v-if="workspace.error.value" class="notice error" role="alert">
+          {{ workspace.error.value }}
+        </div>
+
+        <div class="asset-batch-bar" aria-label="批量管理">
+          <span
+            >已选
+            <strong class="mono">{{
+              workspace.selectedAssetIds.value.length
+            }}</strong>
+            条</span
+          >
           <button
             class="text-button"
-            :disabled="workspace.page.value <= 1"
-            @click="workspace.previousPage"
+            :disabled="!workspace.selectedAssetIds.value.length"
+            @click="batchEnable(true)"
           >
-            上一页</button
-          ><button
+            设为参与分析
+          </button>
+          <button
+            class="text-button"
+            :disabled="!workspace.selectedAssetIds.value.length"
+            @click="batchEnable(false)"
+          >
+            设为暂不分析
+          </button>
+          <label>批量添加标签<input v-model="batchTag" maxlength="30" /></label>
+          <button
             class="text-button"
             :disabled="
-              workspace.page.value * workspace.pageSize.value >=
-              workspace.assets.value.total
+              !workspace.selectedAssetIds.value.length || !batchTag.trim()
             "
-            @click="workspace.nextPage"
+            @click="addBatchTag"
           >
-            下一页
+            添加标签
           </button>
         </div>
-      </footer>
+
+        <div class="asset-table-region" :aria-busy="workspace.busy.value">
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th><span class="visually-hidden">选择</span></th>
+                  <th>评论 ID</th>
+                  <th>车系</th>
+                  <th>来源</th>
+                  <th>评论摘要</th>
+                  <th>标签</th>
+                  <th>分析状态</th>
+                  <th>评论时间</th>
+                  <th>采集 / 导入时间</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="item in workspace.assets.value.rows"
+                  :key="item.asset_id"
+                >
+                  <td>
+                    <input
+                      type="checkbox"
+                      :checked="checked(item.asset_id)"
+                      :aria-label="`选择评论 ${item.review_id}`"
+                      @change="toggle(item.asset_id)"
+                    />
+                  </td>
+                  <td>
+                    <span class="mono">{{ item.review_id }}</span>
+                  </td>
+                  <td>
+                    {{ item.series_name
+                    }}<small class="mono">{{ item.series_id }}</small>
+                  </td>
+                  <td>
+                    {{
+                      item.source_kind === "manual_import"
+                        ? "人工导入"
+                        : "汽车之家"
+                    }}
+                  </td>
+                  <td class="asset-excerpt">{{ item.excerpt }}</td>
+                  <td>
+                    <span v-if="item.tags.length">{{
+                      item.tags.join("、")
+                    }}</span
+                    ><span v-else>—</span>
+                  </td>
+                  <td>{{ item.analysis_enabled ? "参与分析" : "暂不分析" }}</td>
+                  <td class="mono">{{ item.review_date ?? "未记录" }}</td>
+                  <td>{{ dateTime(item.first_collected_at) }}</td>
+                  <td>
+                    <button
+                      class="asset-id-button"
+                      type="button"
+                      :aria-label="`查看评论 ${item.review_id} 的完整原文`"
+                      @click="workspace.openAsset(item.asset_id)"
+                    >
+                      查看原文
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p
+            v-if="!workspace.busy.value && !workspace.assets.value.rows.length"
+            class="collection-empty-inline"
+          >
+            当前筛选下没有评论资产。
+          </p>
+          <footer class="asset-pagination">
+            <span
+              >第 {{ workspace.page.value }} 页 · 共
+              {{ workspace.assets.value.total }} 条</span
+            >
+            <div>
+              <button
+                class="text-button"
+                :disabled="workspace.page.value <= 1"
+                @click="workspace.previousPage"
+              >
+                上一页</button
+              ><button
+                class="text-button"
+                :disabled="
+                  workspace.page.value * workspace.pageSize.value >=
+                  workspace.assets.value.total
+                "
+                @click="workspace.nextPage"
+              >
+                下一页
+              </button>
+            </div>
+          </footer>
+        </div>
+      </div>
     </div>
 
     <details class="deletion-history">

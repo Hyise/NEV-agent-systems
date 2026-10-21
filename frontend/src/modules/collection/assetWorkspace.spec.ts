@@ -7,6 +7,7 @@ import {
   type ReviewAssetDetail,
   type ReviewAssetMetadata,
   type ReviewAssetSummary,
+  type ReviewAssetSummaryStats,
   type ReviewDeletion,
   type ReviewImportValidation,
 } from "./api";
@@ -22,6 +23,7 @@ const asset = (id = "autohome:r1"): ReviewAssetSummary => ({
   source_url: null,
   content_hash: "a".repeat(64),
   excerpt: "空间宽敞，续航稳定",
+  review_date: "2025-01-02",
   first_collected_at: "2026-10-14T08:00:00+00:00",
   last_confirmed_at: "2026-10-14T08:00:00+00:00",
   analysis_enabled: true,
@@ -47,7 +49,7 @@ const resultPage = (
   page_size: 20,
 });
 
-const summary = {
+const summary: ReviewAssetSummaryStats = {
   total: 2,
   analysis_enabled: 2,
   analysis_disabled: 0,
@@ -262,6 +264,78 @@ describe("review asset workspace", () => {
     });
   });
 
+  it("applies an inclusive original-review date range and rejects reversed dates", async () => {
+    const client = api();
+    const workspace = createAssetWorkspace(client, false);
+    workspace.filters.review_date_from = "2025-01-01";
+    workspace.filters.review_date_to = "2025-12-31";
+
+    await workspace.applyFilters();
+
+    expect(workspace.activeFilters.value.map((item) => item.label)).toContain(
+      "评论时间：2025-01-01 至 2025-12-31",
+    );
+    expect(client.listReviewAssets).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        review_date_from: "2025-01-01",
+        review_date_to: "2025-12-31",
+        page: 1,
+      }),
+    );
+
+    vi.mocked(client.listReviewAssets).mockClear();
+    workspace.filters.review_date_from = "2026-01-01";
+    workspace.filters.review_date_to = "2025-12-31";
+    await workspace.applyFilters();
+
+    expect(workspace.error.value).toBe("评论开始日期不能晚于结束日期");
+    expect(client.listReviewAssets).not.toHaveBeenCalled();
+  });
+
+  it("selects a vehicle series from the index and opens its first review page", async () => {
+    const client = api({
+      listReviewAssets: vi
+        .fn()
+        .mockResolvedValue({ ...resultPage([asset()]), total: 41 }),
+    });
+    const workspace = createAssetWorkspace(client, false);
+    workspace.summary.value = {
+      ...summary,
+      by_series: [
+        ...summary.by_series,
+        {
+          series_id: "526",
+          series_name: "汉",
+          count: 19,
+          analysis_enabled: 18,
+        },
+      ],
+    };
+    workspace.filters.keyword = "续航";
+    await workspace.applyFilters();
+    workspace.page.value = 3;
+    workspace.selectedAssetIds.value = ["autohome:r1"];
+
+    await workspace.selectSeries("526");
+
+    expect(workspace.filters.series_id).toBe("526");
+    expect(workspace.appliedFilters.series_id).toBe("526");
+    expect(workspace.page.value).toBe(1);
+    expect(workspace.selectedAssetIds.value).toEqual([]);
+    expect(workspace.activeFilters.value.map((item) => item.label)).toContain(
+      "车型：汉（526）",
+    );
+    expect(client.listReviewAssets).toHaveBeenLastCalledWith(
+      expect.objectContaining({ keyword: "续航", series_id: "526", page: 1 }),
+    );
+
+    await workspace.selectSeries("");
+    expect(workspace.appliedFilters.series_id).toBe("");
+    expect(client.listReviewAssets).toHaveBeenLastCalledWith(
+      expect.objectContaining({ series_id: undefined, page: 1 }),
+    );
+  });
+
   it("saves metadata, reloads a revision conflict, batches, and refreshes summary", async () => {
     const conflictClient = api({
       updateReviewAssetMetadata: vi
@@ -360,6 +434,7 @@ describe("review asset workspace", () => {
       files: 2,
       importable: 2,
       duplicates: 1,
+      skipped: 0,
       errors: 0,
     });
     expect(client.confirmReviewImportFile).not.toHaveBeenCalled();
@@ -422,6 +497,67 @@ describe("review asset workspace", () => {
     expect(workspace.error.value).toContain("错误");
     expect(client.confirmReviewImportFile).not.toHaveBeenCalled();
     expect(workspace.importStep.value).toBe("preview");
+  });
+
+  it("skips files without reviews and confirms the remaining files", async () => {
+    const client = api({
+      validateReviewImportFile: vi
+        .fn()
+        .mockResolvedValueOnce({
+          importable: [],
+          duplicates: [],
+          errors: [
+            {
+              line: 0,
+              type: "empty_file",
+              message: "文件没有可导入的评论",
+            },
+          ],
+          validation_fingerprint: "a".repeat(64),
+        })
+        .mockResolvedValueOnce({
+          importable: [
+            {
+              line: 1,
+              series_id: "5769",
+              series_name: "Model Y",
+              review_id: "valid",
+              content_hash: "1".repeat(64),
+            },
+          ],
+          duplicates: [],
+          errors: [],
+          validation_fingerprint: "b".repeat(64),
+        }),
+      confirmReviewImportFile: vi.fn().mockResolvedValue({
+        imported_count: 1,
+        duplicate_count: 0,
+        asset_ids: ["manual:valid"],
+      }),
+    });
+    const workspace = createAssetWorkspace(client, false);
+    const empty = { name: "empty.xlsx", size: 10 } as File;
+    const valid = { name: "valid.xlsx", size: 10 } as File;
+
+    await workspace.validateImportFiles([empty, valid]);
+
+    expect(workspace.importTotals.value).toEqual({
+      files: 2,
+      importable: 1,
+      duplicates: 0,
+      skipped: 1,
+      errors: 0,
+    });
+    expect(workspace.skippedImportFiles.value).toEqual(["empty.xlsx"]);
+
+    await workspace.confirmImport();
+
+    expect(client.confirmReviewImportFile).toHaveBeenCalledOnce();
+    expect(client.confirmReviewImportFile).toHaveBeenCalledWith(
+      valid,
+      "b".repeat(64),
+    );
+    expect(workspace.importStep.value).toBe("complete");
   });
 
   it("reports live progress while validating a folder batch", async () => {
@@ -665,6 +801,8 @@ describe("review asset API", () => {
     vi.stubGlobal("fetch", fetchMock);
     await collectionApi.listReviewAssets({
       keyword: "汉 EV",
+      review_date_from: "2025-01-01",
+      review_date_to: "2025-12-31",
       analysis_enabled: false,
       page: 2,
       page_size: 20,
@@ -684,7 +822,7 @@ describe("review asset API", () => {
     });
     await collectionApi.getReviewAssetSummary();
     expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
-      "/api/collection/review-assets?keyword=%E6%B1%89%20EV&analysis_enabled=false&page=2&page_size=20",
+      "/api/collection/review-assets?keyword=%E6%B1%89%20EV&review_date_from=2025-01-01&review_date_to=2025-12-31&analysis_enabled=false&page=2&page_size=20",
       "/api/collection/review-assets/manual%3Aa%2Fb",
       "/api/collection/review-assets/manual%3Aa%2Fb/metadata",
       "/api/collection/review-assets/metadata",

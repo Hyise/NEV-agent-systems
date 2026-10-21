@@ -21,9 +21,7 @@ def test_asset_list_detail_summary_and_metadata_routes(asset_client):
         "/api/collection/review-assets",
         params={"keyword": "续航", "page": 1, "page_size": 20},
     )
-    detail = asset_client.get(
-        "/api/collection/review-assets/autohome%3Areview-1"
-    )
+    detail = asset_client.get("/api/collection/review-assets/autohome%3Areview-1")
     updated = asset_client.patch(
         "/api/collection/review-assets/autohome%3Areview-1/metadata",
         json={
@@ -44,6 +42,31 @@ def test_asset_list_detail_summary_and_metadata_routes(asset_client):
     assert updated.json()["revision"] == 2
     assert summary.status_code == 200
     assert summary.json()["analysis_disabled"] == 1
+
+
+def test_asset_list_filters_by_original_review_date_and_rejects_reversed_range(
+    asset_client,
+):
+    filtered = asset_client.get(
+        "/api/collection/review-assets",
+        params={
+            "review_date_from": "2026-01-01",
+            "review_date_to": "2026-12-31",
+        },
+    )
+    reversed_range = asset_client.get(
+        "/api/collection/review-assets",
+        params={
+            "review_date_from": "2026-12-31",
+            "review_date_to": "2026-01-01",
+        },
+    )
+
+    assert filtered.status_code == 200
+    assert filtered.json()["total"] == 1
+    assert filtered.json()["rows"][0]["review_date"] == "2026-05-03"
+    assert reversed_range.status_code == 422
+    assert reversed_range.json()["detail"] == "评论开始日期不能晚于结束日期"
 
 
 @pytest.mark.parametrize(
@@ -87,9 +110,7 @@ def test_stale_metadata_revision_returns_409(asset_client):
 
 
 def test_unknown_asset_returns_404_and_raw_fields_are_forbidden(asset_client):
-    missing = asset_client.get(
-        "/api/collection/review-assets/autohome%3Amissing"
-    )
+    missing = asset_client.get("/api/collection/review-assets/autohome%3Amissing")
     invalid = asset_client.patch(
         "/api/collection/review-assets/autohome%3Areview-1/metadata",
         json={
@@ -209,9 +230,7 @@ def test_delete_audit_and_allow_recollection_routes(asset_client):
             "confirm": True,
         },
     )
-    gone = asset_client.get(
-        "/api/collection/review-assets/autohome%3Areview-1"
-    )
+    gone = asset_client.get("/api/collection/review-assets/autohome%3Areview-1")
     audits = asset_client.get("/api/collection/deletions")
     released = asset_client.post(
         "/api/collection/deletions/autohome%3Areview-1/allow-recollection"

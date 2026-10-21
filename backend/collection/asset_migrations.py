@@ -4,6 +4,11 @@ from __future__ import annotations
 
 import sqlite3
 
+REVIEW_DATE_SQL = """COALESCE(
+    date(json_extract(original_review_json, '$.posttime')),
+    date(json_extract(original_review_json, '$.发表日期'))
+)"""
+
 
 def _table_exists(connection: sqlite3.Connection, name: str) -> bool:
     return (
@@ -79,11 +84,11 @@ def _rebuild_analysis_snapshots_with_stable_identity(
         )
         SELECT job_id, review_id, source_asset_id, review_id, series_id,
                series_name_snapshot, content_hash, analysis_text, ordinal,
-               {existing('status', "'pending'")},
-               {existing('attempt_count', '0')},
-               {existing('annotation_id', 'NULL')},
-               {existing('error_code', 'NULL')},
-               {existing('error_message', 'NULL')}
+               {existing("status", "'pending'")},
+               {existing("attempt_count", "0")},
+               {existing("annotation_id", "NULL")},
+               {existing("error_code", "NULL")},
+               {existing("error_message", "NULL")}
         FROM review_analysis_job_reviews_legacy
         """
     )
@@ -172,6 +177,10 @@ def ensure_review_asset_schema(connection: sqlite3.Connection) -> None:
                 "ON reviews(series_id, first_collected_at)"
             )
             connection.execute(
+                "CREATE INDEX IF NOT EXISTS ix_reviews_review_date "
+                f"ON reviews ({REVIEW_DATE_SQL})"
+            )
+            connection.execute(
                 """
                 INSERT OR IGNORE INTO review_asset_metadata (
                     asset_id, analysis_enabled, tags_json, note, revision,
@@ -193,9 +202,8 @@ def ensure_review_asset_schema(connection: sqlite3.Connection) -> None:
             "ON review_deletion_audits(platform, review_id, deleted_at DESC)"
         )
 
-        if (
-            _table_exists(connection, "review_analysis_job_reviews")
-            and _table_exists(connection, "reviews")
+        if _table_exists(connection, "review_analysis_job_reviews") and _table_exists(
+            connection, "reviews"
         ):
             connection.execute(
                 """

@@ -38,6 +38,10 @@ class ReviewImportFileError(ValueError):
     """A user-facing review file parsing error."""
 
 
+class EmptyReviewImportFileError(ReviewImportFileError):
+    """A valid supported file that contains no review rows."""
+
+
 def _decode_csv(payload: bytes) -> str:
     for encoding in ("utf-8-sig", "gb18030"):
         try:
@@ -94,20 +98,26 @@ def _parse_csv(payload: bytes) -> list[dict[str, Any]]:
     try:
         raw_headers = next(reader)
     except StopIteration as error:
-        raise ReviewImportFileError("文件内容为空") from error
+        raise EmptyReviewImportFileError("文件内容为空") from error
     headers = [header.strip() for header in raw_headers]
     _required_headers(headers)
-    items: list[dict[str, Any]] = []
+    rows: list[tuple[int, list[Any]]] = []
     for line, row in enumerate(reader, start=2):
         if not any(value != "" for value in row):
             continue
         if len(row) > len(headers):
             raise ReviewImportFileError(f"第 {line} 行的列数超过表头")
-        values: list[Any] = row + [None] * (len(headers) - len(row))
-        items.append(_import_item(headers, values, line))
-    if not items:
-        raise ReviewImportFileError("文件没有可导入的评论")
-    return items
+        rows.append((line, row + [None] * (len(headers) - len(row))))
+    if not rows:
+        raise EmptyReviewImportFileError("文件没有可导入的评论")
+    full_review_index = headers.index(FULL_REVIEW_COLUMN)
+    if all(
+        not isinstance(values[full_review_index], str)
+        or not values[full_review_index].strip()
+        for _, values in rows
+    ):
+        raise EmptyReviewImportFileError("文件没有可导入的评论")
+    return [_import_item(headers, values, line) for line, values in rows]
 
 
 def _column_index(reference: str) -> int:
@@ -230,7 +240,7 @@ def _xlsx_rows(payload: bytes) -> list[list[Any]]:
                 continue
             rows.append([indexed.get(index) for index in range(max(indexed) + 1)])
     if not rows:
-        raise ReviewImportFileError("“评论”工作表为空")
+        raise EmptyReviewImportFileError("“评论”工作表为空")
     headers = [str(value).strip() if value is not None else "" for value in rows[0]]
     _required_headers(headers)
     date_index = headers.index("发表日期") if "发表日期" in headers else None
@@ -244,14 +254,23 @@ def _xlsx_rows(payload: bytes) -> list[list[Any]]:
 def _parse_xlsx(payload: bytes) -> list[dict[str, Any]]:
     rows = _xlsx_rows(payload)
     headers = [str(value).strip() if value is not None else "" for value in rows[0]]
-    items = [
-        _import_item(headers, row + [None] * (len(headers) - len(row)), line)
+    data_rows = [
+        (line, row + [None] * (len(headers) - len(row)))
         for line, row in enumerate(rows[1:], start=2)
         if any(value not in (None, "") for value in row)
     ]
-    if not items:
-        raise ReviewImportFileError("文件没有可导入的评论")
-    return items
+    if not data_rows:
+        raise EmptyReviewImportFileError("文件没有可导入的评论")
+    full_review_index = headers.index(FULL_REVIEW_COLUMN)
+    if all(
+        not isinstance(values[full_review_index], str)
+        or not values[full_review_index].strip()
+        for _, values in data_rows
+    ):
+        raise EmptyReviewImportFileError("文件没有可导入的评论")
+    return [
+        _import_item(headers, values, line) for line, values in data_rows
+    ]
 
 
 def _parse_json(payload: bytes, *, lines: bool) -> list[Any]:
@@ -260,7 +279,7 @@ def _parse_json(payload: bytes, *, lines: bool) -> list[Any]:
     except UnicodeDecodeError as error:
         raise ReviewImportFileError("JSON 文件必须使用 UTF-8 编码") from error
     if not text.strip():
-        raise ReviewImportFileError("文件内容为空")
+        raise EmptyReviewImportFileError("文件内容为空")
     try:
         if lines:
             items = [json.loads(line) for line in text.splitlines() if line.strip()]
@@ -270,7 +289,7 @@ def _parse_json(payload: bytes, *, lines: bool) -> list[Any]:
     except json.JSONDecodeError as error:
         raise ReviewImportFileError(f"JSON 格式错误：第 {error.lineno} 行") from error
     if not items:
-        raise ReviewImportFileError("文件没有可导入的评论")
+        raise EmptyReviewImportFileError("文件没有可导入的评论")
     return items
 
 
@@ -287,4 +306,3 @@ def parse_review_import_file(filename: str, payload: bytes) -> list[Any]:
     if extension == ".jsonl":
         return _parse_json(payload, lines=True)
     raise ReviewImportFileError("仅支持 JSON、JSONL、CSV 或 XLSX 文件")
-

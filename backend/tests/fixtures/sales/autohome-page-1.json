@@ -1,0 +1,24 @@
+{
+  "returncode": 0,
+  "message": "SUCCESS",
+  "result": {
+    "pagecount": 2,
+    "pageindex": 1,
+    "pagesize": 2,
+    "scenesubtitle": "1月",
+    "list": [
+      {
+        "seriesid": "5769",
+        "seriesname": "Model Y",
+        "salecount": 25000,
+        "rankNum": 1
+      },
+      {
+        "seriesid": "5714",
+        "seriesname": "宏光MINIEV",
+        "salecount": 18000,
+        "rankNum": 2
+      }
+    ]
+  }
+}

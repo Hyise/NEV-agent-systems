@@ -19,7 +19,7 @@ from .asset_domain import (
     BatchMetadataPatchBody,
     MetadataPatchBody,
 )
-from .asset_migrations import ensure_review_asset_schema
+from .asset_migrations import REVIEW_DATE_SQL, ensure_review_asset_schema
 
 
 def _now() -> str:
@@ -83,6 +83,7 @@ class ReviewAssetRepository:
             "source_url": row["source_url"] or None,
             "content_hash": row["content_hash"],
             "excerpt": analysis_text[:180],
+            "review_date": row["review_date"],
             "first_collected_at": row["first_collected_at"],
             "last_confirmed_at": row["last_confirmed_at"],
             "analysis_enabled": bool(row["analysis_enabled"]),
@@ -122,11 +123,15 @@ class ReviewAssetRepository:
         source_kind: str | None = None,
         tag: str | None = None,
         analysis_enabled: bool | None = None,
+        review_date_from: str | None = None,
+        review_date_to: str | None = None,
         page: int = 1,
         page_size: int = 20,
     ) -> dict[str, Any]:
         if page < 1 or not 1 <= page_size <= 100:
             raise ValueError("分页参数无效")
+        if review_date_from and review_date_to and review_date_from > review_date_to:
+            raise ValueError("评论开始日期不能晚于结束日期")
         clauses: list[str] = []
         params: list[Any] = []
         if keyword.strip():
@@ -150,6 +155,12 @@ class ReviewAssetRepository:
         if analysis_enabled is not None:
             clauses.append("m.analysis_enabled=?")
             params.append(int(analysis_enabled))
+        if review_date_from:
+            clauses.append(f"{REVIEW_DATE_SQL}>=?")
+            params.append(review_date_from)
+        if review_date_to:
+            clauses.append(f"{REVIEW_DATE_SQL}<=?")
+            params.append(review_date_to)
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         base = (
             "FROM reviews r JOIN review_asset_metadata m ON m.asset_id=r.asset_id "
@@ -157,12 +168,11 @@ class ReviewAssetRepository:
         )
         offset = (page - 1) * page_size
         with self.connect() as connection:
-            total = connection.execute(
-                f"SELECT COUNT(*) {base}", params
-            ).fetchone()[0]
+            total = connection.execute(f"SELECT COUNT(*) {base}", params).fetchone()[0]
             rows = connection.execute(
                 f"""
-                SELECT r.*, m.analysis_enabled, m.tags_json, m.note,
+                SELECT r.*, {REVIEW_DATE_SQL} AS review_date,
+                       m.analysis_enabled, m.tags_json, m.note,
                        m.revision, m.updated_at
                 {base}
                 ORDER BY r.first_collected_at DESC, r.asset_id
@@ -180,8 +190,9 @@ class ReviewAssetRepository:
     def get_asset(self, asset_id: str) -> dict[str, Any]:
         with self.connect() as connection:
             row = connection.execute(
-                """
-                SELECT r.*, m.analysis_enabled, m.tags_json, m.note,
+                f"""
+                SELECT r.*, {REVIEW_DATE_SQL} AS review_date,
+                       m.analysis_enabled, m.tags_json, m.note,
                        m.revision, m.updated_at
                 FROM reviews r JOIN review_asset_metadata m ON m.asset_id=r.asset_id
                 WHERE r.asset_id=?
@@ -208,9 +219,12 @@ class ReviewAssetRepository:
         timestamp = _now()
         with self.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            if connection.execute(
-                "SELECT 1 FROM reviews WHERE asset_id=?", (asset_id,)
-            ).fetchone() is None:
+            if (
+                connection.execute(
+                    "SELECT 1 FROM reviews WHERE asset_id=?", (asset_id,)
+                ).fetchone()
+                is None
+            ):
                 self._raise_missing(connection, asset_id)
             changed = connection.execute(
                 """
@@ -235,9 +249,7 @@ class ReviewAssetRepository:
             ).fetchone()
         return self._metadata(row)
 
-    def batch_update_metadata(
-        self, command: BatchMetadataPatchBody
-    ) -> dict[str, int]:
+    def batch_update_metadata(self, command: BatchMetadataPatchBody) -> dict[str, int]:
         timestamp = _now()
         with self.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -247,7 +259,9 @@ class ReviewAssetRepository:
                 command.asset_ids,
             ).fetchall()
             by_id = {row["asset_id"]: row for row in rows}
-            missing = [asset_id for asset_id in command.asset_ids if asset_id not in by_id]
+            missing = [
+                asset_id for asset_id in command.asset_ids if asset_id not in by_id
+            ]
             if missing:
                 self._raise_missing(connection, missing[0])
             for asset_id in command.asset_ids:
@@ -398,9 +412,7 @@ class ReviewAssetRepository:
             connection.execute("DELETE FROM reviews WHERE asset_id=?", (asset_id,))
         return audit
 
-    def list_deletions(
-        self, *, page: int = 1, page_size: int = 20
-    ) -> dict[str, Any]:
+    def list_deletions(self, *, page: int = 1, page_size: int = 20) -> dict[str, Any]:
         if page < 1 or not 1 <= page_size <= 100:
             raise ValueError("分页参数无效")
         with self.connect() as connection:

@@ -6,8 +6,10 @@ import shellSource from "./CollectionWorkbench.vue?raw";
 import stageSource from "./components/GuidedStageBar.vue?raw";
 import drawerSource from "./components/ReviewAssetDrawer.vue?raw";
 import importerSource from "./components/ReviewImportDialog.vue?raw";
+import seriesIndexSource from "./components/SeriesAssetIndex.vue?raw";
 import assetsSource from "./views/AssetsView.vue?raw";
 import researchSource from "./views/ResearchHandoffView.vue?raw";
+import salesSource from "./views/SalesView.vue?raw";
 import mcdmSource from "../mcdm/McdmWorkbench.vue?raw";
 import annotationSource from "../mcdm/review-analysis/components/AnnotationResults.vue?raw";
 import proposalSource from "../mcdm/review-analysis/components/CriteriaProposalEditor.vue?raw";
@@ -101,6 +103,27 @@ describe("guided collection views", () => {
     expect(assetsSource).toContain("允许未来重新采集");
   });
 
+  it("provides a vehicle-series index that opens the matching review list", () => {
+    expect(assetsSource).toContain("SeriesAssetIndex");
+    expect(assetsSource).toContain("workspace.selectSeries");
+    expect(seriesIndexSource).toContain("车型列表");
+    expect(seriesIndexSource).toContain("种车型");
+    expect(seriesIndexSource).toContain("series.count");
+    expect(seriesIndexSource).toContain("emit('select', series.series_id)");
+    expect(seriesIndexSource).toContain(
+      ':aria-pressed="selectedSeriesId === series.series_id"',
+    );
+  });
+
+  it("filters and displays the original review date separately from collection time", () => {
+    expect(assetsSource).toContain('type="date"');
+    expect(assetsSource).toContain("review_date_from");
+    expect(assetsSource).toContain("review_date_to");
+    expect(assetsSource).toContain("评论时间");
+    expect(assetsSource).toContain('item.review_date ?? "未记录"');
+    expect(assetsSource).toContain("采集 / 导入时间");
+  });
+
   it("documents the import steps, line feedback, and dialog accessibility", () => {
     for (const label of [
       "选择文件",
@@ -131,11 +154,30 @@ describe("guided collection views", () => {
     expect(shellSource).toContain("获取数据");
     expect(shellSource).toContain("管理数据");
     expect(shellSource).toContain("用于研究");
+    expect(shellSource).toContain("销量数据");
+    expect(shellSource.match(/createSalesWorkspace\(\)/g)).toHaveLength(1);
     expect(shellSource).toContain("assetWorkspace.refresh()");
     for (const source of [shellSource, mcdmSource]) {
       expect(source).toContain(':is="item.icon"');
       expect(source).toContain('class="nav-item__icon"');
     }
+  });
+
+  it("integrates a guided monthly sales flow without claiming blocked sources succeeded", () => {
+    for (const label of [
+      "选择月份与来源",
+      "执行月榜采集",
+      "匹配评论车系",
+      "汽车之家",
+      "懂车帝",
+      "易车",
+      "全国月度零售量",
+      "导出 CSV",
+    ]) {
+      expect(salesSource).toContain(label);
+    }
+    expect(salesSource).toContain("verification_required");
+    expect(salesSource).toContain("系统不会绕过验证");
   });
 
   it("hands server summary to two explicit research intents without creating tasks", () => {

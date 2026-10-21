@@ -120,6 +120,24 @@ def test_validate_import_file_reports_parse_and_file_size_errors(tmp_path, monke
     assert "32 MB" in oversized["errors"][0]["message"]
 
 
+def test_validate_import_file_marks_files_without_reviews_as_skippable(tmp_path):
+    service, _ = service_for(tmp_path)
+    header_only = (
+        "series_id,series_name,koubei_id,show_id,分项评论全文,详情URL\n"
+    ).encode("utf-8")
+
+    validation = service.validate_import_file("empty.csv", header_only)
+
+    assert validation["importable"] == []
+    assert validation["errors"] == [
+        {
+            "line": 0,
+            "type": "empty_file",
+            "message": "文件没有可导入的评论",
+        }
+    ]
+
+
 def test_expanded_limits_cover_verified_source_shape(tmp_path):
     service, _ = service_for(tmp_path)
     items = [valid_item(review_id=f"source-{index}", content=f"内容{index}") for index in range(10_001)]

@@ -17,7 +17,7 @@ import {
   type Page as ResultPage,
 } from "./api";
 
-export type CollectionPage = "acquire" | "assets" | "research";
+export type CollectionPage = "acquire" | "sales" | "assets" | "research";
 
 const RUNNING = new Set(["queued", "discovering", "collecting"]);
 const POLL_INTERVAL_MS = 2_000;

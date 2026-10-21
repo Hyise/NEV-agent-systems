@@ -4,7 +4,6 @@ import pytest
 
 from backend.collection.asset_migrations import ensure_review_asset_schema
 
-
 LEGACY_COLLECTION_SCHEMA = """
 CREATE TABLE collection_jobs (
     id TEXT PRIMARY KEY,
@@ -116,6 +115,7 @@ def test_migration_is_idempotent(tmp_path):
         row[1] for row in connection.execute("PRAGMA index_list(reviews)").fetchall()
     }
     assert "ux_reviews_asset_id" in indexes
+    assert "ix_reviews_review_date" in indexes
     connection.close()
 
 

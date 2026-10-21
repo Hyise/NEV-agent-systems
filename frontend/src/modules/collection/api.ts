@@ -68,6 +68,92 @@ export interface Page<T> {
   page_size: number;
 }
 
+export type SalesPlatform = "autohome" | "dongchedi" | "yiche";
+export type SalesJobStatus =
+  | "queued"
+  | "running"
+  | "completed"
+  | "partial_failed"
+  | "failed";
+
+export interface SalesCollectionJob {
+  id: string;
+  start_month: string;
+  end_month: string;
+  platforms: SalesPlatform[];
+  status: SalesJobStatus;
+  total_steps: number;
+  completed_steps: number;
+  failed_steps: number;
+  record_count: number;
+  last_error: string | null;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  updated_at: string;
+}
+
+export interface SalesCollectionStep {
+  job_id: string;
+  platform: SalesPlatform;
+  month: string;
+  status: "queued" | "running" | "completed" | "failed";
+  record_count: number;
+  error_code: string | null;
+  error_message: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  updated_at: string;
+}
+
+export interface SalesCollectionJobDetail extends SalesCollectionJob {
+  steps: SalesCollectionStep[];
+}
+
+export interface SalesSourceStatus {
+  platform: SalesPlatform;
+  label: string;
+  availability: "live" | "verification_required";
+  description: string;
+}
+
+export interface SalesCollectionOverview {
+  record_count: number;
+  matched_count: number;
+  unmatched_count: number;
+  months: string[];
+  active_job: SalesCollectionJob | null;
+  latest_job: SalesCollectionJob | null;
+  sources: SalesSourceStatus[];
+}
+
+export interface SalesRecordRow {
+  platform: SalesPlatform;
+  month: string;
+  series_id: string;
+  series_name: string;
+  sales_volume: number;
+  rank: number;
+  metric: "national_monthly_retail";
+  source_url: string;
+  source_snapshot_hash: string;
+  collected_at: string;
+  job_id: string;
+  review_series_id: string | null;
+  review_series_name: string | null;
+  match_method: string | null;
+  match_status: "matched" | "unmatched" | "ambiguous";
+}
+
+export interface SalesRecordFilters {
+  platform?: SalesPlatform;
+  month?: string;
+  search?: string;
+  match_status?: SalesRecordRow["match_status"];
+  page?: number;
+  page_size?: number;
+}
+
 export interface SeriesRow {
   platform: "autohome";
   series_id: string;
@@ -171,6 +257,7 @@ export interface ReviewAssetSummary {
   source_url: string | null;
   content_hash: string;
   excerpt: string;
+  review_date: string | null;
   first_collected_at: string;
   last_confirmed_at: string;
   analysis_enabled: boolean;
@@ -191,6 +278,8 @@ export interface ReviewAssetFilters {
   source_kind?: ReviewAssetSourceKind;
   tag?: string;
   analysis_enabled?: boolean;
+  review_date_from?: string;
+  review_date_to?: string;
   page?: number;
   page_size?: number;
 }
@@ -279,8 +368,12 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const response = await fetch("/api/collection" + path, {
+async function request<T>(
+  path: string,
+  options: RequestInit = {},
+  base = "/api/collection",
+): Promise<T> {
+  const response = await fetch(base + path, {
     ...options,
     headers: { "Content-Type": "application/json", ...options.headers },
   });
@@ -308,6 +401,57 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   }
   return response.json() as Promise<T>;
 }
+
+const salesRequest = <T>(path: string, options: RequestInit = {}) =>
+  request<T>(path, options, "/api/sales-collection");
+
+const salesPost = <T>(path: string, body: unknown) =>
+  salesRequest<T>(path, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+function queryString(filters: Record<string, unknown>) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    if (value !== undefined && value !== null && value !== "") {
+      params.set(key, String(value));
+    }
+  }
+  return params.toString();
+}
+
+export interface SalesCollectionApi {
+  getSalesOverview(): Promise<SalesCollectionOverview>;
+  listSalesJobs(
+    page?: number,
+    pageSize?: number,
+  ): Promise<Page<SalesCollectionJob>>;
+  getSalesJob(jobId: string): Promise<SalesCollectionJobDetail>;
+  createSalesJob(input: {
+    start_month: string;
+    end_month: string;
+    platforms: SalesPlatform[];
+  }): Promise<SalesCollectionJob>;
+  listSalesRecords(filters?: SalesRecordFilters): Promise<Page<SalesRecordRow>>;
+  salesExportUrl(
+    filters?: Omit<SalesRecordFilters, "page" | "page_size">,
+  ): string;
+}
+
+export const salesCollectionApi: SalesCollectionApi = {
+  getSalesOverview: () => salesRequest("/overview"),
+  listSalesJobs: (page = 1, pageSize = 20) =>
+    salesRequest(`/jobs?page=${page}&page_size=${pageSize}`),
+  getSalesJob: (jobId) => salesRequest(`/jobs/${encodeURIComponent(jobId)}`),
+  createSalesJob: (input) => salesPost("/jobs", input),
+  listSalesRecords: (filters = {}) =>
+    salesRequest(`/records?${queryString(filters as Record<string, unknown>)}`),
+  salesExportUrl: (filters = {}) => {
+    const query = queryString(filters as Record<string, unknown>);
+    return `/api/sales-collection/export${query ? `?${query}` : ""}`;
+  },
+};
 
 const post = <T>(path: string, body?: unknown) =>
   request<T>(path, {

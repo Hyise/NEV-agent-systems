@@ -1,12 +1,19 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import type { Component } from "vue";
-import { Download, FlaskConical, Library, Menu } from "lucide-vue-next";
+import {
+  ChartNoAxesCombined,
+  Download,
+  FlaskConical,
+  Library,
+  Menu,
+} from "lucide-vue-next";
 import { RouterLink } from "vue-router";
 import AppBrand from "../../components/AppBrand.vue";
 import type { AcquisitionAction } from "./acquisitionGuidance";
 import { createAssetWorkspace } from "./assetWorkspace";
 import { createCatalogFlow } from "./catalogFlow";
+import { createSalesWorkspace } from "./salesWorkspace";
 import CreateCollectionJobDialog from "./components/CreateCollectionJobDialog.vue";
 import GuidedStageBar from "./components/GuidedStageBar.vue";
 import {
@@ -17,6 +24,7 @@ import {
 import AcquireView from "./views/AcquireView.vue";
 import AssetsView from "./views/AssetsView.vue";
 import ResearchHandoffView from "./views/ResearchHandoffView.vue";
+import SalesView from "./views/SalesView.vue";
 
 const pages: Array<{
   id: CollectionPage;
@@ -24,6 +32,12 @@ const pages: Array<{
   subtitle: string;
   icon: Component;
 }> = [
+  {
+    id: "sales",
+    title: "销量数据",
+    subtitle: "按月采集三平台车系零售量，并与评论车型建立可复核匹配。",
+    icon: ChartNoAxesCombined,
+  },
   {
     id: "acquire",
     title: "获取数据",
@@ -48,6 +62,7 @@ const workspace = createCollectionWorkspace();
 provideCollectionWorkspace(workspace);
 const assetWorkspace = createAssetWorkspace();
 const catalogFlow = createCatalogFlow(undefined, workspace.loadWorkspace);
+const salesWorkspace = createSalesWorkspace();
 const activePage = computed(
   () => pages.find((item) => item.id === workspace.page.value)!,
 );
@@ -63,6 +78,7 @@ function navigateTo(page: CollectionPage) {
   const restore = workspace.mobileNav.value;
   workspace.navigate(page);
   if (page === "assets" || page === "research") void assetWorkspace.refresh();
+  if (page === "sales") void salesWorkspace.refresh();
   if (restore) requestAnimationFrame(() => mobileMenuButton.value?.focus());
 }
 
@@ -181,6 +197,7 @@ onBeforeUnmount(() =>
           </div>
         </div>
         <GuidedStageBar
+          v-if="workspace.page.value !== 'sales'"
           :current="workspace.page.value"
           :overview="workspace.overview.value"
           :catalog="catalogFlow.catalogStatus.value"
@@ -209,6 +226,10 @@ onBeforeUnmount(() =>
         <AssetsView
           v-else-if="workspace.page.value === 'assets'"
           :workspace="assetWorkspace"
+        />
+        <SalesView
+          v-else-if="workspace.page.value === 'sales'"
+          :workspace="salesWorkspace"
         />
         <ResearchHandoffView
           v-else-if="workspace.page.value === 'research'"

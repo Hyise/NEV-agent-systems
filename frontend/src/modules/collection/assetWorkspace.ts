@@ -49,6 +49,8 @@ interface AssetFilterState {
   source_kind: ReviewAssetSourceKind | "";
   tag: string;
   analysis_enabled: "" | "true" | "false";
+  review_date_from: string;
+  review_date_to: string;
 }
 
 interface ActiveAssetFilter {
@@ -62,6 +64,8 @@ const emptyFilters = (): AssetFilterState => ({
   source_kind: "",
   tag: "",
   analysis_enabled: "",
+  review_date_from: "",
+  review_date_to: "",
 });
 
 const emptyImportProgress = (): ReviewImportProgress => ({
@@ -84,6 +88,17 @@ const emptyDeletionPage = (): Page<ReviewDeletion> => ({
   page: 1,
   page_size: 20,
 });
+
+export function isSkippedImportPreview(
+  preview: ReviewImportFilePreview,
+): boolean {
+  return (
+    !preview.validation.importable.length &&
+    !preview.validation.duplicates.length &&
+    preview.validation.errors.length > 0 &&
+    preview.validation.errors.every((item) => item.type === "empty_file")
+  );
+}
 
 function message(error: unknown, fallback: string) {
   if (error instanceof ApiError) {
@@ -133,11 +148,20 @@ export function createAssetWorkspace(
       (total, item) => total + item.validation.duplicates.length,
       0,
     ),
+    skipped: importFilePreviews.value.filter(isSkippedImportPreview).length,
     errors: importFilePreviews.value.reduce(
-      (total, item) => total + item.validation.errors.length,
+      (total, item) =>
+        total +
+        item.validation.errors.filter((error) => error.type !== "empty_file")
+          .length,
       0,
     ),
   }));
+  const skippedImportFiles = computed(() =>
+    importFilePreviews.value
+      .filter(isSkippedImportPreview)
+      .map((preview) => preview.file.webkitRelativePath || preview.file.name),
+  );
   const activeFilters = computed<ActiveAssetFilter[]>(() => {
     const result: ActiveAssetFilter[] = [];
     if (appliedFilters.keyword)
@@ -148,7 +172,14 @@ export function createAssetWorkspace(
     if (appliedFilters.series_id)
       result.push({
         key: "series_id",
-        label: `车系 ID：${appliedFilters.series_id}`,
+        label: (() => {
+          const series = summary.value?.by_series.find(
+            (item) => item.series_id === appliedFilters.series_id,
+          );
+          return series
+            ? `车型：${series.series_name}（${series.series_id}）`
+            : `车型 ID：${appliedFilters.series_id}`;
+        })(),
       });
     if (appliedFilters.source_kind)
       result.push({
@@ -168,6 +199,18 @@ export function createAssetWorkspace(
           appliedFilters.analysis_enabled === "true" ? "参与分析" : "暂不分析"
         }`,
       });
+    if (appliedFilters.review_date_from || appliedFilters.review_date_to) {
+      const label =
+        appliedFilters.review_date_from && appliedFilters.review_date_to
+          ? `${appliedFilters.review_date_from} 至 ${appliedFilters.review_date_to}`
+          : appliedFilters.review_date_from
+            ? `${appliedFilters.review_date_from} 起`
+            : `截至 ${appliedFilters.review_date_to}`;
+      result.push({
+        key: "review_date_from",
+        label: `评论时间：${label}`,
+      });
+    }
     return result;
   });
   const canResetFilters = computed(
@@ -197,6 +240,8 @@ export function createAssetWorkspace(
         appliedFilters.analysis_enabled === ""
           ? undefined
           : appliedFilters.analysis_enabled === "true",
+      review_date_from: appliedFilters.review_date_from || undefined,
+      review_date_to: appliedFilters.review_date_to || undefined,
       page: page.value,
       page_size: pageSize.value,
     };
@@ -235,12 +280,22 @@ export function createAssetWorkspace(
   }
 
   async function applyFilters() {
+    if (
+      filters.review_date_from &&
+      filters.review_date_to &&
+      filters.review_date_from > filters.review_date_to
+    ) {
+      error.value = "评论开始日期不能晚于结束日期";
+      return;
+    }
     Object.assign(appliedFilters, {
       keyword: filters.keyword.trim(),
       series_id: filters.series_id.trim(),
       source_kind: filters.source_kind,
       tag: filters.tag.trim(),
       analysis_enabled: filters.analysis_enabled,
+      review_date_from: filters.review_date_from,
+      review_date_to: filters.review_date_to,
     });
     Object.assign(filters, appliedFilters);
     page.value = 1;
@@ -251,6 +306,14 @@ export function createAssetWorkspace(
   async function resetFilters() {
     Object.assign(filters, emptyFilters());
     Object.assign(appliedFilters, emptyFilters());
+    page.value = 1;
+    selectedAssetIds.value = [];
+    await loadAssets();
+  }
+
+  async function selectSeries(seriesId: string) {
+    filters.series_id = seriesId;
+    appliedFilters.series_id = seriesId;
     page.value = 1;
     selectedAssetIds.value = [];
     await loadAssets();
@@ -422,7 +485,11 @@ export function createAssetWorkspace(
       importPreview.value = {
         importable: previews.flatMap((item) => item.validation.importable),
         duplicates: previews.flatMap((item) => item.validation.duplicates),
-        errors: previews.flatMap((item) => item.validation.errors),
+        errors: previews.flatMap((item) =>
+          item.validation.errors.filter(
+            (validationError) => validationError.type !== "empty_file",
+          ),
+        ),
         validation_fingerprint: "",
       };
       importStep.value = "preview";
@@ -450,6 +517,9 @@ export function createAssetWorkspace(
       error.value = "没有可写入的新评论";
       return;
     }
+    const writablePreviews = importFilePreviews.value.filter(
+      (preview) => !isSkippedImportPreview(preview),
+    );
     const request = ++actionRequestId;
     const lifecycle = lifecycleId;
     actionBusy.value = true;
@@ -457,12 +527,12 @@ export function createAssetWorkspace(
     importProgress.value = {
       phase: "writing",
       completed: 0,
-      total: importFilePreviews.value.length,
-      currentFile: importFilePreviews.value[0]?.file.name ?? "",
+      total: writablePreviews.length,
+      currentFile: writablePreviews[0]?.file.name ?? "",
     };
     try {
       const fileResults: ReviewImportFileResult[] = [];
-      for (const preview of importFilePreviews.value) {
+      for (const preview of writablePreviews) {
         importProgress.value.currentFile = preview.file.name;
         const result = await client.confirmReviewImportFile(
           preview.file,
@@ -654,10 +724,12 @@ export function createAssetWorkspace(
     importPreview,
     importResult,
     importTotals,
+    skippedImportFiles,
     loadAssets,
     loadSummary,
     applyFilters,
     resetFilters,
+    selectSeries,
     previousPage,
     nextPage,
     openAsset,

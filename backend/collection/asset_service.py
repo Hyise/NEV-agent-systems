@@ -18,7 +18,11 @@ from .asset_domain import (
     ImportValidationError,
 )
 from .asset_repository import ReviewAssetRepository
-from .import_file import ReviewImportFileError, parse_review_import_file
+from .import_file import (
+    EmptyReviewImportFileError,
+    ReviewImportFileError,
+    parse_review_import_file,
+)
 from .domain import canonical_review_hash
 
 MAX_IMPORT_FILE_BYTES = 32 * 1024 * 1024
@@ -195,6 +199,10 @@ class ReviewAssetService:
             )
         try:
             return parse_review_import_file(filename, payload), None
+        except EmptyReviewImportFileError as error:
+            return None, self._file_error(
+                filename, payload, "empty_file", str(error)
+            )
         except ReviewImportFileError as error:
             return None, self._file_error(
                 filename, payload, "file_parse_error", str(error)

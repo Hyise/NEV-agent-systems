@@ -6,7 +6,7 @@ from typing import Literal
 
 from .domain import TaskControlError
 
-ExternalAccessKind = Literal["catalog", "collection"]
+ExternalAccessKind = Literal["catalog", "collection", "sales"]
 
 
 @dataclass(frozen=True)

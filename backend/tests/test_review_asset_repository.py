@@ -1,3 +1,5 @@
+import pytest
+
 from backend.collection.asset_domain import (
     BatchMetadataPatchBody,
     MetadataPatchBody,
@@ -30,9 +32,7 @@ def seed_asset_database(path):
         CreateJobBody(mode="verification", selected_series_ids=["5769"]).to_config(),
         "2026-10-08T08:00:00+00:00",
     )
-    collection.save_discovery(
-        "job-1", series_rows, "2026-10-08T08:01:00+00:00"
-    )
+    collection.save_discovery("job-1", series_rows, "2026-10-08T08:01:00+00:00")
     collection.save_review_page(
         "job-1",
         series_rows[0],
@@ -43,6 +43,7 @@ def seed_asset_database(path):
                 series_name="Model Y",
                 source_url="https://k.autohome.com.cn/5769/#review-1",
                 original_review={
+                    "posttime": "2025-01-02",
                     "feeling_summary": "空间宽敞",
                     "contents": [{"structuredname": "满意", "content": "续航稳定"}],
                 },
@@ -61,6 +62,7 @@ def seed_asset_database(path):
                 series_name="汉",
                 source_url="https://k.autohome.com.cn/526/#review-2",
                 original_review={
+                    "发表日期": "2026-05-03",
                     "feeling_summary": "动力充足",
                     "contents": [{"structuredname": "不满意", "content": "车机一般"}],
                 },
@@ -111,6 +113,25 @@ def test_asset_filters_and_pagination_are_server_side(tmp_path):
     assert "original_review" not in result["rows"][0]
 
 
+def test_asset_filter_uses_original_review_date_with_inclusive_bounds(tmp_path):
+    repository = seed_asset_database(tmp_path / "review-date.sqlite3")
+
+    result = repository.list_assets(
+        review_date_from="2026-05-03",
+        review_date_to="2026-05-03",
+    )
+
+    assert result["total"] == 1
+    assert result["rows"][0]["asset_id"] == "autohome:review-2"
+    assert result["rows"][0]["review_date"] == "2026-05-03"
+
+    with pytest.raises(ValueError, match="开始日期不能晚于结束日期"):
+        repository.list_assets(
+            review_date_from="2026-06-01",
+            review_date_to="2026-05-01",
+        )
+
+
 def test_asset_detail_is_lossless_and_metadata_uses_revision(tmp_path):
     repository = seed_asset_database(tmp_path / "detail.sqlite3")
 
@@ -126,6 +147,7 @@ def test_asset_detail_is_lossless_and_metadata_uses_revision(tmp_path):
     )
 
     assert detail["original_review"] == {
+        "posttime": "2025-01-02",
         "feeling_summary": "空间宽敞",
         "contents": [{"structuredname": "满意", "content": "续航稳定"}],
     }
@@ -160,9 +182,7 @@ def test_summary_reports_management_and_source_counts(tmp_path):
     repository = seed_asset_database(tmp_path / "summary.sqlite3")
     repository.update_metadata(
         "autohome:review-2",
-        MetadataPatchBody(
-            revision=1, tags=[], note="", analysis_enabled=False
-        ),
+        MetadataPatchBody(revision=1, tags=[], note="", analysis_enabled=False),
     )
 
     summary = repository.summary()

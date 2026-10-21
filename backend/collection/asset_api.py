@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Body, Header, HTTPException, Query
@@ -57,15 +58,32 @@ def create_review_asset_router(
         source_kind: str | None = None,
         tag: str | None = None,
         analysis_enabled: bool | None = None,
+        review_date_from: Annotated[date | None, Query()] = None,
+        review_date_to: Annotated[date | None, Query()] = None,
         page: Page = 1,
         page_size: PageSize = 20,
     ) -> dict[str, Any]:
+        if (
+            review_date_from is not None
+            and review_date_to is not None
+            and review_date_from > review_date_to
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail="评论开始日期不能晚于结束日期",
+            )
         return repository.list_assets(
             keyword=keyword,
             series_id=series_id,
             source_kind=source_kind,
             tag=tag,
             analysis_enabled=analysis_enabled,
+            review_date_from=(
+                review_date_from.isoformat() if review_date_from is not None else None
+            ),
+            review_date_to=(
+                review_date_to.isoformat() if review_date_to is not None else None
+            ),
             page=page,
             page_size=page_size,
         )
@@ -109,9 +127,7 @@ def create_review_asset_router(
         )
 
     @router.get("/deletions")
-    def list_deletions(
-        page: Page = 1, page_size: PageSize = 20
-    ) -> dict[str, Any]:
+    def list_deletions(page: Page = 1, page_size: PageSize = 20) -> dict[str, Any]:
         return repository.list_deletions(page=page, page_size=page_size)
 
     @router.post("/deletions/{asset_id}/allow-recollection")

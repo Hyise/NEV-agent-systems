@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { nextTick, ref, watch } from "vue";
 import { X } from "lucide-vue-next";
-import type { AssetWorkspace } from "../assetWorkspace";
+import { isSkippedImportPreview, type AssetWorkspace } from "../assetWorkspace";
 import {
   MAX_REVIEW_IMPORT_FILES,
   prepareReviewImportFiles,
@@ -188,6 +188,10 @@ async function chooseFiles(event: Event, fromDirectory = false) {
             <dd>{{ workspace.importTotals.value.duplicates }}</dd>
           </div>
           <div>
+            <dt>已跳过</dt>
+            <dd>{{ workspace.importTotals.value.skipped }}</dd>
+          </div>
+          <div>
             <dt>错误</dt>
             <dd>{{ workspace.importTotals.value.errors }}</dd>
           </div>
@@ -201,7 +205,10 @@ async function chooseFiles(event: Event, fromDirectory = false) {
           >
             <header>
               <strong>{{ reviewImportFileLabel(preview.file) }}</strong>
-              <span>
+              <span v-if="isSkippedImportPreview(preview)">
+                已跳过 · 没有评论
+              </span>
+              <span v-else>
                 可导入 {{ preview.validation.importable.length }} · 重复
                 {{ preview.validation.duplicates.length }} · 错误
                 {{ preview.validation.errors.length }}
@@ -210,8 +217,13 @@ async function chooseFiles(event: Event, fromDirectory = false) {
             <div
               v-if="preview.validation.errors.length"
               class="import-feedback"
+              :class="{
+                'import-feedback--skipped': isSkippedImportPreview(preview),
+              }"
             >
-              <h4>错误行</h4>
+              <h4>
+                {{ isSkippedImportPreview(preview) ? "跳过原因" : "错误行" }}
+              </h4>
               <p
                 v-for="item in preview.validation.errors"
                 :key="`${item.line}-${item.type}`"
@@ -259,11 +271,23 @@ async function chooseFiles(event: Event, fromDirectory = false) {
         <p>
           已写入
           {{ workspace.importResult.value?.imported_count ?? 0 }} 条，跳过重复
-          {{ workspace.importResult.value?.duplicate_count ?? 0 }} 条。
+          {{ workspace.importResult.value?.duplicate_count ?? 0 }}
+          条，跳过无评论文件
+          {{ workspace.skippedImportFiles.value.length }} 个。
         </p>
-        <details v-if="workspace.importFileResults.value.length">
+        <details
+          v-if="
+            workspace.importFileResults.value.length ||
+            workspace.skippedImportFiles.value.length
+          "
+        >
           <summary>
-            查看 {{ workspace.importFileResults.value.length }} 个文件的结果
+            查看
+            {{
+              workspace.importFileResults.value.length +
+              workspace.skippedImportFiles.value.length
+            }}
+            个文件的处理结果
           </summary>
           <ul class="import-complete__files">
             <li
@@ -275,6 +299,13 @@ async function chooseFiles(event: Event, fromDirectory = false) {
                 写入 {{ result.imported_count }} · 重复
                 {{ result.duplicate_count }}
               </span>
+            </li>
+            <li
+              v-for="fileName in workspace.skippedImportFiles.value"
+              :key="`skipped-${fileName}`"
+            >
+              <span>{{ fileName }}</span>
+              <span>已跳过 · 没有评论</span>
             </li>
           </ul>
         </details>
