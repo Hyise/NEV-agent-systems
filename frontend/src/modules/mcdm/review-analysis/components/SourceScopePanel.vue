@@ -95,6 +95,26 @@ const workspace = useReviewAnalysisWorkspace();
           <option :value="null">全部评论</option>
         </select></label
       >
+      <template v-if="workspace.schemaStatus.value === 'frozen'">
+        <label
+          >开始日期<input
+            v-model="workspace.reviewDateFrom.value"
+            type="date"
+            aria-label="评论开始日期"
+        /></label>
+        <label
+          >结束日期<input
+            v-model="workspace.reviewDateTo.value"
+            type="date"
+            aria-label="评论结束日期"
+        /></label>
+        <label
+          >抽样口径<select v-model="workspace.annotationSampling.value">
+            <option value="series">车系均衡</option>
+            <option value="month_series">月份与车系均衡</option>
+          </select></label
+        >
+      </template>
       <span>已选 {{ workspace.availableReviews.value }} 条可用评论</span>
       <button
         v-if="workspace.schemaStatus.value === 'draft'"

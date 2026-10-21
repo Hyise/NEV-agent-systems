@@ -54,6 +54,9 @@ export function createReviewAnalysisWorkspace(
   });
   const sampleLimit = ref(1500);
   const annotationLimit = ref<number | null>(100);
+  const reviewDateFrom = ref("");
+  const reviewDateTo = ref("");
+  const annotationSampling = ref<"series" | "month_series">("series");
   const filters = ref(emptyFilters());
   const busy = ref(false);
   const error = ref("");
@@ -153,6 +156,27 @@ export function createReviewAnalysisWorkspace(
       ) {
         selectedJobId.value = activeJob.value?.id ?? jobs.value[0]?.id ?? "";
       }
+      const resultJob =
+        activeJob.value?.job_type === "review_annotation"
+          ? activeJob.value
+          : jobs.value.find(
+              (job) =>
+                job.id === selectedJobId.value &&
+                job.job_type === "review_annotation",
+            );
+      if (resultJob) {
+        filters.value.job_id = resultJob.id;
+        const params = { job_id: resultJob.id, page: "1", page_size: "20" };
+        const [annotationRows, annotationSummary] = await Promise.all([
+          api.listAnnotations(projectId.value, params),
+          api.getSummary(projectId.value, resultJob.id),
+        ]);
+        if (token !== generation) return;
+        annotationPage.value = 1;
+        annotations.value = annotationRows.rows;
+        annotationTotal.value = annotationRows.total;
+        summary.value = annotationSummary;
+      }
       schedule();
     } catch (cause) {
       if (token === generation) error.value = (cause as Error).message;
@@ -245,12 +269,17 @@ export function createReviewAnalysisWorkspace(
         schema_id: schemaId.value,
         selected_series_ids: selectedSeriesIds.value,
         limit: annotationLimit.value,
+        review_date_from: reviewDateFrom.value || null,
+        review_date_to: reviewDateTo.value || null,
+        sampling: annotationSampling.value,
       }),
     );
     if (!job) return;
     activeJob.value = job;
     selectedJobId.value = job.id;
+    filters.value.job_id = job.id;
     jobs.value = [job, ...jobs.value];
+    await loadAnnotations(1);
     schedule();
   }
   async function control(
@@ -355,6 +384,9 @@ export function createReviewAnalysisWorkspace(
     summary,
     sampleLimit,
     annotationLimit,
+    reviewDateFrom,
+    reviewDateTo,
+    annotationSampling,
     filters,
     busy,
     error,

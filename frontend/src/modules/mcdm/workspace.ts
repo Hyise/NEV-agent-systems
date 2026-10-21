@@ -39,6 +39,24 @@ export const labels = (text: string) =>
     .map((value) => value.trim())
     .filter(Boolean);
 
+const PROJECT_STORAGE_KEY = "nev-mcdm:selected-project";
+
+export function resolveInitialProject(
+  projects: Project[],
+  storedProjectId: string | null,
+) {
+  if (
+    storedProjectId &&
+    projects.some((project) => project.id === storedProjectId)
+  )
+    return storedProjectId;
+  return (
+    projects.find((project) => project.id === "research-archive")?.id ??
+    projects[0]?.id ??
+    "research-archive"
+  );
+}
+
 export function createWorkspace() {
   const page = ref<Page>("overview");
   const projects = ref<Project[]>([]);
@@ -147,6 +165,11 @@ export function createWorkspace() {
     projects.value = await api<Project[]>("/projects");
   }
 
+  function rememberProject() {
+    if (typeof localStorage !== "undefined")
+      localStorage.setItem(PROJECT_STORAGE_KEY, projectId.value);
+  }
+
   async function loadWorkspace() {
     const token = ++requestId;
     busy.value = true;
@@ -202,6 +225,7 @@ export function createWorkspace() {
   }
 
   async function changeProject() {
+    rememberProject();
     schemaId.value = "";
     month.value = "";
     await loadWorkspace();
@@ -283,6 +307,7 @@ export function createWorkspace() {
       });
       await loadProjects();
       projectId.value = project.id;
+      rememberProject();
       schemaId.value = "";
       month.value = "";
       closeCreate();
@@ -417,6 +442,11 @@ export function createWorkspace() {
     window.addEventListener("beforeunload", beforeUnload);
     try {
       await loadProjects();
+      const storedProject =
+        typeof localStorage === "undefined"
+          ? null
+          : localStorage.getItem(PROJECT_STORAGE_KEY);
+      projectId.value = resolveInitialProject(projects.value, storedProject);
       await loadWorkspace();
     } catch (cause) {
       error.value = (cause as Error).message;

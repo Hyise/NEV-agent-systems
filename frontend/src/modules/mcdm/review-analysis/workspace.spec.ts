@@ -181,6 +181,73 @@ describe("review analysis workspace", () => {
     vi.unstubAllGlobals();
   });
 
+  it("starts a dated month-series annotation and immediately loads its results", async () => {
+    const api = fakeApi();
+    const workspace = createReviewAnalysisWorkspace(
+      api,
+      ref("p"),
+      ref("s"),
+      ref("frozen"),
+    );
+    workspace.selectedSeriesIds.value = ["1"];
+    workspace.annotationLimit.value = 300;
+    workspace.reviewDateFrom.value = "2026-01-01";
+    workspace.reviewDateTo.value = "2026-04-30";
+    workspace.annotationSampling.value = "month_series";
+
+    await workspace.createAnnotation();
+
+    expect(api.createAnnotation).toHaveBeenCalledWith("p", {
+      schema_id: "s",
+      selected_series_ids: ["1"],
+      limit: 300,
+      review_date_from: "2026-01-01",
+      review_date_to: "2026-04-30",
+      sampling: "month_series",
+    });
+    expect(workspace.filters.value.job_id).toBe("j2");
+    expect(api.listAnnotations).toHaveBeenCalledWith("p", {
+      job_id: "j2",
+      page: "1",
+      page_size: "20",
+    });
+    expect(api.getSummary).toHaveBeenCalledWith("p", "j2");
+  });
+
+  it("refreshes job-scoped annotation rows while an annotation job is running", async () => {
+    const api = fakeApi();
+    api.listJobs.mockResolvedValue({
+      rows: [
+        {
+          id: "live",
+          job_type: "review_annotation",
+          status: "running",
+          processed_count: 2,
+          total_count: 10,
+        },
+      ],
+      total: 1,
+      page: 1,
+      page_size: 20,
+    });
+    const workspace = createReviewAnalysisWorkspace(
+      api,
+      ref("p"),
+      ref("s"),
+      ref("frozen"),
+    );
+
+    await workspace.activate();
+
+    expect(workspace.filters.value.job_id).toBe("live");
+    expect(api.listAnnotations).toHaveBeenCalledWith("p", {
+      job_id: "live",
+      page: "1",
+      page_size: "20",
+    });
+    workspace.deactivate();
+  });
+
   it("starts the retry job returned for a partial failure", async () => {
     const api = fakeApi();
     api.listJobs
