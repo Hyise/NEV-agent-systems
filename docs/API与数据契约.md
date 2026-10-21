@@ -16,6 +16,10 @@
 | GET | /projects/{id}/curves | kind=weights或rationality；自定义项目为空 |
 | GET | /projects/{id}/predictions | month；返回历史条件份额估计 |
 | GET | /projects/{id}/experiments | 原研究基线、消融记录 |
+| GET | /projects/{id}/model-experiments/capabilities | 可执行模型、实现版本和依赖状态 |
+| GET/POST | /projects/{id}/model-experiments | 列出实验；基于冻结准则与当前矩阵创建后台实验 |
+| GET | /projects/{id}/model-experiments/{run_id} | 实验进度、不可变快照、时间切分和结果 |
+| POST | /projects/{id}/model-experiments/{run_id}/cancel | 协作式取消排队或运行中的实验 |
 | GET | /projects/{id}/export | kind=dataset/report/template；支持schema_id |
 
 准则保存示例：
@@ -35,6 +39,7 @@
 产品型号,观察区间,时间压力,Real_Sales,续航体验
 示例车型甲,2025-09,0.4,70,"{""L0"":0.4,""L1"":0.3,""L2"":0.2,""L3"":0.1}"
 示例车型乙,2025-09,0.4,30,"{""L0"":0.3,""L1"":0.3,""L2"":0.3,""L3"":0.1}"
+示例车型丙,2026-01,,50,"{""L0"":0.4,""L1"":0.3,""L2"":0.2,""L3"":0.1}"
 ```
 
 响应record：
@@ -50,9 +55,28 @@
 }
 ```
 
-名称和标签数量限制见接口自动文档。概率和允许浮点误差1e-5，同月压力允许误差1e-6。导入上限10000行、前端文件上限8MB。CSV版本导出使用UTF-8 BOM。JSON快照包含准则、来源哈希、统计和历史结果，不声称是Word/PDF正式报告。
+名称和标签数量限制见接口自动文档。概率和允许浮点误差1e-5。时间压力只适用于 `2025-12` 及以前，同月压力允许误差1e-6；`2026-01` 及以后时间压力单元格允许留空，任何输入都会统一规范化为 `0`，模型特征和导出也使用该有效值。导入上限10000行、前端文件上限8MB。CSV版本导出使用UTF-8 BOM。JSON快照包含准则、来源哈希、统计和历史结果，不声称是Word/PDF正式报告。
 
 当前每一准则版本显示最近导入的数据集；数据库保留此前导入记录，历史数据集切换界面列入后续开发。第一版不提供删除API。
+
+## 模型实验 API
+
+模型实验只接受冻结准则版本和已经存在的加工评价矩阵。创建示例：
+
+```json
+{
+  "schema_id": "preset-v1",
+  "model_keys": ["ridge", "random_forest", "beast_mcdm"],
+  "validation_months": 2,
+  "test_months": 2,
+  "seed": 42,
+  "simulations": 128
+}
+```
+
+`model_keys` 可取 `ridge`、`random_forest`、`xgboost`、`lightgbm`、`beast_mcdm`。能力接口是唯一可用性口径：可选提升树依赖未安装时返回 `available=false` 和原因，创建接口拒绝启动该模型。每次运行保存矩阵快照 SHA-256、来源、记录数、准则版本、模型实现版本、严格时间顺序的训练/验证/测试月份、配置、进度、错误和最终指标。新实验不会更新 `/experiments` 的历史归档。
+
+状态为 `queued`、`running`、`completed`、`failed` 或 `cancelled`。进程异常退出后，遗留的活动记录在下次启动时标记为失败；取消只在模型边界协作式生效。预测值必须在每个测试月份内有限、非负且合计为 1。`RMSE`、`WAPE`、`R2` 和 `MAE` 均基于测试月份的样本内真实份额与估计份额计算。
 
 ## 评论数据采集 API
 
@@ -109,13 +133,41 @@
 
 任务详情返回最近 100 条事件，并按发生时间正序展示；长任务的更早事件仍保留在 SQLite。分页终止以来源响应中已校验的 `pageindex`、`pagesize`、`pagecount` 和 `seriesid` 为准，不假设每页固定返回 20 条。
 
+## 月度销量采集 API
+
+销量采集路径统一以 `/api/sales-collection` 开头。统一口径为“全国车系月度零售量”，结果按平台、月份和平台车系分别保存；缺失保持缺失，不跨平台替代或求平均。销量任务与目录/评论任务共享外部访问协调器，同一时刻只允许一个外部采集操作。
+
+| 方法 | 路径 | 用途 |
+| --- | --- | --- |
+| GET | `/api/sales-collection/overview` | 记录数、匹配数、月份、活动/最近任务和来源可用状态 |
+| GET/POST | `/api/sales-collection/jobs` | 分页读取任务；按起止月份和唯一平台列表创建任务 |
+| GET | `/api/sales-collection/jobs/{id}` | 任务统计与每个平台月份步骤的状态、数量和错误 |
+| GET | `/api/sales-collection/records` | 按平台、月份、车系关键词和匹配状态分页查询 |
+| GET | `/api/sales-collection/export` | 使用相同筛选条件导出 UTF-8 BOM CSV |
+
+创建 2026 年 1—4 月三平台任务：
+
+```json
+{
+  "start_month": "2026-01",
+  "end_month": "2026-04",
+  "platforms": ["autohome", "dongchedi", "yiche"]
+}
+```
+
+月份使用 `YYYY-MM`，起止边界均包含，单个任务最多 24 个月。任务状态为 `queued`、`running`、`completed`、`partial_failed` 或 `failed`；步骤状态为 `queued`、`running`、`completed` 或 `failed`。某个平台月份受阻不会回滚其他已成功步骤。
+
+汽车之家适配器使用公开车系月销榜分页接口，每页最多 50 条并读取到 `pagecount` 结束；空榜、月份/页码错位、重复车系或字段变化均作为结构错误，不写入零销量。懂车帝与易车在 2026-10-19 的自动化侦察中分别返回应用空壳和验证码，当前状态为 `verification_required`；任务会保存 `access_verification_required`，系统不绕过验证、不伪造记录。
+
+`sales_records` 保存来源平台、月份、平台车系 ID/名称、销量、排名、固定指标口径、来源 URL、响应哈希、采集时间和任务 ID。相同平台—月份重新成功采集时原子替换该月快照。`sales_series_matches` 只把唯一的标准化同名评论车系自动标记为 `matched`；没有候选为 `unmatched`，多个候选为 `ambiguous`，后二者不得自动确认。CSV 对公式起始字符做前置单引号转义。
+
 ## 评论资产管理 API
 
 评论资产仍以 `reviews` 为唯一原文主表，不复制第二份正文。`asset_id` 是稳定 API 标识，汽车之家记录为 `autohome:{review_id}`，人工导入记录为 `manual:{uuid}`；`source_kind` 区分 `autohome` 与 `manual_import`。`review_asset_metadata` 只保存标签、备注、分析启用状态和 revision，任何管理接口均不得改写 `original_review_json` 或 `content_hash`。
 
 | 方法 | 路径 | 用途 |
 | --- | --- | --- |
-| GET | `/api/collection/review-assets` | 按关键词、车系、来源、标签、分析状态分页查询摘要 |
+| GET | `/api/collection/review-assets` | 按关键词、车系、来源、标签、分析状态和原始评论日期分页查询摘要 |
 | GET | `/api/collection/review-assets/{asset_id}` | 读取完整只读原文、管理元数据和研究引用数 |
 | PATCH | `/api/collection/review-assets/{asset_id}/metadata` | 使用 revision 更新标签、备注和分析启用状态 |
 | PATCH | `/api/collection/review-assets/metadata` | 批量设置分析状态或增删标签；不支持批量删除 |
@@ -132,6 +184,8 @@
 
 CSV/XLSX 表格必须包含 `series_id`、`series_name`、`show_id`、`分项评论全文` 和 `详情URL`；XLSX 读取“评论”工作表。`review_id` 优先使用非空 `koubei_id`，否则使用 `show_id`；`详情URL` 映射为 `source_url`。所有表格列及其原始值写入 `original_review`，“分项评论全文”不拆分、不拼接、不改写，前端原文阅读和评论语义分析均优先使用该字段。日期单元格只转换为稳定的 ISO 字符串，以满足 JSON 存储。每条记录的 `source_url` 省略或使用 HTTPS。
 
+`GET /review-assets` 的 `review_date_from`、`review_date_to` 使用 `YYYY-MM-DD`，边界均包含。摘要中的 `review_date` 优先读取原始 `posttime`，其次读取人工导入表格的 `发表日期`；无法解析时返回 `null`。未设置日期条件时不排除缺失日期的评论，设置任一日期边界后缺失日期的评论不命中。该派生值及表达式索引只用于查询和展示，不写回 `original_review_json`；开始日期晚于结束日期返回 `422`。
+
 元数据 revision 冲突、导入指纹过期、活动采集任务或删除哈希变化返回 409；当前资产不存在返回 404；已永久删除返回 410，并只返回最小删除审计；输入或文件结构不合法返回 422。永久删除会移除当前原文和管理元数据，同时写入 `review_deletion_audits` 墓碑。墓碑默认阻止采集任务静默写回同一来源评论；解除重采只影响未来采集，不恢复旧原文。
 
 新建准则发现或评论标注任务只读取当前存在且 `analysis_enabled=true` 的资产，并把 `source_asset_id` 与不可变 `analysis_text` 一并保存。任务内使用 `snapshot_id` 作为处理身份：新快照取稳定的 `source_asset_id`，迁移前旧快照保留原 `review_id`；展示用的裸 `review_id` 不再承担跨来源唯一性。源资产随后删除时，历史快照、候选方案、标注结果和 token 记录不删除，查询以 `source_deleted=true` 标示；无法映射的旧快照保留 `source_asset_id=null`。
@@ -141,12 +195,16 @@ CSV/XLSX 表格必须包含 `series_id`、`series_name`、`show_id`、`分项评
 
 - `GET /sources`：分页读取已有评论的车系与数量。
 - `POST /discovery-jobs`：`schema_id`、唯一 `selected_series_ids`、`sample_limit(1..5000)`；仅自定义草稿。
-- `POST /annotation-jobs`：`schema_id`、唯一车系列表、`limit=20/100/500/null`；仅自定义冻结版本。
+- `POST /annotation-jobs`：`schema_id`、唯一车系列表、`limit(1..5000)/null`；可选 `review_date_from`、`review_date_to`（含边界，`YYYY-MM-DD`）和 `sampling=series|month_series`；仅自定义冻结版本。`month_series` 先按评论月份轮询，再在月内按车系和稳定 SHA-256 顺序抽样；任务的日期边界和抽样算法写入 `source_config`。
 - `GET /jobs`、`GET /jobs/{id}`：任务、进度、错误摘要与 token 用量。
+- `GET /jobs/{id}/matrix-preview`：对已结束的评论标注任务按“月份 × 车系”预览等级概率、销量匹配和阻塞项，不写数据。
+- `POST /jobs/{id}/datasets`：在预览无缺失日期、准则或销量阻塞时，把矩阵保存为当前冻结准则版本的不可变数据集。
 - `POST /jobs/{id}/pause|resume|cancel|retry-failures`：协作式控制或为失败项建立新快照。
 - `GET /jobs/{id}/proposal`、`POST /jobs/{id}/proposal/apply`：候选审核与 revision 锁应用；可提交人工编辑后的完整候选准则。
 - `GET /annotations`、`GET /annotations/{id}`、`GET /summary`：评论级结果、详情和基础计数；筛选不调用模型。打开详情时客户端必须把列表行的 `job_id` 与 `snapshot_id` 同时传给 `GET /annotations/{id}`，因为 `snapshot_id` 只在单个任务内唯一。
 
-未配置 Key 返回 503；项目/版本/任务不存在返回 404；版本状态、活动任务和 revision 冲突返回 409；空/重复选择、无评论或非法范围返回 422。评论标注输出中的 `criterion`、`label` 必须属于任务冻结快照，`evidence` 和 `unmatched_evidence` 必须为 `analysis_text` 原文子串。准则发现会逐项丢弃无法回溯到原文的证据和因此失去全部证据的线索/准则，归并结果按模型顺序去重并限制为前 20 个有效准则；若整批没有任何可追溯结果，任务仍判为无效响应。模型无效响应以 `invalid_response` 失败，临时网络或服务异常以 `transient` 暂停并允许继续。
+未配置 Key 返回 503；项目/版本/任务不存在返回 404；版本状态、活动任务和 revision 冲突返回 409；空/重复选择、无评论、无效日期或非法范围返回 422。评论标注输出中的 `criterion`、`label` 必须属于任务冻结快照。进入严格领域校验前，系统只保留能够在 `analysis_text` 中逐字定位的 `evidence` 和 `unmatched_evidence`，不改写模型文本；某项准则过滤后没有任何原文证据时丢弃该项。其余体系外准则、体系外等级、重复准则或非法结构仍以无效响应处理。准则发现会逐项丢弃无法回溯到原文的证据和因此失去全部证据的线索/准则，归并结果按模型顺序去重并限制为前 20 个有效准则；若整批没有任何可追溯结果，任务仍判为无效响应。模型无效响应以 `invalid_response` 失败，临时网络或服务异常以 `transient` 暂停并允许继续。
 
 持久化表为 `review_analysis_jobs`、`review_analysis_job_reviews`、`review_analysis_discovery_batches`、`criteria_proposals`、`review_annotation_results`。评论快照保存完整派生文本；可复用结果不绑定评论 ID，由任务评论行保存关联以保持追溯。准则发现每个成功批次立即保存线索、进度与 token 用量，暂停或进程重启后跳过成功批次；全局归并结果同样可幂等恢复。任务同时保存创建时的准则草稿 revision、模型和 Prompt 清单，谱系发生变化时拒绝静默套用旧结果。任务最终提交会原子消费请求期间到达的暂停/取消指令；取消请求的优先级高于暂停，工作器也以单事务消费控制并同步写入 `paused` 或 `cancelled` 状态。
+
+评论标注快照同时保存评论日期；迁移前任务在原评论仍存在时可只读补取日期。评价矩阵先按任务及其失败重试后代对 `snapshot_id` 去重，再按月份、车系和冻结准则统计有效标签频率。销量只使用 `matched` 记录，同组多平台依次优先汽车之家、懂车帝、易车。2026 年及以后压力固定为 0；缺少日期、任一准则有效判定或销量的分组不得写入数据集。保存采用内容哈希幂等，同一项目、准则和矩阵重复提交返回既有快照。

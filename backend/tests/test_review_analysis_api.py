@@ -257,6 +257,100 @@ def test_completed_annotation_can_preview_and_materialize_dataset(tmp_path):
     assert json.loads(stored["records"])[0]["model"] == "车系一"
 
 
+def test_retry_job_preview_uses_the_whole_root_job_family(tmp_path):
+    client, repo, _ = client_for(tmp_path)
+    SalesCollectionRepository(repo.path)
+    with repo.connect() as connection:
+        connection.execute(
+            """
+            INSERT INTO reviews (
+                platform,review_id,series_id,series_name_snapshot,source_url,
+                original_review_json,content_hash,first_collected_at,last_confirmed_at,
+                asset_id,source_kind
+            ) VALUES ('manual','r2','1','车系一','',?,?,'now','now','manual:r2','manual_import')
+            """,
+            (
+                json.dumps(
+                    {"posttime": "2026-01-06", "feeling_summary": "空间也很宽敞"},
+                    ensure_ascii=False,
+                ),
+                "2" * 64,
+            ),
+        )
+        connection.execute(
+            "INSERT INTO review_asset_metadata VALUES ('manual:r2',1,'[]','',1,'now','now')"
+        )
+    root = client.post(
+        "/api/projects/p/review-analysis/annotation-jobs",
+        json={"schema_id": "frozen", "selected_series_ids": ["1"], "limit": 2},
+    ).json()
+    root_job = repo.get_job(root["id"])
+    snapshots = {row["review_id"]: row for row in repo.pending_review_snapshots(root["id"])}
+
+    def save_success(job, snapshot):
+        result = repo.save_result(
+            content_hash=snapshot["content_hash"],
+            schema_fingerprint=job["schema_fingerprint"],
+            model=job["model"],
+            prompt_version=job["prompt_manifests"][0]["version"],
+            prompt_sha256=job["prompt_manifests"][0]["sha256"],
+            result={
+                "annotations": [
+                    {
+                        "criterion": "空间",
+                        "label": "宽敞",
+                        "evidence": ["宽敞"],
+                        "basis": "评论明确描述空间",
+                    }
+                ],
+                "unmatched_evidence": [],
+            },
+            input_tokens=1,
+            output_tokens=1,
+            cached_tokens=0,
+        )
+        repo.mark_review_succeeded(
+            job["id"], snapshot["snapshot_id"], result["id"], cached=False
+        )
+
+    save_success(root_job, snapshots["r1"])
+    repo.mark_review_failed(root["id"], snapshots["r2"]["snapshot_id"], "x", "x")
+    repo.set_job_state(root["id"], "partial_failed")
+    retry = repo.create_retry_job(root["id"])
+    retry_snapshot = repo.pending_review_snapshots(retry["id"])[0]
+    save_success(retry, retry_snapshot)
+    repo.set_job_state(retry["id"], "completed")
+    with repo.connect() as connection:
+        connection.execute(
+            "INSERT INTO sales_collection_jobs (id,start_month,end_month,platforms_json,status,total_steps,created_at,updated_at) VALUES ('sales-family','2026-01','2026-01','[\"autohome\"]','completed',1,'now','now')"
+        )
+        connection.execute(
+            "INSERT INTO sales_records VALUES ('autohome','2026-01','platform-1','车系一',120,1,'retail','https://sales','hash','now','sales-family')"
+        )
+        connection.execute(
+            "INSERT INTO sales_series_matches VALUES ('autohome','2026-01','platform-1','1','车系一','normalized_exact','matched','now')"
+        )
+
+    preview = client.get(
+        f"/api/projects/p/review-analysis/jobs/{retry['id']}/matrix-preview"
+    )
+
+    assert preview.status_code == 200
+    assert preview.json()["stats"]["source_reviews"] == 2
+    assert preview.json()["stats"]["records"] == 1
+    annotations = client.get(
+        "/api/projects/p/review-analysis/annotations",
+        params={"job_id": retry["id"]},
+    ).json()
+    assert annotations["total"] == 2
+    assert {row["status"] for row in annotations["rows"]} == {"succeeded"}
+    summary = client.get(
+        "/api/projects/p/review-analysis/summary",
+        params={"job_id": retry["id"]},
+    ).json()
+    assert summary["annotated_reviews"] == 2
+
+
 def test_job_mutations_are_scoped_to_project(tmp_path):
     client, _, _ = client_for(tmp_path)
     created = client.post(

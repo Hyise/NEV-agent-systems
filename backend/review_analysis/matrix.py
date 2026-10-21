@@ -155,7 +155,10 @@ class ReviewMatrixService:
         preview["job_id"] = job_id
         preview["project_id"] = project_id
         preview["schema_id"] = job["schema_id"]
-        preview["failed_reviews"] = int(job.get("failed_count") or 0)
+        preview["failed_reviews"] = sum(
+            row.get("status") not in SUCCESS_STATUSES
+            for row in _deduplicate(context["annotations"])
+        )
         return preview
 
     def materialize(self, project_id: str, job_id: str) -> dict[str, Any]:

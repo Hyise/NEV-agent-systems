@@ -294,6 +294,35 @@ class ReviewAnalysisRepository:
             rows = connection.execute("SELECT * FROM review_analysis_jobs WHERE project_id=? ORDER BY created_at DESC LIMIT ? OFFSET ?", (project_id, page_size, (page - 1) * page_size)).fetchall()
         return {"rows": [self._job(row) for row in rows], "total": total, "page": page, "page_size": page_size}
 
+    @staticmethod
+    def _job_family_ids(connection, project_id: str, job_id: str) -> set[str]:
+        rows = connection.execute(
+            "SELECT id,source_config_json FROM review_analysis_jobs WHERE project_id=?",
+            (project_id,),
+        ).fetchall()
+        sources = {
+            row["id"]: json.loads(row["source_config_json"]) for row in rows
+        }
+        if job_id not in sources:
+            return set()
+        root = job_id
+        visited = {root}
+        while True:
+            parent = sources[root].get("retry_of")
+            if not parent or parent not in sources or parent in visited:
+                break
+            root = parent
+            visited.add(parent)
+        included = {root}
+        changed = True
+        while changed:
+            changed = False
+            for candidate, source in sources.items():
+                if source.get("retry_of") in included and candidate not in included:
+                    included.add(candidate)
+                    changed = True
+        return included
+
     def active_job(self):
         marks = ",".join("?" for _ in ACTIVE_STATUSES)
         with self.connect() as connection:
@@ -570,8 +599,21 @@ class ReviewAnalysisRepository:
 
     def list_annotations(self, project_id: str, *, job_id=None, series_id=None, criterion=None, label=None, status=None, page=1, page_size=20):
         clauses, params = ["j.project_id=?"], [project_id]
-        for column, value in (("r.job_id", job_id), ("r.series_id", series_id), ("r.status", status)):
+        family_ids: set[str] = set()
+        with self.connect() as connection:
+            if job_id:
+                family_ids = self._job_family_ids(connection, project_id, job_id)
+        if job_id:
+            if not family_ids:
+                return {"rows": [], "total": 0, "page": page, "page_size": page_size}
+            marks = ",".join("?" for _ in family_ids)
+            clauses.append(f"r.job_id IN ({marks})")
+            params.extend(sorted(family_ids))
+        for column, value in (("r.series_id", series_id),):
             if value: clauses.append(f"{column}=?"); params.append(value)
+        if status and not job_id:
+            clauses.append("r.status=?")
+            params.append(status)
         where = " AND ".join(clauses)
         with self.connect() as connection:
             rows = connection.execute(f"""SELECT r.*,a.result_json,a.created_at AS annotated_at,
@@ -582,7 +624,7 @@ class ReviewAnalysisRepository:
                 LEFT JOIN review_annotation_results a ON a.id=r.annotation_id
                 LEFT JOIN reviews current ON current.asset_id=r.source_asset_id
                 WHERE {where}
-                ORDER BY r.ordinal""", params).fetchall()
+                ORDER BY j.created_at,r.ordinal""", params).fetchall()
         result=[]
         for row in rows:
             item=self._snapshot(row); payload=json.loads(item.pop("result_json")) if item.get("result_json") else None
@@ -594,6 +636,18 @@ class ReviewAnalysisRepository:
             ):
                 continue
             item["result"]=payload; item["annotation_count"]=len((payload or {}).get("annotations",[])); result.append(item)
+        if job_id:
+            deduplicated = {}
+            for item in result:
+                key = item["snapshot_id"]
+                current = deduplicated.get(key)
+                current_success = current and current["status"] in {"succeeded", "cached"}
+                item_success = item["status"] in {"succeeded", "cached"}
+                if current is None or item_success or not current_success:
+                    deduplicated[key] = item
+            result = list(deduplicated.values())
+            if status:
+                result = [item for item in result if item["status"] == status]
         total=len(result); start=(page-1)*page_size
         return {"rows":result[start:start+page_size],"total":total,"page":page,"page_size":page_size}
 
@@ -661,11 +715,20 @@ class ReviewAnalysisRepository:
     def annotation_summary(self, project_id: str, job_id: str | None = None):
         with self.connect() as connection:
             params=[project_id]; extra=""
-            if job_id: extra=" AND j.id=?";params.append(job_id)
-            rows=connection.execute("SELECT a.result_json FROM review_annotation_results a JOIN review_analysis_job_reviews r ON r.annotation_id=a.id JOIN review_analysis_jobs j ON j.id=r.job_id WHERE j.project_id=?"+extra,params).fetchall()
+            if job_id:
+                family_ids = self._job_family_ids(connection, project_id, job_id)
+                if not family_ids:
+                    return {"annotated_reviews": 0, "criteria": {}, "labels": {}}
+                marks = ",".join("?" for _ in family_ids)
+                extra=f" AND j.id IN ({marks})"
+                params.extend(sorted(family_ids))
+            rows=connection.execute("SELECT r.snapshot_id,a.result_json,j.created_at FROM review_annotation_results a JOIN review_analysis_job_reviews r ON r.annotation_id=a.id JOIN review_analysis_jobs j ON j.id=r.job_id WHERE j.project_id=?"+extra+" ORDER BY j.created_at",params).fetchall()
+        if job_id:
+            by_snapshot = {row["snapshot_id"]: row for row in rows}
+            rows = list(by_snapshot.values())
         criteria={};labels={}
         for row in rows:
-            for item in json.loads(row[0]).get("annotations",[]):
+            for item in json.loads(row["result_json"]).get("annotations",[]):
                 criteria[item["criterion"]]=criteria.get(item["criterion"],0)+1
                 key=f'{item["criterion"]}/{item["label"]}';labels[key]=labels.get(key,0)+1
         return {"annotated_reviews":len(rows),"criteria":criteria,"labels":labels}
@@ -678,19 +741,7 @@ class ReviewAnalysisRepository:
             ).fetchone()
             if root is None:
                 return None
-            all_jobs = connection.execute(
-                "SELECT * FROM review_analysis_jobs WHERE project_id=?",
-                (project_id,),
-            ).fetchall()
-            included = {job_id}
-            changed = True
-            while changed:
-                changed = False
-                for row in all_jobs:
-                    source = json.loads(row["source_config_json"])
-                    if source.get("retry_of") in included and row["id"] not in included:
-                        included.add(row["id"])
-                        changed = True
+            included = self._job_family_ids(connection, project_id, job_id)
             marks = ",".join("?" for _ in included)
             rows = connection.execute(
                 f"""
