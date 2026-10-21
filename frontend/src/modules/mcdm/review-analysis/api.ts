@@ -61,6 +61,34 @@ export interface AnnotationSummary {
   criteria: Record<string, number>;
   labels: Record<string, number>;
 }
+export interface MatrixBlocker {
+  month: string;
+  series_id: string;
+  series_name: string;
+  reasons: string[];
+}
+export interface MatrixPreview {
+  job_id: string;
+  project_id: string;
+  schema_id: string;
+  failed_reviews: number;
+  records: Array<Record<string, unknown>>;
+  blockers: MatrixBlocker[];
+  stats: {
+    source_reviews: number;
+    groups: number;
+    records: number;
+    blocked_groups: number;
+    missing_date_reviews: number;
+  };
+}
+export interface GeneratedDataset {
+  id: string;
+  name: string;
+  records: number;
+  sha256: string;
+  created_at: string;
+}
 
 const base = (projectId: string) =>
   `/projects/${encodeURIComponent(projectId)}/review-analysis`;
@@ -120,6 +148,15 @@ export function createReviewAnalysisApi(fetcher = api) {
     getSummary: (projectId: string, jobId = "") =>
       request<AnnotationSummary>(
         `${base(projectId)}/summary${jobId ? `?job_id=${encodeURIComponent(jobId)}` : ""}`,
+      ),
+    getMatrixPreview: (projectId: string, jobId: string) =>
+      request<MatrixPreview>(
+        `${base(projectId)}/jobs/${encodeURIComponent(jobId)}/matrix-preview`,
+      ),
+    materializeDataset: (projectId: string, jobId: string) =>
+      request<GeneratedDataset>(
+        `${base(projectId)}/jobs/${encodeURIComponent(jobId)}/datasets`,
+        { method: "POST" },
       ),
   };
 }

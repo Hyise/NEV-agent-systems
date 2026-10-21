@@ -11,6 +11,8 @@ import type {
   AnalysisJob,
   AnnotationRow,
   CriteriaProposal,
+  GeneratedDataset,
+  MatrixPreview,
   ProposalCriterion,
   ReviewAnalysisApi,
   ReviewSource,
@@ -52,6 +54,8 @@ export function createReviewAnalysisWorkspace(
     criteria: {} as Record<string, number>,
     labels: {} as Record<string, number>,
   });
+  const matrixPreview = ref<MatrixPreview | null>(null);
+  const generatedDataset = ref<GeneratedDataset | null>(null);
   const sampleLimit = ref(1500);
   const annotationLimit = ref<number | null>(100);
   const reviewDateFrom = ref("");
@@ -74,6 +78,15 @@ export function createReviewAnalysisWorkspace(
     if (proposal.value?.job_id !== jobId) {
       proposal.value = null;
       proposalDraft.value = [];
+    }
+    matrixPreview.value = null;
+    generatedDataset.value = null;
+    const job = jobs.value.find((item) => item.id === jobId);
+    if (activated && job?.job_type === "review_annotation") {
+      filters.value.job_id = jobId;
+      void loadAnnotations(1);
+      if (["completed", "partial_failed"].includes(job.status))
+        void loadMatrixPreview(jobId);
     }
   });
 
@@ -176,6 +189,14 @@ export function createReviewAnalysisWorkspace(
         annotations.value = annotationRows.rows;
         annotationTotal.value = annotationRows.total;
         summary.value = annotationSummary;
+        if (["completed", "partial_failed"].includes(resultJob.status)) {
+          const preview = await api.getMatrixPreview(
+            projectId.value,
+            resultJob.id,
+          );
+          if (token !== generation) return;
+          matrixPreview.value = preview;
+        }
       }
       schedule();
     } catch (cause) {
@@ -216,6 +237,8 @@ export function createReviewAnalysisWorkspace(
     annotationPage.value = 1;
     annotationTotal.value = 0;
     summary.value = { annotated_reviews: 0, criteria: {}, labels: {} };
+    matrixPreview.value = null;
+    generatedDataset.value = null;
     filters.value = emptyFilters();
     busy.value = false;
     error.value = "";
@@ -355,6 +378,23 @@ export function createReviewAnalysisWorkspace(
     );
     if (result) selectedAnnotation.value = result;
   }
+  async function loadMatrixPreview(jobId = selectedJobId.value) {
+    if (!jobId) return;
+    const result = await guarded(() =>
+      api.getMatrixPreview(projectId.value, jobId),
+    );
+    if (result) matrixPreview.value = result;
+  }
+  async function materializeMatrix() {
+    const jobId = selectedJobId.value;
+    if (!jobId) return false;
+    const result = await guarded(() =>
+      api.materializeDataset(projectId.value, jobId),
+    );
+    if (!result) return false;
+    generatedDataset.value = result;
+    return true;
+  }
   watch([projectId, schemaId], () => {
     const reload = activated;
     deactivate();
@@ -382,6 +422,8 @@ export function createReviewAnalysisWorkspace(
     annotationPage,
     annotationTotal,
     summary,
+    matrixPreview,
+    generatedDataset,
     sampleLimit,
     annotationLimit,
     reviewDateFrom,
@@ -403,6 +445,8 @@ export function createReviewAnalysisWorkspace(
     applyProposal,
     loadAnnotations,
     openAnnotation,
+    loadMatrixPreview,
+    materializeMatrix,
   };
 }
 

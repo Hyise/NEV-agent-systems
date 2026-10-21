@@ -42,6 +42,33 @@ function fakeApi() {
       criteria: {},
       labels: {},
     })),
+    getMatrixPreview: vi.fn(async () => ({
+      job_id: "j2",
+      project_id: "p",
+      schema_id: "s",
+      failed_reviews: 0,
+      records: [] as Array<Record<string, unknown>>,
+      blockers: [] as Array<{
+        month: string;
+        series_id: string;
+        series_name: string;
+        reasons: string[];
+      }>,
+      stats: {
+        source_reviews: 0,
+        groups: 0,
+        records: 0,
+        blocked_groups: 0,
+        missing_date_reviews: 0,
+      },
+    })),
+    materializeDataset: vi.fn(async () => ({
+      id: "dataset-1",
+      name: "评论标注矩阵-j2",
+      records: 12,
+      sha256: "a".repeat(64),
+      created_at: "2026-10-21T00:00:00Z",
+    })),
   };
 }
 
@@ -242,6 +269,88 @@ describe("review analysis workspace", () => {
     expect(workspace.filters.value.job_id).toBe("live");
     expect(api.listAnnotations).toHaveBeenCalledWith("p", {
       job_id: "live",
+      page: "1",
+      page_size: "20",
+    });
+    workspace.deactivate();
+  });
+
+  it("loads a completed job matrix preview and materializes its dataset", async () => {
+    const api = fakeApi();
+    api.listJobs.mockResolvedValue({
+      rows: [
+        {
+          id: "done",
+          job_type: "review_annotation",
+          status: "completed",
+          processed_count: 12,
+          total_count: 12,
+        },
+      ],
+      total: 1,
+      page: 1,
+      page_size: 20,
+    });
+    api.getMatrixPreview.mockResolvedValue({
+      job_id: "done",
+      project_id: "p",
+      schema_id: "s",
+      failed_reviews: 0,
+      records: [{ month: "2026-01", model: "车系一" }],
+      blockers: [],
+      stats: {
+        source_reviews: 12,
+        groups: 1,
+        records: 1,
+        blocked_groups: 0,
+        missing_date_reviews: 0,
+      },
+    });
+    const workspace = createReviewAnalysisWorkspace(
+      api,
+      ref("p"),
+      ref("s"),
+      ref("frozen"),
+    );
+
+    await workspace.activate();
+
+    expect(api.getMatrixPreview).toHaveBeenCalledWith("p", "done");
+    expect(workspace.matrixPreview.value?.stats.records).toBe(1);
+
+    await workspace.materializeMatrix();
+
+    expect(api.materializeDataset).toHaveBeenCalledWith("p", "done");
+    expect(workspace.generatedDataset.value?.records).toBe(12);
+    workspace.deactivate();
+  });
+
+  it("reloads results when the researcher selects another annotation job", async () => {
+    const api = fakeApi();
+    api.listJobs.mockResolvedValue({
+      rows: [
+        { id: "new", job_type: "review_annotation", status: "completed" },
+        { id: "old", job_type: "review_annotation", status: "completed" },
+      ],
+      total: 2,
+      page: 1,
+      page_size: 20,
+    });
+    const workspace = createReviewAnalysisWorkspace(
+      api,
+      ref("p"),
+      ref("s"),
+      ref("frozen"),
+    );
+    await workspace.activate();
+
+    workspace.selectedJobId.value = "old";
+    await nextTick();
+    await Promise.resolve();
+
+    expect(workspace.filters.value.job_id).toBe("old");
+    expect(api.listAnnotations).toHaveBeenLastCalledWith("p", {
+      job_id: "old",
       page: "1",
       page_size: "20",
     });
