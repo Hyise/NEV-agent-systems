@@ -22,12 +22,14 @@
 
 - `backend/app.py`：HTTP 路由、请求编排与响应；`domain.py`：模型、校验和纯业务规则；`store.py`：SQLite 持久化；`research.py`：只读研究归档适配。
 - `backend/collection/catalog_domain.py`、`catalog_repository.py`、`catalog_service.py`、`catalog_api.py`：版本化车系目录的状态、暂存/原子发布、后台发现和 HTTP 边界；不得把目录刷新重新塞回评论任务。
-- `backend/collection/coordination.py`：目录发现与评论采集共享的单一外部访问预约；所有终态和异常路径都必须释放预约。
+- `backend/collection/coordination.py`：目录发现、评论采集与销量采集共享的单一外部访问预约；所有终态和异常路径都必须释放预约。
+- `backend/sales_collection/`：月度销量领域、三平台适配边界、SQLite 仓储、单工作器和 `/api/sales-collection`。不得绕过验证码或用一个平台数据冒充另一个平台。
 - `backend/collection/domain.py`、`repository.py`、`service.py`、`api.py`：评论任务契约、不可变 `collection_job_series` 快照、采集编排和 HTTP 边界。新任务不得写 `series_manifest`；旧任务只允许通过该字段兼容读取。
 - `backend/collection/autohome.py`：汽车之家目录与评论适配器；适配器不写库，仓储不发网络请求。
 - `backend/review_analysis/`：评论文本确定性转换、版本化 Prompt、DeepSeek JSON 客户端、任务/快照/缓存仓储和单工作器编排。它只读 `reviews` 资产，不得导入汽车之家适配器；API Key 只来自进程环境。
 - `frontend/src/App.vue` 与 `router/`：平台路由和模块装配；`platform/`：研究目录与模块元数据；`modules/mcdm/`：多准则工作台、页面、状态与 API；`BaseChart.vue`：通用图表生命周期。
 - `frontend/src/modules/collection/workspace.ts` 独占任务、车系资产和评论查询状态；`catalogFlow.ts` 独占目录发现、轮询、搜索、跨页选择和任务创建；`api.ts` 统一 `/api/collection` 传输。平台层和研究模块不得导入这些内部状态。
+- `frontend/src/modules/collection/salesWorkspace.ts` 独占销量任务、步骤和记录状态，由 `CollectionWorkbench.vue` 唯一创建；页面不得把销量状态复制到评论 workspace。
 - `frontend/src/modules/mcdm/review-analysis/` 独占评论语义分析来源、任务、候选方案和评论级结果状态，由 `McdmWorkbench.vue` 唯一创建；不得依赖采集 workspace/API。
 - 平台层和自适应规划页不得导入多准则 `workspace.ts` 或 `api.ts`；多准则与采集 workspace 分别只能由各自模块壳创建一次。
 - 依赖只能从外层流向领域/存储/适配边界；禁止让领域规则依赖 FastAPI、Vue 或页面组件。
