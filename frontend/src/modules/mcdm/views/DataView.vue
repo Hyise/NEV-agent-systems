@@ -35,8 +35,10 @@ const {
 
 const handoffState = computed(() => {
   const labels = {
+    not_frozen: "待冻结",
     no_job: "尚未开始",
     processing: "正在处理",
+    failed: "处理失败",
     blocked: "需要处理",
     ready: "可以生成",
     materialized: "已生成",
@@ -45,13 +47,19 @@ const handoffState = computed(() => {
 });
 
 const handoffAction = computed(() => {
+  if (matrixHandoff.value?.state === "not_frozen") return "前往准则工作台";
   if (matrixHandoff.value?.state === "ready") return "生成评价矩阵快照";
   if (matrixHandoff.value?.state === "blocked") return "处理阻塞";
   if (matrixHandoff.value?.state === "processing") return "查看处理进度";
+  if (matrixHandoff.value?.state === "failed") return "查看失败任务";
   return "开始评论分析";
 });
 
 function continueHandoff() {
+  if (matrixHandoff.value?.state === "not_frozen") {
+    navigate("criteria");
+    return;
+  }
   if (matrixHandoff.value?.state === "ready") {
     void materializeHandoff();
     return;
@@ -166,6 +174,12 @@ function continueHandoff() {
         <Database :size="24" aria-hidden="true" />
         <span v-if="matrixHandoff.state === 'processing'"
           >评论任务仍在运行，完成后会自动形成矩阵预览。</span
+        >
+        <span v-else-if="matrixHandoff.state === 'not_frozen'"
+          >当前准则仍是草稿；冻结后才能创建逐条评论标注任务。</span
+        >
+        <span v-else-if="matrixHandoff.state === 'failed'"
+          >最近的评论任务未完成，请进入评论语义分析查看失败原因。</span
         >
         <span v-else>当前版本还没有可交接的评论标注任务。</span>
       </div>

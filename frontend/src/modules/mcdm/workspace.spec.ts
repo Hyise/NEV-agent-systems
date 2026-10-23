@@ -167,4 +167,40 @@ describe("matrix data handoff", () => {
       request.mock.calls.filter(([path]) => path.includes("/overview")),
     ).toHaveLength(2);
   });
+
+  it("clears schema-bound results while another criteria version is loading", async () => {
+    let releaseOverview!: (value: ReturnType<typeof overview>) => void;
+    const pendingOverview = new Promise<ReturnType<typeof overview>>(
+      (resolve) => (releaseOverview = resolve),
+    );
+    const baseRequest = requestFor(blockedHandoff);
+    const request = vi.fn(async (path: string) => {
+      if (path.includes("/overview?schema_id=s3")) return pendingOverview;
+      if (path.endsWith("/schemas"))
+        return [overview("s2", 2).schema, overview("s3", 3).schema];
+      if (path.includes("/review-analysis/handoff?schema_id=s3"))
+        return { ...blockedHandoff, target_schema_id: "s3" };
+      return baseRequest(path);
+    });
+    const workspace = createWorkspace(
+      request as unknown as ApiClient,
+      vi.fn() as unknown as PostClient,
+      false,
+    );
+    workspace.projectId.value = "p";
+    workspace.schemaId.value = "s2";
+    await workspace.loadWorkspace();
+    expect(workspace.overview.value?.schema.id).toBe("s2");
+    expect(workspace.matrixHandoff.value?.target_schema_id).toBe("s2");
+
+    workspace.schemaId.value = "s3";
+    const loading = workspace.loadWorkspace();
+
+    expect(workspace.overview.value).toBeNull();
+    expect(workspace.matrixHandoff.value).toBeNull();
+    releaseOverview(overview("s3", 3));
+    await loading;
+    expect(workspace.overview.value?.schema.id).toBe("s3");
+    expect(workspace.matrixHandoff.value?.target_schema_id).toBe("s3");
+  });
 });

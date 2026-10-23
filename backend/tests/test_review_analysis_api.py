@@ -213,6 +213,86 @@ def test_compatible_materialization_targets_current_schema_and_records_lineage(t
     assert lineage["target_schema_id"] == "same"
 
 
+def test_materialization_preserves_an_existing_authoritative_dataset(tmp_path):
+    client, repo, _ = client_for(tmp_path)
+    job = complete_single_annotation(client, repo)
+    add_matching_sales(repo)
+    with repo.connect() as connection:
+        connection.execute(
+            "INSERT INTO datasets VALUES (?,?,?,?,?,?,?)",
+            (
+                "manual-dataset",
+                "p",
+                "frozen",
+                "人工导入矩阵",
+                "f" * 64,
+                '[{"month":"2026-01","model":"人工车型"}]',
+                "2026-10-23T00:00:00+00:00",
+            ),
+        )
+
+    response = client.post(
+        f"/api/projects/p/review-analysis/jobs/{job['id']}/datasets",
+        json={"target_schema_id": "frozen"},
+    )
+
+    assert response.status_code == 201, response.text
+    assert response.json()["id"] == "manual-dataset"
+    with repo.connect() as connection:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM datasets WHERE project_id='p' AND schema_id='frozen'"
+        ).fetchone()[0] == 1
+        assert connection.execute(
+            "SELECT COUNT(*) FROM review_matrix_dataset_lineage"
+        ).fetchone()[0] == 0
+
+
+def test_handoff_uses_only_frozen_predecessor_schemas(tmp_path):
+    client, repo, _ = client_for(tmp_path)
+    add_frozen_schema(repo, "future", 4)
+    future_job = complete_single_annotation(client, repo, "future")
+
+    older = client.get(
+        "/api/projects/p/review-analysis/handoff", params={"schema_id": "frozen"}
+    )
+    with repo.connect() as connection:
+        connection.execute("UPDATE schemas SET status='draft' WHERE id='future'")
+    draft = client.get(
+        "/api/projects/p/review-analysis/handoff", params={"schema_id": "future"}
+    )
+
+    assert future_job["schema_id"] == "future"
+    assert older.status_code == 200
+    assert older.json()["state"] == "no_job"
+    assert draft.status_code == 200
+    assert draft.json()["state"] == "not_frozen"
+    assert draft.json()["job"] is None
+
+
+def test_handoff_prefers_usable_exact_job_over_newer_terminal_failure(tmp_path):
+    client, repo, _ = client_for(tmp_path)
+    usable = complete_single_annotation(client, repo)
+    failed = client.post(
+        "/api/projects/p/review-analysis/annotation-jobs",
+        json={"schema_id": "frozen", "selected_series_ids": ["1"], "limit": 1},
+    ).json()
+    repo.set_job_state(
+        failed["id"],
+        "failed",
+        error_code="LLM_ERROR",
+        error_message="boom",
+    )
+    add_matching_sales(repo)
+
+    response = client.get(
+        "/api/projects/p/review-analysis/handoff", params={"schema_id": "frozen"}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["state"] == "ready"
+    assert response.json()["job"]["id"] == usable["id"]
+
+
 def test_sources_endpoint_aggregates_manual_and_autohome_by_series(tmp_path):
     client, repo, _ = client_for(tmp_path, configured=False)
     timestamp = "2026-10-14T08:00:00+00:00"

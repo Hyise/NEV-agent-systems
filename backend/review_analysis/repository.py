@@ -326,25 +326,43 @@ class ReviewAnalysisRepository:
         self, project_id: str, schema_id: str, schema_fingerprint: str
     ):
         with self.connect() as connection:
+            target = connection.execute(
+                "SELECT version,status FROM schemas WHERE id=? AND project_id=?",
+                (schema_id, project_id),
+            ).fetchone()
+            if target is None:
+                return None
             exact = connection.execute(
                 """
                 SELECT * FROM review_analysis_jobs
                 WHERE project_id=? AND schema_id=? AND job_type='review_annotation'
-                ORDER BY created_at DESC LIMIT 1
+                ORDER BY CASE
+                    WHEN status IN ('queued','running','paused') THEN 0
+                    WHEN status IN ('completed','partial_failed') THEN 1
+                    ELSE 2 END,
+                    created_at DESC,rowid DESC LIMIT 1
                 """,
                 (project_id, schema_id),
             ).fetchone()
             if exact is not None:
                 return self._job(exact), "exact"
+            if target["status"] != "frozen":
+                return None
             compatible = connection.execute(
                 """
-                SELECT * FROM review_analysis_jobs
-                WHERE project_id=? AND schema_fingerprint=?
-                  AND job_type='review_annotation'
-                  AND status IN ('completed','partial_failed')
-                ORDER BY created_at DESC LIMIT 1
+                SELECT job.* FROM review_analysis_jobs job
+                JOIN schemas source ON source.id=job.schema_id
+                WHERE job.project_id=? AND job.schema_fingerprint=?
+                  AND job.job_type='review_annotation'
+                  AND source.project_id=job.project_id
+                  AND source.status='frozen' AND source.version<?
+                ORDER BY CASE
+                    WHEN job.status IN ('queued','running','paused') THEN 0
+                    WHEN job.status IN ('completed','partial_failed') THEN 1
+                    ELSE 2 END,
+                    job.created_at DESC,job.rowid DESC LIMIT 1
                 """,
-                (project_id, schema_fingerprint),
+                (project_id, schema_fingerprint, target["version"]),
             ).fetchone()
         if compatible is None:
             return None
@@ -891,10 +909,14 @@ class ReviewAnalysisRepository:
         source_schema_id: str,
     ):
         with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
             existing = connection.execute(
-                "SELECT * FROM datasets WHERE project_id=? AND schema_id=? AND sha256=?",
-                (project_id, schema_id, digest),
+                """SELECT * FROM datasets
+                   WHERE project_id=? AND schema_id=?
+                   ORDER BY created_at DESC LIMIT 1""",
+                (project_id, schema_id),
             ).fetchone()
+            created = existing is None
             if existing is None:
                 connection.execute(
                     "INSERT INTO datasets VALUES (?,?,?,?,?,?,?)",
@@ -911,20 +933,25 @@ class ReviewAnalysisRepository:
                 existing = connection.execute(
                     "SELECT * FROM datasets WHERE id=?", (dataset_id,)
                 ).fetchone()
-            connection.execute(
-                """
-                INSERT OR IGNORE INTO review_matrix_dataset_lineage (
-                    dataset_id,source_job_id,source_schema_id,target_schema_id,created_at
-                ) VALUES (?,?,?,?,?)
-                """,
-                (
-                    existing["id"],
-                    source_job_id,
-                    source_schema_id,
-                    schema_id,
-                    created_at,
-                ),
-            )
+            if created:
+                connection.execute(
+                    """
+                    INSERT INTO review_matrix_dataset_lineage (
+                        dataset_id,source_job_id,source_schema_id,target_schema_id,created_at
+                    ) VALUES (?,?,?,?,?)
+                    """,
+                    (
+                        existing["id"],
+                        source_job_id,
+                        source_schema_id,
+                        schema_id,
+                        created_at,
+                    ),
+                )
+            lineage = connection.execute(
+                "SELECT * FROM review_matrix_dataset_lineage WHERE dataset_id=?",
+                (existing["id"],),
+            ).fetchone()
         return {
             "id": existing["id"],
             "name": existing["name"],
@@ -932,6 +959,6 @@ class ReviewAnalysisRepository:
             "sha256": existing["sha256"],
             "created_at": existing["created_at"],
             "schema_id": schema_id,
-            "source_job_id": source_job_id,
-            "source_schema_id": source_schema_id,
+            "source_job_id": lineage["source_job_id"] if lineage else None,
+            "source_schema_id": lineage["source_schema_id"] if lineage else None,
         }

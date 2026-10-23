@@ -345,8 +345,26 @@ export function createReviewAnalysisWorkspace(
       return { result, jobPage };
     });
     if (!response) return;
+    const exactJobs = response.jobPage.rows.map((job) => ({
+      ...job,
+      compatibility: "exact" as const,
+      source_schema_version: handoff.value?.target_schema_version,
+    }));
+    const retriedCompatible =
+      action === "retry-failures" && target.compatibility === "fingerprint"
+        ? {
+            ...response.result,
+            compatibility: "fingerprint" as const,
+            source_schema_version: target.source_schema_version,
+          }
+        : null;
     selectedJobId.value = response.result.id;
-    jobs.value = response.jobPage.rows;
+    jobs.value = retriedCompatible
+      ? [
+          retriedCompatible,
+          ...exactJobs.filter((job) => job.id !== retriedCompatible.id),
+        ]
+      : exactJobs;
     activeJob.value =
       jobs.value.find((job) =>
         ["queued", "running", "paused"].includes(job.status),
@@ -410,7 +428,7 @@ export function createReviewAnalysisWorkspace(
   }
   async function materializeMatrix() {
     const jobId = selectedJobId.value;
-    if (!jobId) return false;
+    if (!jobId || handoff.value?.state === "materialized") return false;
     const result = await guarded(() =>
       api.materializeDataset(projectId.value, jobId, schemaId.value),
     );

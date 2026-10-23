@@ -22,6 +22,7 @@ const canMaterialize = computed(
     !preview.value?.blockers.length &&
     !preview.value?.stats.missing_date_reviews &&
     !preview.value?.failed_reviews &&
+    workspace.handoff.value?.state !== "materialized" &&
     !workspace.busy.value,
 );
 
@@ -245,7 +246,10 @@ async function enterExperiments() {
           <RefreshCw :size="15" />重新检查数据
         </button>
       </div>
-      <span v-if="preview && !canMaterialize"
+      <span v-if="workspace.handoff.value?.state === 'materialized'"
+        >当前准则已有权威数据集，不会重复生成或替换。</span
+      >
+      <span v-else-if="preview && !canMaterialize"
         >请按“生成前需要处理”中的入口完成必要数据</span
       >
     </div>

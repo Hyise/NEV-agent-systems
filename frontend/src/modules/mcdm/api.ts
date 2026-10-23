@@ -67,7 +67,14 @@ export interface MatrixHandoffBlocker {
   issues: Array<{ code: string; message: string }>;
 }
 export interface MatrixHandoff {
-  state: "no_job" | "processing" | "blocked" | "ready" | "materialized";
+  state:
+    | "not_frozen"
+    | "no_job"
+    | "processing"
+    | "failed"
+    | "blocked"
+    | "ready"
+    | "materialized";
   target_schema_id: string;
   target_schema_version: number;
   target_schema_status: "draft" | "frozen";

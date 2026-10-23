@@ -183,6 +183,8 @@ export function createWorkspace(
     const token = ++requestId;
     busy.value = true;
     error.value = "";
+    overview.value = null;
+    matrixHandoff.value = null;
     try {
       const base = apiBase();
       const [info, versions] = await Promise.all([

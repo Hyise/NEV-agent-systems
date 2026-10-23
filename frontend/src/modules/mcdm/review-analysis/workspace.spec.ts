@@ -480,6 +480,90 @@ describe("review analysis workspace", () => {
     expect(workspace.selectedJob.value?.id).toBe("retry");
   });
 
+  it("keeps and polls a retry created from a compatible predecessor", async () => {
+    const api = fakeApi();
+    api.getHandoff.mockResolvedValue({
+      state: "blocked",
+      target_schema_id: "s2",
+      target_schema_version: 2,
+      target_schema_status: "frozen",
+      compatibility: "fingerprint",
+      job: {
+        id: "old-v1",
+        status: "partial_failed",
+        source_schema_id: "s1",
+        source_schema_version: 1,
+      },
+      matrix: null,
+      dataset: null,
+    });
+    api.controlJob.mockResolvedValue({
+      id: "retry-v1",
+      schema_id: "s1",
+      job_type: "review_annotation",
+      status: "queued",
+    });
+    const workspace = createReviewAnalysisWorkspace(
+      api,
+      ref("p"),
+      ref("s2"),
+      ref("frozen"),
+    );
+    await workspace.activate();
+
+    await workspace.control("retry-failures");
+
+    expect(workspace.selectedJob.value).toMatchObject({
+      id: "retry-v1",
+      compatibility: "fingerprint",
+      source_schema_version: 1,
+    });
+    expect(workspace.activeJob.value?.id).toBe("retry-v1");
+    workspace.deactivate();
+  });
+
+  it("does not materialize again when the target schema already has a dataset", async () => {
+    const api = fakeApi();
+    api.listJobs.mockResolvedValue({
+      rows: [
+        {
+          id: "done",
+          job_type: "review_annotation",
+          status: "completed",
+        },
+      ],
+      total: 1,
+      page: 1,
+      page_size: 20,
+    });
+    api.getHandoff.mockResolvedValue({
+      state: "materialized",
+      target_schema_id: "s",
+      target_schema_version: 1,
+      target_schema_status: "frozen",
+      compatibility: "exact",
+      job: null,
+      matrix: null,
+      dataset: {
+        id: "manual",
+        name: "人工数据",
+        sha256: "f".repeat(64),
+        record_count: 1,
+      },
+    });
+    const workspace = createReviewAnalysisWorkspace(
+      api,
+      ref("p"),
+      ref("s"),
+      ref("frozen"),
+    );
+    await workspace.activate();
+
+    expect(await workspace.materializeMatrix()).toBe(false);
+    expect(api.materializeDataset).not.toHaveBeenCalled();
+    workspace.deactivate();
+  });
+
   it("does not apply active-task controls to a selected completed job", async () => {
     const api = fakeApi();
     api.listJobs.mockResolvedValue({
