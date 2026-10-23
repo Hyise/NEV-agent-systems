@@ -12,6 +12,7 @@ import type {
   AnnotationRow,
   CriteriaProposal,
   GeneratedDataset,
+  MatrixHandoff,
   MatrixPreview,
   ProposalCriterion,
   ReviewAnalysisApi,
@@ -56,6 +57,7 @@ export function createReviewAnalysisWorkspace(
   });
   const matrixPreview = ref<MatrixPreview | null>(null);
   const generatedDataset = ref<GeneratedDataset | null>(null);
+  const handoff = ref<MatrixHandoff | null>(null);
   const sampleLimit = ref(1500);
   const annotationLimit = ref<number | null>(100);
   const reviewDateFrom = ref("");
@@ -149,16 +151,36 @@ export function createReviewAnalysisWorkspace(
     busy.value = true;
     error.value = "";
     try {
-      const [sourceResult, jobPage] = await Promise.all([
+      const [sourceResult, jobPage, handoffResult] = await Promise.all([
         api.listSources(projectId.value, sourceQuery.value, sourcePage.value),
-        api.listJobs(projectId.value),
+        api.listJobs(projectId.value, schemaId.value),
+        api.getHandoff(projectId.value, schemaId.value),
       ]);
       if (token !== generation) return;
       sources.value = sourceResult.rows;
       rememberSelected(sourceResult.rows);
       sourcePage.value = sourceResult.page;
       sourceTotal.value = sourceResult.total;
-      jobs.value = jobPage.rows;
+      handoff.value = handoffResult;
+      jobs.value = jobPage.rows.map((job) => ({
+        ...job,
+        compatibility: "exact" as const,
+        source_schema_version: handoffResult.target_schema_version,
+      }));
+      if (
+        handoffResult.compatibility === "fingerprint" &&
+        handoffResult.job &&
+        !jobs.value.some((job) => job.id === handoffResult.job!.id)
+      ) {
+        jobs.value.push({
+          id: handoffResult.job.id,
+          schema_id: handoffResult.job.source_schema_id,
+          job_type: "review_annotation",
+          status: handoffResult.job.status,
+          compatibility: "fingerprint",
+          source_schema_version: handoffResult.job.source_schema_version,
+        });
+      }
       activeJob.value =
         jobs.value.find((job) =>
           ["queued", "running", "paused"].includes(job.status),
@@ -239,6 +261,7 @@ export function createReviewAnalysisWorkspace(
     summary.value = { annotated_reviews: 0, criteria: {}, labels: {} };
     matrixPreview.value = null;
     generatedDataset.value = null;
+    handoff.value = null;
     filters.value = emptyFilters();
     busy.value = false;
     error.value = "";
@@ -318,7 +341,7 @@ export function createReviewAnalysisWorkspace(
     const targetProject = projectId.value;
     const response = await guarded(async () => {
       const result = await api.controlJob(targetProject, target.id, action);
-      const jobPage = await api.listJobs(targetProject);
+      const jobPage = await api.listJobs(targetProject, schemaId.value);
       return { result, jobPage };
     });
     if (!response) return;
@@ -389,7 +412,7 @@ export function createReviewAnalysisWorkspace(
     const jobId = selectedJobId.value;
     if (!jobId) return false;
     const result = await guarded(() =>
-      api.materializeDataset(projectId.value, jobId),
+      api.materializeDataset(projectId.value, jobId, schemaId.value),
     );
     if (!result) return false;
     generatedDataset.value = result;
@@ -424,6 +447,7 @@ export function createReviewAnalysisWorkspace(
     summary,
     matrixPreview,
     generatedDataset,
+    handoff,
     sampleLimit,
     annotationLimit,
     reviewDateFrom,

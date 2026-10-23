@@ -57,6 +57,12 @@ onBeforeUnmount(workspace.deactivate);
             {{
               job.job_type === "criteria_discovery" ? "准则发现" : "评论标注"
             }}
+            ·
+            {{
+              job.compatibility === "fingerprint"
+                ? `复用 V${job.source_schema_version ?? "?"}`
+                : `当前 V${workspace.handoff.value?.target_schema_version ?? "?"}`
+            }}
             · {{ job.status }} · {{ job.id.slice(0, 8) }}
           </option>
         </select>

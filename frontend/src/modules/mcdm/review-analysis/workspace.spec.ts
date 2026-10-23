@@ -17,6 +17,16 @@ function fakeApi() {
       page: 1,
       page_size: 20,
     })),
+    getHandoff: vi.fn(async () => ({
+      state: "no_job" as const,
+      target_schema_id: "s",
+      target_schema_version: 1,
+      target_schema_status: "frozen" as const,
+      compatibility: null,
+      job: null,
+      matrix: null,
+      dataset: null,
+    })),
     createDiscovery: vi.fn(async (_p, body) => ({
       id: "j1",
       status: "queued",
@@ -89,6 +99,8 @@ describe("review analysis workspace", () => {
       status,
     );
     await workspace.activate();
+    expect(api.listJobs).toHaveBeenCalledWith("p1", "s1");
+    expect(api.getHandoff).toHaveBeenCalledWith("p1", "s1");
     workspace.toggleSeries("1");
     workspace.sampleLimit.value = 100;
     await workspace.createDiscovery();
@@ -327,8 +339,57 @@ describe("review analysis workspace", () => {
 
     await workspace.materializeMatrix();
 
-    expect(api.materializeDataset).toHaveBeenCalledWith("p", "done");
+    expect(api.materializeDataset).toHaveBeenCalledWith("p", "done", "s");
     expect(workspace.generatedDataset.value?.records).toBe(12);
+    workspace.deactivate();
+  });
+
+  it("offers a fingerprint-compatible job without mixing unrelated history", async () => {
+    const api = fakeApi();
+    api.getHandoff.mockResolvedValue({
+      state: "blocked",
+      target_schema_id: "s2",
+      target_schema_version: 2,
+      target_schema_status: "frozen",
+      compatibility: "fingerprint",
+      job: {
+        id: "old-v1",
+        status: "completed",
+        source_schema_id: "s1",
+        source_schema_version: 1,
+      },
+      matrix: {
+        stats: {
+          source_reviews: 300,
+          groups: 300,
+          records: 259,
+          blocked_groups: 41,
+          missing_date_reviews: 0,
+          unmentioned_criterion_groups: 252,
+        },
+        failed_reviews: 0,
+        blocker_counts: { missing_sales: 41 },
+        first_blocker: null,
+      },
+      dataset: null,
+    });
+    const workspace = createReviewAnalysisWorkspace(
+      api,
+      ref("p"),
+      ref("s2"),
+      ref("frozen"),
+    );
+
+    await workspace.activate();
+
+    expect(api.listJobs).toHaveBeenCalledWith("p", "s2");
+    expect(workspace.jobs.value).toHaveLength(1);
+    expect(workspace.selectedJob.value).toMatchObject({
+      id: "old-v1",
+      compatibility: "fingerprint",
+      source_schema_version: 1,
+    });
+    expect(api.getMatrixPreview).toHaveBeenCalledWith("p", "old-v1");
     workspace.deactivate();
   });
 

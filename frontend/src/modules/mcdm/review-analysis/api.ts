@@ -7,6 +7,7 @@ export interface ReviewSource {
 }
 export interface AnalysisJob {
   id: string;
+  schema_id?: string;
   job_type?: "criteria_discovery" | "review_annotation";
   status: string;
   processed_count?: number;
@@ -15,6 +16,8 @@ export interface AnalysisJob {
   failed_count?: number;
   input_tokens?: number;
   output_tokens?: number;
+  compatibility?: "exact" | "fingerprint";
+  source_schema_version?: number | null;
 }
 export interface ProposalCriterion {
   name: string;
@@ -112,6 +115,37 @@ export interface GeneratedDataset {
   records: number;
   sha256: string;
   created_at: string;
+  schema_id?: string;
+  source_job_id?: string;
+  source_schema_id?: string;
+}
+export interface MatrixHandoff {
+  state: "no_job" | "processing" | "blocked" | "ready" | "materialized";
+  target_schema_id: string;
+  target_schema_version: number;
+  target_schema_status: "draft" | "frozen";
+  compatibility: "exact" | "fingerprint" | null;
+  job: {
+    id: string;
+    status: string;
+    source_schema_id: string;
+    source_schema_version: number | null;
+  } | null;
+  matrix: {
+    stats: MatrixPreview["stats"];
+    failed_reviews: number;
+    blocker_counts: Record<string, number>;
+    first_blocker: MatrixBlocker | null;
+  } | null;
+  dataset: {
+    id: string;
+    name: string;
+    sha256: string;
+    record_count: number;
+    source_job_id?: string | null;
+    source_schema_id?: string | null;
+    target_schema_id?: string | null;
+  } | null;
 }
 
 const base = (projectId: string) =>
@@ -125,8 +159,14 @@ export function createReviewAnalysisApi(fetcher = api) {
       request<PageResult<ReviewSource>>(
         `${base(projectId)}/sources?${new URLSearchParams({ query, page: String(page), page_size: "20" })}`,
       ),
-    listJobs: (projectId: string) =>
-      request<PageResult<AnalysisJob>>(`${base(projectId)}/jobs`),
+    listJobs: (projectId: string, schemaId: string) =>
+      request<PageResult<AnalysisJob>>(
+        `${base(projectId)}/jobs?${new URLSearchParams({ schema_id: schemaId })}`,
+      ),
+    getHandoff: (projectId: string, schemaId: string) =>
+      request<MatrixHandoff>(
+        `${base(projectId)}/handoff?${new URLSearchParams({ schema_id: schemaId })}`,
+      ),
     createDiscovery: (projectId: string, body: unknown) =>
       request<AnalysisJob>(`${base(projectId)}/discovery-jobs`, {
         method: "POST",
@@ -177,10 +217,17 @@ export function createReviewAnalysisApi(fetcher = api) {
       request<MatrixPreview>(
         `${base(projectId)}/jobs/${encodeURIComponent(jobId)}/matrix-preview`,
       ),
-    materializeDataset: (projectId: string, jobId: string) =>
+    materializeDataset: (
+      projectId: string,
+      jobId: string,
+      targetSchemaId: string,
+    ) =>
       request<GeneratedDataset>(
         `${base(projectId)}/jobs/${encodeURIComponent(jobId)}/datasets`,
-        { method: "POST" },
+        {
+          method: "POST",
+          body: JSON.stringify({ target_schema_id: targetSchemaId }),
+        },
       ),
   };
 }
