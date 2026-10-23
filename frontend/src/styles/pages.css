@@ -286,6 +286,147 @@
   background: #fafbfb;
 }
 
+.version-control {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-left: auto;
+  padding-left: 18px;
+  border-left: 1px solid var(--line);
+}
+
+.version-control > span {
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.version-control select {
+  max-width: 150px;
+}
+
+.month-control + .version-control {
+  margin-left: 0;
+}
+
+.dataset-handoff {
+  margin: 0 24px 20px;
+  border: 1px solid #cbd8da;
+  background: #fbfcfc;
+}
+
+.dataset-handoff__heading,
+.dataset-handoff__actions {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 18px 20px;
+}
+
+.dataset-handoff__heading {
+  border-bottom: 1px solid var(--line);
+}
+
+.dataset-handoff__heading h3 {
+  margin-top: 4px;
+  font-size: 18px;
+}
+
+.dataset-handoff__heading p,
+.dataset-handoff__lineage p {
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.7;
+}
+
+.dataset-handoff__track {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border-bottom: 1px solid var(--line);
+}
+
+.dataset-handoff__track > div {
+  position: relative;
+  min-width: 0;
+  padding: 17px 20px 18px;
+  border-right: 1px solid var(--line);
+}
+
+.dataset-handoff__track > div:last-child {
+  border-right: 0;
+}
+
+.dataset-handoff__track > div::before {
+  content: "";
+  position: absolute;
+  top: -2px;
+  left: 20px;
+  width: 34px;
+  height: 3px;
+  background: var(--review);
+}
+
+.dataset-handoff__track > div.blocked::before {
+  background: var(--market);
+}
+
+.dataset-handoff__track span,
+.dataset-handoff__track small {
+  display: block;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.dataset-handoff__track strong {
+  display: block;
+  margin-block: 7px 2px;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 25px;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.dataset-handoff__track .blocked strong {
+  color: var(--market);
+}
+
+.dataset-handoff__pending {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 92px;
+  padding: 20px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+
+.dataset-handoff__lineage {
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--line);
+  background: #f3f7f7;
+}
+
+.dataset-handoff__lineage > span {
+  color: var(--review);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.dataset-handoff__actions {
+  align-items: center;
+}
+
+.dataset-handoff__actions > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
 .dataset-filter-bar {
   display: flex;
   align-items: center;
@@ -1065,6 +1206,25 @@
   }
   .data-workspace > .notice {
     margin-inline: 18px;
+  }
+  .dataset-handoff {
+    margin-inline: 18px;
+  }
+  .dataset-handoff__track {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .dataset-handoff__track > div:nth-child(2) {
+    border-right: 0;
+  }
+  .dataset-handoff__track > div:nth-child(-n + 2) {
+    border-bottom: 1px solid var(--line);
+  }
+  .dataset-handoff__actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .dataset-handoff__actions .btn {
+    justify-content: center;
   }
   .dataset-filter-bar {
     flex-wrap: wrap;

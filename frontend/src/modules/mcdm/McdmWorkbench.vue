@@ -116,6 +116,8 @@ const {
   page,
   projects,
   projectId,
+  schemaId,
+  schemas,
   overview,
   month,
   busy,
@@ -353,9 +355,24 @@ onBeforeUnmount(() =>
               </option>
             </select>
           </label>
-          <span v-if="overview" class="context-version mono"
-            >准则 V{{ overview.schema.version }}</span
-          >
+          <label v-if="overview" class="version-control">
+            <span>准则版本</span>
+            <select
+              v-model="schemaId"
+              name="criteria-version"
+              :disabled="busy || saving || (editable && isDirty)"
+              @change="loadWorkspace"
+            >
+              <option
+                v-for="schema in schemas"
+                :key="schema.id"
+                :value="schema.id"
+              >
+                V{{ schema.version }} ·
+                {{ schema.status === "frozen" ? "已冻结" : "草稿" }}
+              </option>
+            </select>
+          </label>
         </section>
 
         <div v-if="error" class="notice error" role="alert">

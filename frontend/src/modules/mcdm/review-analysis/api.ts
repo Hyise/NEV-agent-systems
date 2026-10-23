@@ -1,4 +1,5 @@
-import { api } from "../api";
+import { api, type MatrixHandoff } from "../api";
+export type { MatrixHandoff } from "../api";
 
 export interface ReviewSource {
   series_id: string;
@@ -118,34 +119,6 @@ export interface GeneratedDataset {
   schema_id?: string;
   source_job_id?: string;
   source_schema_id?: string;
-}
-export interface MatrixHandoff {
-  state: "no_job" | "processing" | "blocked" | "ready" | "materialized";
-  target_schema_id: string;
-  target_schema_version: number;
-  target_schema_status: "draft" | "frozen";
-  compatibility: "exact" | "fingerprint" | null;
-  job: {
-    id: string;
-    status: string;
-    source_schema_id: string;
-    source_schema_version: number | null;
-  } | null;
-  matrix: {
-    stats: MatrixPreview["stats"];
-    failed_reviews: number;
-    blocker_counts: Record<string, number>;
-    first_blocker: MatrixBlocker | null;
-  } | null;
-  dataset: {
-    id: string;
-    name: string;
-    sha256: string;
-    record_count: number;
-    source_job_id?: string | null;
-    source_schema_id?: string | null;
-    target_schema_id?: string | null;
-  } | null;
 }
 
 const base = (projectId: string) =>

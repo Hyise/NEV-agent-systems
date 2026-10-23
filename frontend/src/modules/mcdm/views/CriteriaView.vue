@@ -7,12 +7,8 @@ const {
   isPreset,
   editable,
   saving,
-  busy,
   isDirty,
-  schemaId,
-  schemas,
   draft,
-  loadWorkspace,
   resetDraft,
   saveCriteria,
   forkVersion,
@@ -29,27 +25,11 @@ const {
           <p>从优到劣排列，每个版本都有独立的数据关联。</p>
         </div>
         <div class="criteria-document__meta">
-          <label class="version-select">
-            版本
-            <select
-              v-model="schemaId"
-              name="criteria-version"
-              :disabled="saving || busy || isDirty"
-              @change="loadWorkspace"
-            >
-              <option
-                v-for="schema in schemas"
-                :key="schema.id"
-                :value="schema.id"
-              >
-                V{{ schema.version }} ·
-                {{ schema.status === "frozen" ? "已冻结" : "草稿" }}
-              </option>
-            </select>
-          </label>
           <span :class="['badge', editable ? 'amber' : 'teal']">
             <LockKeyhole v-if="!editable" :size="12" />{{
-              editable ? "草稿可编辑" : "已冻结"
+              editable
+                ? `V${overview.schema.version} · 草稿可编辑`
+                : `V${overview.schema.version} · 已冻结`
             }}
           </span>
         </div>

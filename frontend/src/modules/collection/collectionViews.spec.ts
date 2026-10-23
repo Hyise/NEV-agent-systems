@@ -14,6 +14,8 @@ import mcdmSource from "../mcdm/McdmWorkbench.vue?raw";
 import annotationSource from "../mcdm/review-analysis/components/AnnotationResults.vue?raw";
 import proposalSource from "../mcdm/review-analysis/components/CriteriaProposalEditor.vue?raw";
 import matrixHandoffSource from "../mcdm/review-analysis/components/MatrixHandoff.vue?raw";
+import dataCenterSource from "../mcdm/views/DataView.vue?raw";
+import criteriaSource from "../mcdm/views/CriteriaView.vue?raw";
 
 const overview = (
   series: number,
@@ -66,6 +68,15 @@ const catalog = (count: number): CatalogStatus => ({
 });
 
 describe("guided collection views", () => {
+  it("connects matrix readiness, criteria versions, and Data Center actions", () => {
+    expect(mcdmSource).toContain('name="criteria-version"');
+    expect(criteriaSource).not.toContain('name="criteria-version"');
+    expect(dataCenterSource).toContain("评论研究交接");
+    expect(dataCenterSource).toContain("matrixHandoff");
+    expect(dataCenterSource).toContain("materializeHandoff");
+    expect(dataCenterSource).toContain("处理阻塞");
+    expect(dataCenterSource).toContain("复用 V");
+  });
   it("provides direct handling actions for every matrix blocker category", () => {
     expect(matrixHandoffSource).toContain('intent: "sales-gap"');
     expect(matrixHandoffSource).toContain('intent: "review-date-gap"');

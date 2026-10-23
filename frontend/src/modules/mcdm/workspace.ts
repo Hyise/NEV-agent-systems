@@ -13,6 +13,7 @@ import type {
   Curve,
   DataPage,
   Metric,
+  MatrixHandoff,
   Overview,
   Prediction,
   Project,
@@ -41,6 +42,9 @@ export const labels = (text: string) =>
 
 const PROJECT_STORAGE_KEY = "nev-mcdm:selected-project";
 
+export type ApiClient = <T>(path: string, options?: RequestInit) => Promise<T>;
+export type PostClient = <T>(path: string, body?: unknown) => Promise<T>;
+
 export function resolveInitialProject(
   projects: Project[],
   storedProjectId: string | null,
@@ -57,7 +61,11 @@ export function resolveInitialProject(
   );
 }
 
-export function createWorkspace() {
+export function createWorkspace(
+  request: ApiClient = api,
+  submit: PostClient = post,
+  registerLifecycle = true,
+) {
   const page = ref<Page>("overview");
   const projects = ref<Project[]>([]);
   const projectId = ref("research-archive");
@@ -79,6 +87,7 @@ export function createWorkspace() {
     baseline: [],
     ablation: [],
   });
+  const matrixHandoff = ref<MatrixHandoff | null>(null);
   const busy = ref(false);
   const saving = ref(false);
   const error = ref("");
@@ -162,7 +171,7 @@ export function createWorkspace() {
   const schemaQuery = () => `schema_id=${encodeURIComponent(schemaId.value)}`;
 
   async function loadProjects() {
-    projects.value = await api<Project[]>("/projects");
+    projects.value = await request<Project[]>("/projects");
   }
 
   function rememberProject() {
@@ -177,10 +186,10 @@ export function createWorkspace() {
     try {
       const base = apiBase();
       const [info, versions] = await Promise.all([
-        api<Overview>(
+        request<Overview>(
           base + "/overview" + (schemaId.value ? "?" + schemaQuery() : ""),
         ),
-        api<Schema[]>(base + "/schemas"),
+        request<Schema[]>(base + "/schemas"),
       ]);
       if (token !== requestId) return;
       const nextMonth = info.months.includes(month.value)
@@ -192,14 +201,23 @@ export function createWorkspace() {
         rationalityRows,
         predictionRows,
         experimentRows,
+        handoff,
       ] = await Promise.all([
-        api<DataPage>(
+        request<DataPage>(
           base + `/data?schema_id=${info.schema.id}&month=${nextMonth}&page=1`,
         ),
-        api<{ rows: Curve[] }>(base + "/curves?kind=weights"),
-        api<{ rows: Curve[] }>(base + "/curves?kind=rationality"),
-        api<{ rows: Prediction[] }>(base + "/predictions?month=" + nextMonth),
-        api<{ baseline: Metric[]; ablation: Metric[] }>(base + "/experiments"),
+        request<{ rows: Curve[] }>(base + "/curves?kind=weights"),
+        request<{ rows: Curve[] }>(base + "/curves?kind=rationality"),
+        request<{ rows: Prediction[] }>(
+          base + "/predictions?month=" + nextMonth,
+        ),
+        request<{ baseline: Metric[]; ablation: Metric[] }>(
+          base + "/experiments",
+        ),
+        request<MatrixHandoff>(
+          base +
+            `/review-analysis/handoff?schema_id=${encodeURIComponent(info.schema.id)}`,
+        ),
       ]);
       if (token !== requestId) return;
       overview.value = info;
@@ -211,6 +229,7 @@ export function createWorkspace() {
       rationality.value = rationalityRows.rows;
       predictions.value = predictionRows.rows;
       experiments.value = experimentRows;
+      matrixHandoff.value = handoff;
       query.value = "";
       pageNumber.value = 1;
       resetDraft();
@@ -237,11 +256,11 @@ export function createWorkspace() {
     error.value = "";
     try {
       const [rows, predictionRows] = await Promise.all([
-        api<DataPage>(
+        request<DataPage>(
           apiBase() +
             `/data?${schemaQuery()}&month=${month.value}&search=${encodeURIComponent(query.value)}&page=${pageNumber.value}`,
         ),
-        api<{ rows: Prediction[] }>(
+        request<{ rows: Prediction[] }>(
           apiBase() + "/predictions?month=" + month.value,
         ),
       ]);
@@ -301,7 +320,7 @@ export function createWorkspace() {
     saving.value = true;
     error.value = "";
     try {
-      const project = await post<Project>("/projects", {
+      const project = await submit<Project>("/projects", {
         name: projectName.value,
         mode: createMode.value,
       });
@@ -327,7 +346,7 @@ export function createWorkspace() {
     error.value = "";
     try {
       const path = apiBase() + "/schemas/" + schemaId.value;
-      const saved = await api<Schema>(path, {
+      const saved = await request<Schema>(path, {
         method: "PUT",
         body: JSON.stringify({
           revision: overview.value.schema.revision,
@@ -340,7 +359,7 @@ export function createWorkspace() {
       overview.value.schema = saved;
       resetDraft();
       if (freeze) {
-        overview.value.schema = await post<Schema>(path + "/freeze", {
+        overview.value.schema = await submit<Schema>(path + "/freeze", {
           revision: saved.revision,
         });
       }
@@ -359,7 +378,7 @@ export function createWorkspace() {
     saving.value = true;
     error.value = "";
     try {
-      const schema = await post<Schema>(
+      const schema = await submit<Schema>(
         apiBase() + "/schemas/" + schemaId.value + "/fork",
       );
       schemaId.value = schema.id;
@@ -387,7 +406,7 @@ export function createWorkspace() {
       } catch {
         throw new Error("请将文件另存为UTF-8编码的CSV后上传");
       }
-      const result = await post<{ records: number }>(
+      const result = await submit<{ records: number }>(
         apiBase() + "/schemas/" + schemaId.value + "/datasets",
         { name: file.name, csv_text: text },
       );
@@ -431,6 +450,26 @@ export function createWorkspace() {
       : [...curveCriteria.value, name];
   }
 
+  async function materializeHandoff() {
+    const jobId = matrixHandoff.value?.job?.id;
+    if (!jobId || matrixHandoff.value?.state !== "ready") return;
+    saving.value = true;
+    error.value = "";
+    try {
+      const result = await submit<{ records: number }>(
+        apiBase() +
+          `/review-analysis/jobs/${encodeURIComponent(jobId)}/datasets`,
+        { target_schema_id: schemaId.value },
+      );
+      await loadWorkspace();
+      toast(`已生成 ${count(result.records)} 条评价矩阵记录`);
+    } catch (cause) {
+      error.value = (cause as Error).message;
+    } finally {
+      saving.value = false;
+    }
+  }
+
   function beforeUnload(event: BeforeUnloadEvent) {
     if (editable.value && isDirty.value) {
       event.preventDefault();
@@ -438,26 +477,28 @@ export function createWorkspace() {
     }
   }
 
-  onMounted(async () => {
-    window.addEventListener("beforeunload", beforeUnload);
-    try {
-      await loadProjects();
-      const storedProject =
-        typeof localStorage === "undefined"
-          ? null
-          : localStorage.getItem(PROJECT_STORAGE_KEY);
-      projectId.value = resolveInitialProject(projects.value, storedProject);
-      await loadWorkspace();
-    } catch (cause) {
-      error.value = (cause as Error).message;
-    }
-  });
+  if (registerLifecycle) {
+    onMounted(async () => {
+      window.addEventListener("beforeunload", beforeUnload);
+      try {
+        await loadProjects();
+        const storedProject =
+          typeof localStorage === "undefined"
+            ? null
+            : localStorage.getItem(PROJECT_STORAGE_KEY);
+        projectId.value = resolveInitialProject(projects.value, storedProject);
+        await loadWorkspace();
+      } catch (cause) {
+        error.value = (cause as Error).message;
+      }
+    });
 
-  onBeforeUnmount(() => {
-    window.removeEventListener("beforeunload", beforeUnload);
-    clearTimeout(toastTimer);
-    clearTimeout(searchTimer);
-  });
+    onBeforeUnmount(() => {
+      window.removeEventListener("beforeunload", beforeUnload);
+      clearTimeout(toastTimer);
+      clearTimeout(searchTimer);
+    });
+  }
 
   return {
     page,
@@ -472,6 +513,7 @@ export function createWorkspace() {
     rationality,
     predictions,
     experiments,
+    matrixHandoff,
     busy,
     saving,
     error,
@@ -511,6 +553,7 @@ export function createWorkspace() {
     forkVersion,
     importFile,
     download,
+    materializeHandoff,
     toggleCriterion,
   };
 }

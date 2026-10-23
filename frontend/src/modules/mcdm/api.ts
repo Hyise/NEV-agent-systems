@@ -59,6 +59,48 @@ export interface DataPage {
   month_models: number;
   month_total_sales: number;
 }
+export interface MatrixHandoffBlocker {
+  month: string;
+  series_id: string;
+  series_name: string;
+  reasons: string[];
+  issues: Array<{ code: string; message: string }>;
+}
+export interface MatrixHandoff {
+  state: "no_job" | "processing" | "blocked" | "ready" | "materialized";
+  target_schema_id: string;
+  target_schema_version: number;
+  target_schema_status: "draft" | "frozen";
+  compatibility: "exact" | "fingerprint" | null;
+  job: {
+    id: string;
+    status: string;
+    source_schema_id: string;
+    source_schema_version: number | null;
+  } | null;
+  matrix: {
+    stats: {
+      source_reviews: number;
+      groups: number;
+      records: number;
+      blocked_groups: number;
+      missing_date_reviews: number;
+      unmentioned_criterion_groups: number;
+    };
+    failed_reviews: number;
+    blocker_counts: Record<string, number>;
+    first_blocker: MatrixHandoffBlocker | null;
+  } | null;
+  dataset: {
+    id: string;
+    name: string;
+    sha256: string;
+    record_count: number;
+    source_job_id?: string | null;
+    source_schema_id?: string | null;
+    target_schema_id?: string | null;
+  } | null;
+}
 
 export async function api<T>(
   path: string,

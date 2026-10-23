@@ -1,6 +1,9 @@
 <script setup lang="ts">
+import { computed } from "vue";
 import {
   ArrowDownToLine,
+  ArrowRight,
+  CircleAlert,
   ChevronLeft,
   ChevronRight,
   Database,
@@ -12,6 +15,7 @@ import { count, pct, useWorkspace } from "../workspace";
 
 const {
   overview,
+  matrixHandoff,
   month,
   data,
   isPreset,
@@ -21,11 +25,39 @@ const {
   query,
   pageNumber,
   download,
+  materializeHandoff,
+  navigate,
   importFile,
   searchData,
   previousPage,
   nextPage,
 } = useWorkspace();
+
+const handoffState = computed(() => {
+  const labels = {
+    no_job: "尚未开始",
+    processing: "正在处理",
+    blocked: "需要处理",
+    ready: "可以生成",
+    materialized: "已生成",
+  };
+  return matrixHandoff.value ? labels[matrixHandoff.value.state] : "读取中";
+});
+
+const handoffAction = computed(() => {
+  if (matrixHandoff.value?.state === "ready") return "生成评价矩阵快照";
+  if (matrixHandoff.value?.state === "blocked") return "处理阻塞";
+  if (matrixHandoff.value?.state === "processing") return "查看处理进度";
+  return "开始评论分析";
+});
+
+function continueHandoff() {
+  if (matrixHandoff.value?.state === "ready") {
+    void materializeHandoff();
+    return;
+  }
+  navigate("review-analysis");
+}
 </script>
 
 <template>
@@ -82,6 +114,95 @@ const {
           : '上传UTF-8 CSV；列含产品型号、观察区间、时间压力、Real_Sales及各准则。2026年起时间压力可留空并统一按无压力处理。准则单元格为 {"L0":0.7,"L1":0.3} 形式的概率对象，等级数需匹配当前版本。'
       }}
     </div>
+    <section
+      v-if="!isPreset && matrixHandoff && !overview.dataset"
+      class="dataset-handoff"
+      aria-labelledby="dataset-handoff-title"
+    >
+      <header class="dataset-handoff__heading">
+        <div>
+          <span class="section-kicker">内部研究结果</span>
+          <h3 id="dataset-handoff-title">评论研究交接</h3>
+          <p>
+            评论判定先按月份与车系聚合，再与同期销量匹配；全部通过后才能形成正式数据快照。
+          </p>
+        </div>
+        <span
+          :class="[
+            'badge',
+            matrixHandoff.state === 'blocked' ? 'amber' : 'teal',
+          ]"
+          >{{ handoffState }}</span
+        >
+      </header>
+
+      <div v-if="matrixHandoff.matrix" class="dataset-handoff__track">
+        <div>
+          <span>评论快照</span>
+          <strong>{{
+            count(matrixHandoff.matrix.stats.source_reviews)
+          }}</strong>
+          <small>去重评论</small>
+        </div>
+        <div>
+          <span>聚合范围</span>
+          <strong>{{ count(matrixHandoff.matrix.stats.groups) }}</strong>
+          <small>月份 × 车系</small>
+        </div>
+        <div>
+          <span>当前可用</span>
+          <strong>{{ count(matrixHandoff.matrix.stats.records) }}</strong>
+          <small>待写入记录</small>
+        </div>
+        <div :class="{ blocked: matrixHandoff.matrix.stats.blocked_groups }">
+          <span>生成检查</span>
+          <strong>{{
+            count(matrixHandoff.matrix.stats.blocked_groups)
+          }}</strong>
+          <small>阻塞分组</small>
+        </div>
+      </div>
+      <div v-else class="dataset-handoff__pending">
+        <Database :size="24" aria-hidden="true" />
+        <span v-if="matrixHandoff.state === 'processing'"
+          >评论任务仍在运行，完成后会自动形成矩阵预览。</span
+        >
+        <span v-else>当前版本还没有可交接的评论标注任务。</span>
+      </div>
+
+      <div
+        v-if="matrixHandoff.compatibility === 'fingerprint'"
+        class="dataset-handoff__lineage"
+      >
+        <span>复用 V{{ matrixHandoff.job?.source_schema_version }} 标注</span>
+        <p>
+          当前 V{{ matrixHandoff.target_schema_version }}
+          的准则内容完全一致；生成时仍会创建独立快照并记录来源，不会再次调用大模型。
+        </p>
+      </div>
+
+      <footer class="dataset-handoff__actions">
+        <div v-if="matrixHandoff.state === 'blocked'">
+          <CircleAlert :size="17" aria-hidden="true" />
+          <span
+            >还有
+            {{ count(matrixHandoff.matrix?.stats.blocked_groups ?? 0) }}
+            个分组未通过，正式快照不会忽略这些样本。</span
+          >
+        </div>
+        <div v-else>
+          <span>所有操作都绑定当前准则 V{{ overview.schema.version }}。</span>
+        </div>
+        <button
+          class="btn primary"
+          type="button"
+          :disabled="busy || saving || matrixHandoff.state === 'materialized'"
+          @click="continueHandoff"
+        >
+          {{ handoffAction }} <ArrowRight :size="15" />
+        </button>
+      </footer>
+    </section>
     <div class="dataset-toolbar">
       <div class="dataset-filter-bar">
         <label class="search-field">
@@ -139,7 +260,11 @@ const {
           {{
             query
               ? "换一个车型名称，或清空搜索条件。"
-              : "冻结准则后，导入与它匹配的加工数据。"
+              : matrixHandoff?.state === "blocked"
+                ? "评论矩阵已形成预览，请先处理上方阻塞项。"
+                : matrixHandoff?.state === "ready"
+                  ? "评论矩阵已通过检查，请在上方生成正式快照。"
+                  : "冻结准则后，可导入加工数据或启动评论分析。"
           }}
         </p>
       </div>

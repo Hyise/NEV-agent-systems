@@ -1,6 +1,11 @@
 import { nextTick, ref } from "vue";
 import { describe, expect, it, vi } from "vitest";
-import type { AnalysisJob, AnnotationRow, PageResult } from "./api";
+import type {
+  AnalysisJob,
+  AnnotationRow,
+  MatrixHandoff,
+  PageResult,
+} from "./api";
 import { createReviewAnalysisWorkspace } from "./workspace";
 
 function fakeApi() {
@@ -17,11 +22,11 @@ function fakeApi() {
       page: 1,
       page_size: 20,
     })),
-    getHandoff: vi.fn(async () => ({
-      state: "no_job" as const,
+    getHandoff: vi.fn<() => Promise<MatrixHandoff>>(async () => ({
+      state: "no_job",
       target_schema_id: "s",
       target_schema_version: 1,
-      target_schema_status: "frozen" as const,
+      target_schema_status: "frozen",
       compatibility: null,
       job: null,
       matrix: null,
