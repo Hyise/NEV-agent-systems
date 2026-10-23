@@ -1319,10 +1319,12 @@
 
 .review-analysis-workspace {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 18px;
 }
 .review-analysis-section,
 .analysis-task-strip {
+  min-width: 0;
   background: var(--surface, #fff);
   border: 1px solid var(--line, #d9e0e5);
   padding: 24px;
