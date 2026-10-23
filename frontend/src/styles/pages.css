@@ -1391,6 +1391,93 @@
   border-bottom: 0;
 }
 
+.matrix-resolution-board {
+  border: 1px solid #c9a96b;
+  background: #fffdf7;
+}
+
+.matrix-resolution-board > header {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
+  padding: 0.9rem 1rem;
+  border-bottom: 1px solid #dfcfaa;
+  color: #705727;
+}
+
+.matrix-resolution-board > header h3,
+.matrix-resolution-board > header p,
+.matrix-coverage-note p {
+  margin: 0;
+}
+
+.matrix-resolution-board > header p {
+  margin-top: 0.18rem;
+  color: var(--text-muted, #65747b);
+  font-size: 0.86rem;
+}
+
+.matrix-resolution-item {
+  display: grid;
+  grid-template-columns: minmax(15rem, 1fr) auto;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.9rem 1rem;
+  border-bottom: 1px solid #e8ddc6;
+}
+
+.matrix-resolution-item:last-child {
+  border-bottom: 0;
+}
+
+.matrix-resolution-item > div:first-child {
+  display: grid;
+  gap: 0.24rem;
+}
+
+.matrix-resolution-item span,
+.matrix-coverage-note span {
+  color: var(--text-muted, #65747b);
+  font-size: 0.88rem;
+}
+
+.matrix-resolution-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.matrix-coverage-note {
+  border-block: 1px solid var(--line, #d9e0e2);
+  padding: 0.9rem 0;
+}
+
+.matrix-coverage-note summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.matrix-coverage-note > p {
+  margin-top: 0.65rem;
+  color: var(--text-muted, #65747b);
+  font-size: 0.88rem;
+}
+
+.matrix-coverage-note ul {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.matrix-coverage-note li {
+  display: grid;
+  grid-template-columns: minmax(10rem, 0.35fr) 1fr;
+  gap: 0.8rem;
+}
+
 .dataset-success {
   padding: 1rem;
   border: 1px solid #90b8a5;
@@ -1413,10 +1500,16 @@
   }
 
   .matrix-blockers li,
+  .matrix-resolution-item,
+  .matrix-coverage-note li,
   .dataset-success,
   .matrix-actions {
     align-items: stretch;
     grid-template-columns: 1fr;
     flex-direction: column;
+  }
+
+  .matrix-resolution-actions {
+    justify-content: flex-start;
   }
 }

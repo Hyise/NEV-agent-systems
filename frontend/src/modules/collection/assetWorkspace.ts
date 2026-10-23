@@ -303,6 +303,14 @@ export function createAssetWorkspace(
     await loadAssets();
   }
 
+  async function focusReview(reviewId: string, seriesId: string) {
+    Object.assign(filters, emptyFilters(), {
+      keyword: reviewId,
+      series_id: seriesId,
+    });
+    await applyFilters();
+  }
+
   async function resetFilters() {
     Object.assign(filters, emptyFilters());
     Object.assign(appliedFilters, emptyFilters());
@@ -728,6 +736,7 @@ export function createAssetWorkspace(
     loadAssets,
     loadSummary,
     applyFilters,
+    focusReview,
     resetFilters,
     selectSeries,
     previousPage,

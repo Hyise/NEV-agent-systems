@@ -150,6 +150,21 @@ describe("sales collection workspace", () => {
     expect(url).toBe("/api/sales-collection/export");
   });
 
+  it("focuses a matrix sales gap on the exact month and mapped review series", async () => {
+    const client = api();
+    const workspace = createSalesWorkspace(client, false);
+
+    await workspace.focusGap("2026-03", "5769");
+
+    expect(workspace.startMonth.value).toBe("2026-03");
+    expect(workspace.endMonth.value).toBe("2026-03");
+    expect(workspace.appliedFilters.month).toBe("2026-03");
+    expect(workspace.appliedFilters.search).toBe("5769");
+    expect(client.listSalesRecords).toHaveBeenCalledWith(
+      expect.objectContaining({ month: "2026-03", search: "5769" }),
+    );
+  });
+
   it("turns API failures into one visible Chinese message", async () => {
     const workspace = createSalesWorkspace(
       api({

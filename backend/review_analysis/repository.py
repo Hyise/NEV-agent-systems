@@ -745,7 +745,8 @@ class ReviewAnalysisRepository:
             marks = ",".join("?" for _ in included)
             rows = connection.execute(
                 f"""
-                SELECT snapshot.snapshot_id,snapshot.review_id,snapshot.series_id,
+                SELECT snapshot.snapshot_id,snapshot.source_asset_id,
+                       snapshot.review_id,snapshot.series_id,
                        snapshot.series_name_snapshot AS series_name,
                        snapshot.status,snapshot.annotation_id,
                        COALESCE(

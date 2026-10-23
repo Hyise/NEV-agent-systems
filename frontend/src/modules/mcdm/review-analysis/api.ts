@@ -66,6 +66,27 @@ export interface MatrixBlocker {
   series_id: string;
   series_name: string;
   reasons: string[];
+  issues: Array<{
+    code:
+      | "missing_sales"
+      | "invalid_sales"
+      | "duplicate_sales"
+      | "historical_pressure";
+    message: string;
+  }>;
+}
+export interface MatrixWarning {
+  month: string;
+  series_id: string;
+  series_name: string;
+  unmentioned_criteria: string[];
+  message: string;
+}
+export interface MissingDateItem {
+  asset_id?: string | null;
+  review_id: string;
+  series_id: string;
+  series_name: string;
 }
 export interface MatrixPreview {
   job_id: string;
@@ -74,12 +95,15 @@ export interface MatrixPreview {
   failed_reviews: number;
   records: Array<Record<string, unknown>>;
   blockers: MatrixBlocker[];
+  warnings: MatrixWarning[];
+  missing_date_items: MissingDateItem[];
   stats: {
     source_reviews: number;
     groups: number;
     records: number;
     blocked_groups: number;
     missing_date_reviews: number;
+    unmentioned_criterion_groups: number;
   };
 }
 export interface GeneratedDataset {

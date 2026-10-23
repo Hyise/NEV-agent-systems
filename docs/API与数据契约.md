@@ -197,8 +197,8 @@ CSV/XLSX 表格必须包含 `series_id`、`series_name`、`show_id`、`分项评
 - `POST /discovery-jobs`：`schema_id`、唯一 `selected_series_ids`、`sample_limit(1..5000)`；仅自定义草稿。
 - `POST /annotation-jobs`：`schema_id`、唯一车系列表、`limit(1..5000)/null`；可选 `review_date_from`、`review_date_to`（含边界，`YYYY-MM-DD`）和 `sampling=series|month_series`；仅自定义冻结版本。`month_series` 先按评论月份轮询，再在月内按车系和稳定 SHA-256 顺序抽样；任务的日期边界和抽样算法写入 `source_config`。
 - `GET /jobs`、`GET /jobs/{id}`：任务、进度、错误摘要与 token 用量。
-- `GET /jobs/{id}/matrix-preview`：对已结束的评论标注任务按“月份 × 车系”预览等级概率、销量匹配和阻塞项，不写数据。
-- `POST /jobs/{id}/datasets`：在预览无缺失日期、准则或销量阻塞时，把矩阵保存为当前冻结准则版本的不可变数据集。
+- `GET /jobs/{id}/matrix-preview`：对已结束的评论标注任务按“月份 × 车系”预览等级概率、覆盖率、销量匹配、阻塞项和可接受警告，不写数据。`blockers[].issues[].code` 使用 `missing_sales|invalid_sales|duplicate_sales|historical_pressure`；`missing_date_items` 提供可回到评论资产页定位的原始评论身份；`warnings` 记录未提及准则。
+- `POST /jobs/{id}/datasets`：在预览无失败评论、缺失日期、销量或历史压力阻塞时，把矩阵保存为当前冻结准则版本的不可变数据集。
 - `POST /jobs/{id}/pause|resume|cancel|retry-failures`：协作式控制或为失败项建立新快照。
 - `GET /jobs/{id}/proposal`、`POST /jobs/{id}/proposal/apply`：候选审核与 revision 锁应用；可提交人工编辑后的完整候选准则。
 - `GET /annotations`、`GET /annotations/{id}`、`GET /summary`：评论级结果、详情和基础计数；筛选不调用模型。打开详情时客户端必须把列表行的 `job_id` 与 `snapshot_id` 同时传给 `GET /annotations/{id}`，因为 `snapshot_id` 只在单个任务内唯一。
@@ -207,4 +207,4 @@ CSV/XLSX 表格必须包含 `series_id`、`series_name`、`show_id`、`分项评
 
 持久化表为 `review_analysis_jobs`、`review_analysis_job_reviews`、`review_analysis_discovery_batches`、`criteria_proposals`、`review_annotation_results`。评论快照保存完整派生文本；可复用结果不绑定评论 ID，由任务评论行保存关联以保持追溯。准则发现每个成功批次立即保存线索、进度与 token 用量，暂停或进程重启后跳过成功批次；全局归并结果同样可幂等恢复。任务同时保存创建时的准则草稿 revision、模型和 Prompt 清单，谱系发生变化时拒绝静默套用旧结果。任务最终提交会原子消费请求期间到达的暂停/取消指令；取消请求的优先级高于暂停，工作器也以单事务消费控制并同步写入 `paused` 或 `cancelled` 状态。
 
-评论标注快照同时保存评论日期；迁移前任务在原评论仍存在时可只读补取日期。评价矩阵先按任务及其失败重试后代对 `snapshot_id` 去重，再按月份、车系和冻结准则统计有效标签频率。销量只使用 `matched` 记录，同组多平台依次优先汽车之家、懂车帝、易车。2026 年及以后压力固定为 0；缺少日期、任一准则有效判定或销量的分组不得写入数据集。保存采用内容哈希幂等，同一项目、准则和矩阵重复提交返回既有快照。
+评论标注快照同时保存评论日期；迁移前任务在原评论仍存在时可只读补取日期。评价矩阵先按任务及其失败重试后代对 `snapshot_id` 去重，再按月份、车系和冻结准则统计有效标签频率。某分组没有评论提及某项准则时，不把“未提及”解释为负面等级，也不阻塞整个分组；系统为该准则写入中性均匀分布，并在 `criterion_coverage` 中保存 `0`、在预览 `warnings` 中明确记录。存在有效判定时，概率分母只包含提及该准则的评论，覆盖率为有效判定数 / 本组评论数。销量只使用 `matched` 记录，同组多平台依次优先汽车之家、懂车帝、易车；销量记录搜索同时匹配平台车系和已映射的评论车系 ID/名称。2026 年及以后压力固定为 0；失败评论、缺少日期、缺少/非法/重复销量或 2026 年前缺少压力的分组不得写入数据集。保存采用内容哈希幂等，同一项目、准则和矩阵重复提交返回既有快照。

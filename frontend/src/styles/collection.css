@@ -2066,3 +2066,16 @@
     border-left: 0;
   }
 }
+.blocker-handoff {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+@media (max-width: 760px) {
+  .blocker-handoff {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}

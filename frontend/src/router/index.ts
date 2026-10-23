@@ -10,11 +10,16 @@ type LazyRouteComponent = () => Promise<
 >;
 
 export type McdmIntent = "criteria-discovery" | "review-annotation";
+export type CollectionIntent = "sales-gap" | "review-date-gap";
 
 export function parseMcdmIntent(value: unknown): McdmIntent | null {
   return value === "criteria-discovery" || value === "review-annotation"
     ? value
     : null;
+}
+
+export function parseCollectionIntent(value: unknown): CollectionIntent | null {
+  return value === "sales-gap" || value === "review-date-gap" ? value : null;
 }
 
 export interface PlatformRouteComponents {

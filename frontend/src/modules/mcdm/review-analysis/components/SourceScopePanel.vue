@@ -6,7 +6,11 @@ const workspace = useReviewAnalysisWorkspace();
 </script>
 
 <template>
-  <section class="review-analysis-section">
+  <section
+    id="review-analysis-source-scope"
+    class="review-analysis-section"
+    tabindex="-1"
+  >
     <header>
       <span class="section-kicker">01 · 来源与准则版本</span>
       <h2>选择已采集车系</h2>
@@ -98,6 +102,7 @@ const workspace = useReviewAnalysisWorkspace();
       <template v-if="workspace.schemaStatus.value === 'frozen'">
         <label
           >开始日期<input
+            id="review-date-from"
             v-model="workspace.reviewDateFrom.value"
             type="date"
             aria-label="评论开始日期"

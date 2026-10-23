@@ -45,7 +45,17 @@ def build_matrix_preview(
     sales_rows: list[dict[str, Any]],
 ) -> dict[str, Any]:
     unique_rows = _deduplicate(annotation_rows)
-    missing_date_reviews = sum(not row.get("review_date") for row in unique_rows)
+    missing_date_items = [
+        {
+            "asset_id": row.get("source_asset_id"),
+            "review_id": str(row.get("review_id") or row.get("snapshot_id") or ""),
+            "series_id": str(row.get("series_id") or ""),
+            "series_name": str(row.get("series_name") or ""),
+        }
+        for row in unique_rows
+        if not row.get("review_date")
+    ]
+    missing_date_reviews = len(missing_date_items)
     groups: dict[tuple[str, str, str], list[dict[str, Any]]] = defaultdict(list)
     for row in unique_rows:
         if row.get("status") not in SUCCESS_STATUSES or not row.get("review_date"):
@@ -61,9 +71,12 @@ def build_matrix_preview(
     sales_by_group = _sales_index(sales_rows)
     records: list[dict[str, Any]] = []
     blockers: list[dict[str, Any]] = []
+    warnings: list[dict[str, Any]] = []
     for (month, series_id, series_name), reviews in sorted(groups.items()):
-        reasons: list[str] = []
+        issues: list[dict[str, str]] = []
         probabilities: dict[str, list[float]] = {}
+        criterion_coverage: dict[str, float] = {}
+        unmentioned_criteria: list[str] = []
         for criterion in criteria:
             name = str(criterion["name"])
             labels = [str(label) for label in criterion["labels"]]
@@ -75,31 +88,59 @@ def build_matrix_preview(
                         break
             total = sum(counts.values())
             if not total:
-                reasons.append(f"准则“{name}”没有有效判定")
+                probabilities[name] = [1.0 / len(labels)] * len(labels)
+                criterion_coverage[name] = 0.0
+                unmentioned_criteria.append(name)
             else:
                 probabilities[name] = [counts[label] / total for label in labels]
+                criterion_coverage[name] = total / len(reviews)
+
+        if unmentioned_criteria:
+            quoted = "、".join(f"“{name}”" for name in unmentioned_criteria)
+            warnings.append(
+                {
+                    "month": month,
+                    "series_id": series_id,
+                    "series_name": series_name,
+                    "unmentioned_criteria": unmentioned_criteria,
+                    "message": f"准则{quoted}未被本组评论提及，已采用中性均匀分布",
+                }
+            )
 
         sales_candidates = sales_by_group.get((month, series_id), [])
         sale = sales_candidates[0] if sales_candidates else None
         if sale is None:
-            reasons.append("没有匹配到销量")
+            issues.append({"code": "missing_sales", "message": "没有匹配到销量"})
         elif float(sale["sales_volume"]) <= 0:
-            reasons.append("匹配销量必须大于0")
+            issues.append(
+                {"code": "invalid_sales", "message": "匹配销量必须大于0"}
+            )
         elif sum(
             candidate["platform"] == sale["platform"]
             for candidate in sales_candidates
         ) > 1:
-            reasons.append("最高优先级平台存在重复销量")
+            issues.append(
+                {
+                    "code": "duplicate_sales",
+                    "message": "最高优先级平台存在重复销量",
+                }
+            )
         if month < "2026-01":
-            reasons.append("2026年前月份缺少时间压力数据")
+            issues.append(
+                {
+                    "code": "historical_pressure",
+                    "message": "2026年前月份缺少时间压力数据",
+                }
+            )
 
-        if reasons:
+        if issues:
             blockers.append(
                 {
                     "month": month,
                     "series_id": series_id,
                     "series_name": series_name,
-                    "reasons": reasons,
+                    "reasons": [issue["message"] for issue in issues],
+                    "issues": issues,
                 }
             )
             continue
@@ -112,6 +153,7 @@ def build_matrix_preview(
                 "pressure": 0.0,
                 "share": 0.0,
                 "probabilities": probabilities,
+                "criterion_coverage": criterion_coverage,
                 "review_count": len(reviews),
                 "sales_platform": str(sale["platform"]),
             }
@@ -126,12 +168,15 @@ def build_matrix_preview(
     return {
         "records": records,
         "blockers": blockers,
+        "warnings": warnings,
+        "missing_date_items": missing_date_items,
         "stats": {
             "source_reviews": len(unique_rows),
             "groups": len(groups),
             "records": len(records),
             "blocked_groups": len(blockers),
             "missing_date_reviews": missing_date_reviews,
+            "unmentioned_criterion_groups": len(warnings),
         },
     }
 
@@ -163,8 +208,12 @@ class ReviewMatrixService:
 
     def materialize(self, project_id: str, job_id: str) -> dict[str, Any]:
         preview = self.preview(project_id, job_id)
-        if preview["blockers"] or preview["stats"]["missing_date_reviews"]:
-            raise ValueError("评价矩阵仍有缺失日期、准则判定或销量匹配")
+        if (
+            preview["blockers"]
+            or preview["stats"]["missing_date_reviews"]
+            or preview["failed_reviews"]
+        ):
+            raise ValueError("评价矩阵仍有失败评论、缺失日期、销量或历史压力问题")
         if not preview["records"]:
             raise ValueError("没有可保存的评价矩阵记录")
         records = preview["records"]

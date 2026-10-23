@@ -257,6 +257,24 @@ def test_completed_annotation_can_preview_and_materialize_dataset(tmp_path):
     assert json.loads(stored["records"])[0]["model"] == "车系一"
 
 
+def test_partial_failure_must_be_retried_before_materializing_dataset(tmp_path):
+    client, repo, _ = client_for(tmp_path)
+    created = client.post(
+        "/api/projects/p/review-analysis/annotation-jobs",
+        json={"schema_id": "frozen", "selected_series_ids": ["1"], "limit": 1},
+    ).json()
+    snapshot = repo.pending_review_snapshots(created["id"])[0]
+    repo.mark_review_failed(created["id"], snapshot["snapshot_id"], "x", "x")
+    repo.set_job_state(created["id"], "partial_failed")
+
+    response = client.post(
+        f"/api/projects/p/review-analysis/jobs/{created['id']}/datasets"
+    )
+
+    assert response.status_code == 409
+    assert "失败评论" in response.text
+
+
 def test_retry_job_preview_uses_the_whole_root_job_family(tmp_path):
     client, repo, _ = client_for(tmp_path)
     SalesCollectionRepository(repo.path)

@@ -195,6 +195,15 @@ export function createSalesWorkspace(
     await loadRecords();
   }
 
+  async function focusGap(month: string, reviewSeriesId: string) {
+    startMonth.value = month;
+    endMonth.value = month;
+    filters.month = month;
+    filters.search = reviewSeriesId;
+    filters.match_status = "";
+    await applyFilters();
+  }
+
   async function resetFilters() {
     Object.assign(filters, emptyFilters());
     Object.assign(appliedFilters, emptyFilters());
@@ -260,6 +269,7 @@ export function createSalesWorkspace(
     startJob,
     togglePlatform,
     applyFilters,
+    focusGap,
     resetFilters,
     previousPage,
     nextPage,

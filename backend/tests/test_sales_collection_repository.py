@@ -112,6 +112,10 @@ def test_month_records_are_idempotent_and_exact_names_match_review_series(tmp_pa
         "status"
     ] == SalesStepStatus.COMPLETED.value
 
+    mapped = repository.list_records(month="2026-01", search="5769")
+    assert mapped["total"] == 1
+    assert mapped["rows"][0]["review_series_name"] == "Model Y"
+
 
 def test_list_records_keeps_unmatched_series_explicit(tmp_path):
     repository = SalesCollectionRepository(tmp_path / "platform.sqlite3")

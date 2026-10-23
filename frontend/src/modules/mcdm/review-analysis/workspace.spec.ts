@@ -53,13 +53,17 @@ function fakeApi() {
         series_id: string;
         series_name: string;
         reasons: string[];
+        issues: Array<{ code: "missing_sales"; message: string }>;
       }>,
+      warnings: [],
+      missing_date_items: [],
       stats: {
         source_reviews: 0,
         groups: 0,
         records: 0,
         blocked_groups: 0,
         missing_date_reviews: 0,
+        unmentioned_criterion_groups: 0,
       },
     })),
     materializeDataset: vi.fn(async () => ({
@@ -298,12 +302,15 @@ describe("review analysis workspace", () => {
       failed_reviews: 0,
       records: [{ month: "2026-01", model: "车系一" }],
       blockers: [],
+      warnings: [],
+      missing_date_items: [],
       stats: {
         source_reviews: 12,
         groups: 1,
         records: 1,
         blocked_groups: 0,
         missing_date_reviews: 0,
+        unmentioned_criterion_groups: 0,
       },
     });
     const workspace = createReviewAnalysisWorkspace(

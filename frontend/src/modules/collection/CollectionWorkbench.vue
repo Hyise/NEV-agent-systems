@@ -9,7 +9,9 @@ import {
   Menu,
 } from "lucide-vue-next";
 import { RouterLink } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import AppBrand from "../../components/AppBrand.vue";
+import { parseCollectionIntent } from "../../router";
 import type { AcquisitionAction } from "./acquisitionGuidance";
 import { createAssetWorkspace } from "./assetWorkspace";
 import { createCatalogFlow } from "./catalogFlow";
@@ -67,6 +69,9 @@ const activePage = computed(
   () => pages.find((item) => item.id === workspace.page.value)!,
 );
 const mobileMenuButton = ref<HTMLButtonElement>();
+const route = useRoute();
+const router = useRouter();
+const blockerHandoff = ref("");
 
 function closeMobileNavigation() {
   const restore = workspace.mobileNav.value;
@@ -99,6 +104,48 @@ function runGuidedAction(action: AcquisitionAction) {
     document.querySelector<HTMLElement>("#current-collection-job")?.focus();
   else void catalogFlow.open();
 }
+
+function queryText(value: unknown) {
+  return typeof value === "string" ? value : "";
+}
+
+async function consumeBlockerIntent(value: unknown) {
+  const intent = parseCollectionIntent(value);
+  if (!intent) return;
+  const month = queryText(route.query.month);
+  const seriesId = queryText(route.query.series_id);
+  const seriesName = queryText(route.query.series_name) || seriesId;
+  const reviewId = queryText(route.query.review_id);
+  if (intent === "sales-gap") {
+    navigateTo("sales");
+    if (/^\d{4}-(0[1-9]|1[0-2])$/.test(month) && seriesId) {
+      await salesWorkspace.focusGap(month, seriesId);
+      blockerHandoff.value = `已定位 ${month} · ${seriesName} 的销量缺口。可先检查现有记录，再按该月份启动补采。`;
+    } else {
+      blockerHandoff.value =
+        "已进入销量数据，请检查矩阵所需月份和车型的匹配记录。";
+    }
+  } else {
+    navigateTo("assets");
+    if (reviewId) {
+      await assetWorkspace.focusReview(reviewId, seriesId);
+      blockerHandoff.value = `已定位缺少评论日期的原始评论 ${reviewId}。原始数据不可改写，请核对后删除并重新导入。`;
+    } else {
+      blockerHandoff.value = "已进入评论管理，请核对缺少日期的原始评论。";
+    }
+  }
+  const {
+    intent: _intent,
+    month: _month,
+    series_id: _seriesId,
+    series_name: _seriesName,
+    review_id: _reviewId,
+    ...remainingQuery
+  } = route.query;
+  void router.replace({ name: "collection", query: remainingQuery });
+}
+
+watch(() => route.query.intent, consumeBlockerIntent, { immediate: true });
 
 function focusMain() {
   document.querySelector<HTMLElement>("#main-content")?.focus();
@@ -194,6 +241,27 @@ onBeforeUnmount(() =>
           <div>
             <h1>{{ activePage.title }}</h1>
             <p class="subtitle">{{ activePage.subtitle }}</p>
+          </div>
+        </div>
+        <div
+          v-if="blockerHandoff"
+          class="notice info blocker-handoff"
+          role="status"
+        >
+          <span>{{ blockerHandoff }}</span>
+          <div class="button-group">
+            <RouterLink
+              class="text-button"
+              :to="{ name: 'mcdm', query: { intent: 'review-annotation' } }"
+              >返回评价矩阵</RouterLink
+            >
+            <button
+              class="text-button"
+              type="button"
+              @click="blockerHandoff = ''"
+            >
+              关闭
+            </button>
           </div>
         </div>
         <GuidedStageBar

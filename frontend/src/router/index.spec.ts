@@ -1,7 +1,11 @@
 import { defineComponent, h } from "vue";
 import { createMemoryHistory } from "vue-router";
 import { describe, expect, it } from "vitest";
-import { createPlatformRouter, parseMcdmIntent } from "./index";
+import {
+  createPlatformRouter,
+  parseCollectionIntent,
+  parseMcdmIntent,
+} from "./index";
 
 const routeComponents = {
   home: defineComponent(() => () => h("div", "platform")),
@@ -53,5 +57,12 @@ describe("createPlatformRouter", () => {
       query: { intent: "criteria-discovery" },
     });
     expect(resolved.query.intent).toBe("criteria-discovery");
+  });
+
+  it("accepts only explicit blocker handling intents", () => {
+    expect(parseCollectionIntent("sales-gap")).toBe("sales-gap");
+    expect(parseCollectionIntent("review-date-gap")).toBe("review-date-gap");
+    expect(parseCollectionIntent(["sales-gap"])).toBeNull();
+    expect(parseCollectionIntent("delete-review")).toBeNull();
   });
 });

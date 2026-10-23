@@ -292,6 +292,19 @@ describe("review asset workspace", () => {
     expect(client.listReviewAssets).not.toHaveBeenCalled();
   });
 
+  it("focuses a missing-date review from the matrix handling flow", async () => {
+    const client = api();
+    const workspace = createAssetWorkspace(client, false);
+
+    await workspace.focusReview("review-1", "5769");
+
+    expect(workspace.appliedFilters.keyword).toBe("review-1");
+    expect(workspace.appliedFilters.series_id).toBe("5769");
+    expect(client.listReviewAssets).toHaveBeenCalledWith(
+      expect.objectContaining({ keyword: "review-1", series_id: "5769" }),
+    );
+  });
+
   it("selects a vehicle series from the index and opens its first review page", async () => {
     const client = api({
       listReviewAssets: vi

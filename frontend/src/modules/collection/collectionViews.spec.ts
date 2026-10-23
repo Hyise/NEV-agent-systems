@@ -13,6 +13,7 @@ import salesSource from "./views/SalesView.vue?raw";
 import mcdmSource from "../mcdm/McdmWorkbench.vue?raw";
 import annotationSource from "../mcdm/review-analysis/components/AnnotationResults.vue?raw";
 import proposalSource from "../mcdm/review-analysis/components/CriteriaProposalEditor.vue?raw";
+import matrixHandoffSource from "../mcdm/review-analysis/components/MatrixHandoff.vue?raw";
 
 const overview = (
   series: number,
@@ -65,6 +66,14 @@ const catalog = (count: number): CatalogStatus => ({
 });
 
 describe("guided collection views", () => {
+  it("provides direct handling actions for every matrix blocker category", () => {
+    expect(matrixHandoffSource).toContain('intent: "sales-gap"');
+    expect(matrixHandoffSource).toContain('intent: "review-date-gap"');
+    expect(matrixHandoffSource).toContain("重试失败评论");
+    expect(matrixHandoffSource).toContain("改用 2026 年后范围重跑");
+    expect(matrixHandoffSource).toContain("中性均匀分布");
+    expect(matrixHandoffSource).not.toContain("处理完上方阻塞项后即可生成");
+  });
   it("selects exactly one recommended action for each acquisition state", () => {
     expect(resolveAcquisitionGuidance(overview(0, 0), catalog(0)).action).toBe(
       "discover",

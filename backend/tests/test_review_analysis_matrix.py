@@ -66,6 +66,7 @@ def test_builds_month_series_probabilities_and_uses_sales_platform_priority():
     preview = build_matrix_preview(CRITERIA, rows, sales)
 
     assert preview["blockers"] == []
+    assert preview["warnings"] == []
     assert preview["records"] == [
         {
             "month": "2026-01",
@@ -78,13 +79,14 @@ def test_builds_month_series_probabilities_and_uses_sales_platform_priority():
                 "空间": [0.5, 0.5],
                 "舒适": [1.0, 0.0],
             },
+            "criterion_coverage": {"空间": 1.0, "舒适": 1.0},
             "review_count": 2,
             "sales_platform": "autohome",
         }
     ]
 
 
-def test_deduplicates_retry_snapshots_and_reports_incomplete_groups():
+def test_deduplicates_retry_snapshots_and_treats_unmentioned_criteria_as_neutral():
     rows = [
         annotation(
             "same",
@@ -137,17 +139,22 @@ def test_deduplicates_retry_snapshots_and_reports_incomplete_groups():
     assert preview["stats"] == {
         "source_reviews": 3,
         "groups": 2,
-        "records": 1,
-        "blocked_groups": 1,
+        "records": 2,
+        "blocked_groups": 0,
         "missing_date_reviews": 1,
+        "unmentioned_criterion_groups": 1,
     }
-    assert preview["records"][0]["review_count"] == 1
-    assert preview["blockers"] == [
+    record = next(row for row in preview["records"] if row["series_id"] == "2")
+    assert record["probabilities"]["舒适"] == [0.5, 0.5]
+    assert record["criterion_coverage"]["舒适"] == 0.0
+    assert preview["blockers"] == []
+    assert preview["warnings"] == [
         {
             "month": "2026-02",
             "series_id": "2",
             "series_name": "车系二",
-            "reasons": ["准则“舒适”没有有效判定"],
+            "unmentioned_criteria": ["舒适"],
+            "message": "准则“舒适”未被本组评论提及，已采用中性均匀分布",
         }
     ]
 
@@ -167,3 +174,28 @@ def test_reports_missing_sales_without_emitting_a_record():
 
     assert preview["records"] == []
     assert preview["blockers"][0]["reasons"] == ["没有匹配到销量"]
+    assert preview["blockers"][0]["issues"] == [
+        {"code": "missing_sales", "message": "没有匹配到销量"}
+    ]
+
+
+def test_exposes_missing_date_reviews_for_direct_asset_follow_up():
+    row = annotation(
+        "snapshot-1",
+        "1",
+        "车系一",
+        None,
+        {"空间": "宽敞", "舒适": "舒适"},
+    )
+    row.update({"review_id": "review-1", "source_asset_id": "manual:review-1"})
+
+    preview = build_matrix_preview(CRITERIA, [row], [])
+
+    assert preview["missing_date_items"] == [
+        {
+            "asset_id": "manual:review-1",
+            "review_id": "review-1",
+            "series_id": "1",
+            "series_name": "车系一",
+        }
+    ]

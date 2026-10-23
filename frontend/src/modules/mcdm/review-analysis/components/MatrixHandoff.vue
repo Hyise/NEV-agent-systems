@@ -1,19 +1,74 @@
 <script setup lang="ts">
-import { computed } from "vue";
-import { ArrowRight, Check, RefreshCw, TableProperties } from "lucide-vue-next";
+import { computed, nextTick, ref } from "vue";
+import {
+  ArrowRight,
+  Check,
+  CircleAlert,
+  RefreshCw,
+  TableProperties,
+} from "lucide-vue-next";
+import { RouterLink } from "vue-router";
+import type { MatrixBlocker } from "../api";
 import { useWorkspace } from "../../workspace";
 import { useReviewAnalysisWorkspace } from "../workspace";
 
 const main = useWorkspace();
 const workspace = useReviewAnalysisWorkspace();
 const preview = computed(() => workspace.matrixPreview.value);
+const scopePrepared = ref(false);
 const canMaterialize = computed(
   () =>
     Boolean(preview.value?.stats.records) &&
     !preview.value?.blockers.length &&
     !preview.value?.stats.missing_date_reviews &&
+    !preview.value?.failed_reviews &&
     !workspace.busy.value,
 );
+
+function hasIssue(item: MatrixBlocker, codes: string[]) {
+  return item.issues.some((issue) => codes.includes(issue.code));
+}
+
+function salesTarget(item: MatrixBlocker) {
+  return {
+    name: "collection",
+    query: {
+      intent: "sales-gap",
+      month: item.month,
+      series_id: item.series_id,
+      series_name: item.series_name,
+    },
+  };
+}
+
+const missingDateTarget = computed(() => {
+  const item = preview.value?.missing_date_items[0];
+  if (!item) return null;
+  return {
+    name: "collection",
+    query: {
+      intent: "review-date-gap",
+      review_id: item.review_id,
+      series_id: item.series_id,
+      series_name: item.series_name,
+    },
+  };
+});
+
+async function preparePost2026Rerun() {
+  workspace.reviewDateFrom.value = "2026-01-01";
+  if (
+    workspace.reviewDateTo.value &&
+    workspace.reviewDateTo.value < "2026-01-01"
+  )
+    workspace.reviewDateTo.value = "";
+  scopePrepared.value = true;
+  await nextTick();
+  document
+    .querySelector<HTMLElement>("#review-analysis-source-scope")
+    ?.scrollIntoView({ behavior: "smooth", block: "start" });
+  document.querySelector<HTMLInputElement>("#review-date-from")?.focus();
+}
 
 async function materialize() {
   if (!(await workspace.materializeMatrix())) return;
@@ -60,38 +115,139 @@ async function enterExperiments() {
       </button>
     </div>
 
-    <div
-      v-if="preview?.stats.missing_date_reviews"
-      class="notice warning"
-      role="status"
+    <section
+      v-if="
+        preview &&
+        (preview.failed_reviews ||
+          preview.stats.missing_date_reviews ||
+          preview.blockers.length)
+      "
+      class="matrix-resolution-board"
+      aria-labelledby="matrix-resolution-title"
     >
-      有
-      {{ preview.stats.missing_date_reviews }}
-      条评论缺少评论日期，需补齐后才能生成。
-    </div>
-    <div v-if="preview?.failed_reviews" class="notice warning" role="status">
-      本次任务仍有
-      {{ preview.failed_reviews }} 条失败评论；可先重试失败项再生成矩阵。
-    </div>
-    <ul v-if="preview?.blockers.length" class="matrix-blockers">
-      <li
+      <header>
+        <CircleAlert :size="19" aria-hidden="true" />
+        <div>
+          <h3 id="matrix-resolution-title">生成前需要处理</h3>
+          <p>每项问题都提供对应入口；处理后返回这里重新读取预览。</p>
+        </div>
+      </header>
+
+      <article v-if="preview.failed_reviews" class="matrix-resolution-item">
+        <div>
+          <strong>{{ preview.failed_reviews }} 条评论处理失败</strong>
+          <span>重试只处理失败项，已成功的评论不会重复调用模型。</span>
+        </div>
+        <button
+          class="btn secondary"
+          type="button"
+          :disabled="workspace.busy.value"
+          @click="workspace.control('retry-failures')"
+        >
+          重试失败评论
+        </button>
+      </article>
+
+      <article
+        v-if="preview.stats.missing_date_reviews"
+        class="matrix-resolution-item"
+      >
+        <div>
+          <strong
+            >{{ preview.stats.missing_date_reviews }} 条评论缺少日期</strong
+          >
+          <span>原始评论不可改写；请定位原记录，删除后重新导入或采集。</span>
+        </div>
+        <RouterLink
+          v-if="missingDateTarget"
+          class="btn secondary"
+          :to="missingDateTarget"
+          >定位第一条评论</RouterLink
+        >
+      </article>
+
+      <article
         v-for="item in preview.blockers"
         :key="item.month + ':' + item.series_id"
+        class="matrix-resolution-item"
       >
-        <strong>{{ item.month }} · {{ item.series_name }}</strong>
-        <span>{{ item.reasons.join("；") }}</span>
-      </li>
-    </ul>
+        <div>
+          <strong>{{ item.month }} · {{ item.series_name }}</strong>
+          <span>{{ item.reasons.join("；") }}</span>
+        </div>
+        <div class="matrix-resolution-actions">
+          <RouterLink
+            v-if="
+              hasIssue(item, [
+                'missing_sales',
+                'invalid_sales',
+                'duplicate_sales',
+              ])
+            "
+            class="btn secondary"
+            :to="salesTarget(item)"
+            >检查并补采销量</RouterLink
+          >
+          <button
+            v-if="hasIssue(item, ['historical_pressure'])"
+            class="btn secondary"
+            type="button"
+            @click="preparePost2026Rerun"
+          >
+            改用 2026 年后范围重跑
+          </button>
+        </div>
+      </article>
+    </section>
+
+    <div v-if="scopePrepared" class="notice info" role="status">
+      已把新任务的开始日期设为
+      2026-01-01。请在页面上方确认范围并重新启动评论标注。
+    </div>
+
+    <details v-if="preview?.warnings.length" class="matrix-coverage-note">
+      <summary>
+        {{ preview.stats.unmentioned_criterion_groups }}
+        个分组存在未提及准则，不阻止生成
+      </summary>
+      <p>
+        未提及不等于负面评价。系统使用中性均匀分布，并在数据集中保存每项准则的评论覆盖率。
+      </p>
+      <ul>
+        <li
+          v-for="item in preview.warnings.slice(0, 5)"
+          :key="item.month + ':' + item.series_id"
+        >
+          <strong>{{ item.month }} · {{ item.series_name }}</strong>
+          <span>{{ item.message }}</span>
+        </li>
+      </ul>
+      <p v-if="preview.warnings.length > 5">
+        其余 {{ preview.warnings.length - 5 }} 个分组已按相同规则记录。
+      </p>
+    </details>
 
     <div class="matrix-actions">
-      <button
-        class="btn primary"
-        :disabled="!canMaterialize"
-        @click="materialize"
+      <div class="button-group">
+        <button
+          class="btn primary"
+          :disabled="!canMaterialize"
+          @click="materialize"
+        >
+          生成评价矩阵快照
+        </button>
+        <button
+          class="btn secondary"
+          type="button"
+          :disabled="workspace.busy.value"
+          @click="workspace.loadMatrixPreview()"
+        >
+          <RefreshCw :size="15" />重新检查数据
+        </button>
+      </div>
+      <span v-if="preview && !canMaterialize"
+        >请按“生成前需要处理”中的入口完成必要数据</span
       >
-        生成评价矩阵快照
-      </button>
-      <span v-if="preview && !canMaterialize">处理完上方阻塞项后即可生成</span>
     </div>
 
     <div

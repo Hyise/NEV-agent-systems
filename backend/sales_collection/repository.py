@@ -599,9 +599,13 @@ class SalesCollectionRepository:
             clauses.append("record.month=?")
             values.append(month)
         if search.strip():
-            clauses.append("(lower(record.series_name) LIKE ? OR record.series_id LIKE ?)")
+            clauses.append(
+                "(lower(record.series_name) LIKE ? OR record.series_id LIKE ? "
+                "OR lower(COALESCE(match.review_series_name,'')) LIKE ? "
+                "OR COALESCE(match.review_series_id,'') LIKE ?)"
+            )
             pattern = f"%{search.strip().casefold()}%"
-            values.extend((pattern, pattern))
+            values.extend((pattern, pattern, pattern, pattern))
         if match_status:
             clauses.append("match.match_status=?")
             values.append(match_status)
