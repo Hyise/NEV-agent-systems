@@ -74,6 +74,10 @@ class ApplyBody(_Strict):
         return self
 
 
+class MaterializeBody(_Strict):
+    target_schema_id: str | None = None
+
+
 def _snapshots(assets, limit, sampling="series"):
     sampler = (
         stable_month_series_stratified_sample
@@ -158,8 +162,21 @@ def create_review_analysis_router(
             sampling=body.sampling)
         return create(command, body.limit)
 
+    @router.get("/handoff")
+    def handoff(project_id: str, schema_id: str):
+        try:
+            return matrices.handoff(project_id, schema_id)
+        except KeyError as exc:
+            raise HTTPException(404, "准则版本不存在") from exc
+
     @router.get("/jobs")
-    def jobs(project_id: str, page: int = 1, page_size: int = 20): return repository.list_jobs(project_id, page, page_size)
+    def jobs(
+        project_id: str,
+        page: int = 1,
+        page_size: int = 20,
+        schema_id: str | None = None,
+    ):
+        return repository.list_jobs(project_id, page, page_size, schema_id)
 
     @router.get("/jobs/{job_id}")
     def job(project_id: str, job_id: str):
@@ -176,10 +193,16 @@ def create_review_analysis_router(
             raise HTTPException(409, str(exc)) from exc
 
     @router.post("/jobs/{job_id}/datasets", status_code=201)
-    def materialize_dataset(project_id: str, job_id: str):
+    def materialize_dataset(
+        project_id: str, job_id: str, body: MaterializeBody | None = None
+    ):
         project_job(project_id, job_id)
         try:
-            return matrices.materialize(project_id, job_id)
+            return matrices.materialize(
+                project_id,
+                job_id,
+                body.target_schema_id if body is not None else None,
+            )
         except KeyError as exc:
             raise HTTPException(404, "任务不存在") from exc
         except ValueError as exc:

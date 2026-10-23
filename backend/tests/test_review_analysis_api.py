@@ -44,12 +44,173 @@ def client_for(tmp_path, *, configured=True):
     return TestClient(app), repo, service
 
 
+def add_frozen_schema(repo, schema_id, version, criteria=None):
+    criteria = criteria or [{"name": "空间", "labels": ["宽敞", "局促"]}]
+    with repo.connect() as connection:
+        connection.execute(
+            "INSERT INTO schemas VALUES (?,?,?,?,?,?,?)",
+            (schema_id, "p", version, "frozen", 1, json.dumps(criteria, ensure_ascii=False), "now"),
+        )
+
+
+def complete_single_annotation(client, repo, schema_id="frozen"):
+    created = client.post(
+        "/api/projects/p/review-analysis/annotation-jobs",
+        json={"schema_id": schema_id, "selected_series_ids": ["1"], "limit": 1},
+    ).json()
+    job = repo.get_job(created["id"])
+    snapshot = repo.pending_review_snapshots(job["id"])[0]
+    result = repo.save_result(
+        content_hash=snapshot["content_hash"],
+        schema_fingerprint=job["schema_fingerprint"],
+        model=job["model"],
+        prompt_version=job["prompt_manifests"][0]["version"],
+        prompt_sha256=job["prompt_manifests"][0]["sha256"],
+        result={
+            "annotations": [
+                {
+                    "criterion": "空间",
+                    "label": "宽敞",
+                    "evidence": ["后排宽敞"],
+                    "basis": "原文明确描述空间",
+                }
+            ],
+            "unmatched_evidence": [],
+        },
+        input_tokens=10,
+        output_tokens=5,
+        cached_tokens=0,
+    )
+    repo.mark_review_succeeded(
+        job["id"], snapshot["snapshot_id"], result["id"], cached=False
+    )
+    repo.set_job_state(job["id"], "completed")
+    return repo.get_job(job["id"])
+
+
+def add_matching_sales(repo):
+    SalesCollectionRepository(repo.path)
+    with repo.connect() as connection:
+        connection.execute(
+            "INSERT INTO sales_collection_jobs (id,start_month,end_month,platforms_json,status,total_steps,created_at,updated_at) VALUES ('sales-handoff','2026-01','2026-01','[\"autohome\"]','completed',1,'now','now')"
+        )
+        connection.execute(
+            "INSERT INTO sales_records VALUES ('autohome','2026-01','platform-handoff','车系一',120,1,'retail','https://sales','hash-handoff','now','sales-handoff')"
+        )
+        connection.execute(
+            "INSERT INTO sales_series_matches VALUES ('autohome','2026-01','platform-handoff','1','车系一','normalized_exact','matched','now')"
+        )
+
+
 def test_sources_and_missing_key_degradation(tmp_path):
     client, repo, service = client_for(tmp_path, configured=False)
     assert client.get('/api/projects/p/review-analysis/sources').json()['total'] == 1
     response = client.post('/api/projects/p/review-analysis/discovery-jobs', json={'schema_id':'draft','selected_series_ids':['1'],'sample_limit':10})
     assert response.status_code == 503
     assert repo.list_jobs('p')['total'] == 0
+
+
+def test_jobs_endpoint_filters_history_to_the_current_schema(tmp_path):
+    client, repo, _ = client_for(tmp_path)
+    add_frozen_schema(repo, "same", 3)
+    old = client.post(
+        "/api/projects/p/review-analysis/annotation-jobs",
+        json={"schema_id": "frozen", "selected_series_ids": ["1"], "limit": 1},
+    ).json()
+    repo.set_job_state(old["id"], "completed")
+    current = client.post(
+        "/api/projects/p/review-analysis/annotation-jobs",
+        json={"schema_id": "same", "selected_series_ids": ["1"], "limit": 1},
+    ).json()
+
+    response = client.get(
+        "/api/projects/p/review-analysis/jobs", params={"schema_id": "same"}
+    )
+
+    assert response.status_code == 200
+    assert [row["id"] for row in response.json()["rows"]] == [current["id"]]
+
+
+def test_handoff_exposes_compatible_annotation_without_hiding_blockers(tmp_path):
+    client, repo, _ = client_for(tmp_path)
+    add_frozen_schema(repo, "same", 3)
+    job = complete_single_annotation(client, repo)
+
+    response = client.get(
+        "/api/projects/p/review-analysis/handoff", params={"schema_id": "same"}
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["state"] == "blocked"
+    assert body["compatibility"] == "fingerprint"
+    assert body["job"]["id"] == job["id"]
+    assert body["job"]["source_schema_id"] == "frozen"
+    assert body["job"]["source_schema_version"] == 2
+    assert body["target_schema_version"] == 3
+    assert body["matrix"]["stats"] == {
+        "source_reviews": 1,
+        "groups": 1,
+        "records": 0,
+        "blocked_groups": 1,
+        "missing_date_reviews": 0,
+        "unmentioned_criterion_groups": 0,
+    }
+    assert body["matrix"]["blocker_counts"] == {"missing_sales": 1}
+
+
+def test_handoff_rejects_incompatible_cross_version_materialization(tmp_path):
+    client, repo, _ = client_for(tmp_path)
+    add_frozen_schema(
+        repo,
+        "different",
+        3,
+        [{"name": "驾驶", "labels": ["稳定", "松散"]}],
+    )
+    job = complete_single_annotation(client, repo)
+    add_matching_sales(repo)
+
+    handoff = client.get(
+        "/api/projects/p/review-analysis/handoff",
+        params={"schema_id": "different"},
+    )
+    materialized = client.post(
+        f"/api/projects/p/review-analysis/jobs/{job['id']}/datasets",
+        json={"target_schema_id": "different"},
+    )
+
+    assert handoff.status_code == 200
+    assert handoff.json()["state"] == "no_job"
+    assert materialized.status_code == 409
+    assert "准则内容不一致" in materialized.text
+
+
+def test_compatible_materialization_targets_current_schema_and_records_lineage(tmp_path):
+    client, repo, _ = client_for(tmp_path)
+    add_frozen_schema(repo, "same", 3)
+    job = complete_single_annotation(client, repo)
+    add_matching_sales(repo)
+
+    response = client.post(
+        f"/api/projects/p/review-analysis/jobs/{job['id']}/datasets",
+        json={"target_schema_id": "same"},
+    )
+
+    assert response.status_code == 201, response.text
+    assert response.json()["schema_id"] == "same"
+    assert response.json()["source_schema_id"] == "frozen"
+    with repo.connect() as connection:
+        dataset = connection.execute(
+            "SELECT id,schema_id FROM datasets WHERE project_id='p'"
+        ).fetchone()
+        lineage = connection.execute(
+            "SELECT * FROM review_matrix_dataset_lineage WHERE dataset_id=?",
+            (dataset["id"],),
+        ).fetchone()
+    assert dataset["schema_id"] == "same"
+    assert lineage["source_job_id"] == job["id"]
+    assert lineage["source_schema_id"] == "frozen"
+    assert lineage["target_schema_id"] == "same"
 
 
 def test_sources_endpoint_aggregates_manual_and_autohome_by_series(tmp_path):

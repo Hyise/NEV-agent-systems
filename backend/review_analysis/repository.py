@@ -85,6 +85,13 @@ class ReviewAnalysisRepository:
                     clues_json TEXT, status TEXT NOT NULL DEFAULT 'pending',
                     PRIMARY KEY(job_id,batch_index)
                 );
+                CREATE TABLE IF NOT EXISTS review_matrix_dataset_lineage (
+                    dataset_id TEXT PRIMARY KEY,
+                    source_job_id TEXT NOT NULL,
+                    source_schema_id TEXT NOT NULL,
+                    target_schema_id TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
                 CREATE INDEX IF NOT EXISTS ix_review_analysis_jobs_project
                     ON review_analysis_jobs(project_id,created_at);
                 CREATE INDEX IF NOT EXISTS ix_review_analysis_job_reviews_pending
@@ -194,6 +201,10 @@ class ReviewAnalysisRepository:
         schema_value = dict(schema); schema_value["criteria"] = json.loads(schema_value["criteria"])
         return dict(project), schema_value
 
+    def get_schema(self, project_id: str, schema_id: str):
+        result = self.get_project_schema(project_id, schema_id)
+        return result[1] if result else None
+
     def create_job_with_snapshot(
         self,
         command: CreateJobCommand,
@@ -288,11 +299,76 @@ class ReviewAnalysisRepository:
         with self.connect() as connection:
             return self._job(connection.execute("SELECT * FROM review_analysis_jobs WHERE id=?", (job_id,)).fetchone())
 
-    def list_jobs(self, project_id: str, page: int = 1, page_size: int = 20):
+    def list_jobs(
+        self,
+        project_id: str,
+        page: int = 1,
+        page_size: int = 20,
+        schema_id: str | None = None,
+    ):
+        where = "project_id=?"
+        params: list[Any] = [project_id]
+        if schema_id:
+            where += " AND schema_id=?"
+            params.append(schema_id)
         with self.connect() as connection:
-            total = connection.execute("SELECT COUNT(*) FROM review_analysis_jobs WHERE project_id=?", (project_id,)).fetchone()[0]
-            rows = connection.execute("SELECT * FROM review_analysis_jobs WHERE project_id=? ORDER BY created_at DESC LIMIT ? OFFSET ?", (project_id, page_size, (page - 1) * page_size)).fetchall()
+            total = connection.execute(
+                f"SELECT COUNT(*) FROM review_analysis_jobs WHERE {where}", params
+            ).fetchone()[0]
+            rows = connection.execute(
+                f"SELECT * FROM review_analysis_jobs WHERE {where} "
+                "ORDER BY created_at DESC LIMIT ? OFFSET ?",
+                (*params, page_size, (page - 1) * page_size),
+            ).fetchall()
         return {"rows": [self._job(row) for row in rows], "total": total, "page": page, "page_size": page_size}
+
+    def latest_annotation_job(
+        self, project_id: str, schema_id: str, schema_fingerprint: str
+    ):
+        with self.connect() as connection:
+            exact = connection.execute(
+                """
+                SELECT * FROM review_analysis_jobs
+                WHERE project_id=? AND schema_id=? AND job_type='review_annotation'
+                ORDER BY created_at DESC LIMIT 1
+                """,
+                (project_id, schema_id),
+            ).fetchone()
+            if exact is not None:
+                return self._job(exact), "exact"
+            compatible = connection.execute(
+                """
+                SELECT * FROM review_analysis_jobs
+                WHERE project_id=? AND schema_fingerprint=?
+                  AND job_type='review_annotation'
+                  AND status IN ('completed','partial_failed')
+                ORDER BY created_at DESC LIMIT 1
+                """,
+                (project_id, schema_fingerprint),
+            ).fetchone()
+        if compatible is None:
+            return None
+        return self._job(compatible), "fingerprint"
+
+    def latest_dataset(self, project_id: str, schema_id: str):
+        with self.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT dataset.*,lineage.source_job_id,lineage.source_schema_id,
+                       lineage.target_schema_id
+                FROM datasets dataset
+                LEFT JOIN review_matrix_dataset_lineage lineage
+                  ON lineage.dataset_id=dataset.id
+                WHERE dataset.project_id=? AND dataset.schema_id=?
+                ORDER BY dataset.created_at DESC LIMIT 1
+                """,
+                (project_id, schema_id),
+            ).fetchone()
+        if row is None:
+            return None
+        result = dict(row)
+        result["record_count"] = len(json.loads(result.pop("records")))
+        return result
 
     @staticmethod
     def _job_family_ids(connection, project_id: str, job_id: str) -> set[str]:
@@ -811,6 +887,8 @@ class ReviewAnalysisRepository:
         digest: str,
         records: list[dict[str, Any]],
         created_at: str,
+        source_job_id: str,
+        source_schema_id: str,
     ):
         with self.connect() as connection:
             existing = connection.execute(
@@ -833,10 +911,27 @@ class ReviewAnalysisRepository:
                 existing = connection.execute(
                     "SELECT * FROM datasets WHERE id=?", (dataset_id,)
                 ).fetchone()
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO review_matrix_dataset_lineage (
+                    dataset_id,source_job_id,source_schema_id,target_schema_id,created_at
+                ) VALUES (?,?,?,?,?)
+                """,
+                (
+                    existing["id"],
+                    source_job_id,
+                    source_schema_id,
+                    schema_id,
+                    created_at,
+                ),
+            )
         return {
             "id": existing["id"],
             "name": existing["name"],
             "records": len(json.loads(existing["records"])),
             "sha256": existing["sha256"],
             "created_at": existing["created_at"],
+            "schema_id": schema_id,
+            "source_job_id": source_job_id,
+            "source_schema_id": source_schema_id,
         }

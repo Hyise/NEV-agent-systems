@@ -8,6 +8,7 @@ import json
 from typing import Any
 import uuid
 
+from .domain import CriterionSnapshot, schema_fingerprint
 from .repository import _now
 
 
@@ -206,7 +207,93 @@ class ReviewMatrixService:
         )
         return preview
 
-    def materialize(self, project_id: str, job_id: str) -> dict[str, Any]:
+    @staticmethod
+    def _schema_fingerprint(criteria: list[dict[str, Any]]) -> str:
+        return schema_fingerprint(
+            [CriterionSnapshot.model_validate(item) for item in criteria]
+        )
+
+    def handoff(self, project_id: str, schema_id: str) -> dict[str, Any]:
+        schema = self.repository.get_schema(project_id, schema_id)
+        if schema is None:
+            raise KeyError(schema_id)
+        dataset = self.repository.latest_dataset(project_id, schema_id)
+        if dataset is not None:
+            return {
+                "state": "materialized",
+                "target_schema_id": schema_id,
+                "target_schema_version": schema["version"],
+                "target_schema_status": schema["status"],
+                "compatibility": "exact",
+                "job": None,
+                "matrix": None,
+                "dataset": dataset,
+            }
+        candidate = self.repository.latest_annotation_job(
+            project_id, schema_id, self._schema_fingerprint(schema["criteria"])
+        )
+        if candidate is None:
+            return {
+                "state": "no_job",
+                "target_schema_id": schema_id,
+                "target_schema_version": schema["version"],
+                "target_schema_status": schema["status"],
+                "compatibility": None,
+                "job": None,
+                "matrix": None,
+                "dataset": None,
+            }
+        job, compatibility = candidate
+        source_schema = self.repository.get_schema(project_id, job["schema_id"])
+        job_summary = {
+            "id": job["id"],
+            "status": job["status"],
+            "source_schema_id": job["schema_id"],
+            "source_schema_version": source_schema["version"] if source_schema else None,
+        }
+        if job["status"] not in {"completed", "partial_failed"}:
+            return {
+                "state": "processing",
+                "target_schema_id": schema_id,
+                "target_schema_version": schema["version"],
+                "target_schema_status": schema["status"],
+                "compatibility": compatibility,
+                "job": job_summary,
+                "matrix": None,
+                "dataset": None,
+            }
+        preview = self.preview(project_id, job["id"])
+        blocker_counts: Counter[str] = Counter(
+            issue["code"]
+            for blocker in preview["blockers"]
+            for issue in blocker["issues"]
+        )
+        blocked = bool(
+            preview["blockers"]
+            or preview["stats"]["missing_date_reviews"]
+            or preview["failed_reviews"]
+        )
+        return {
+            "state": "blocked" if blocked else "ready",
+            "target_schema_id": schema_id,
+            "target_schema_version": schema["version"],
+            "target_schema_status": schema["status"],
+            "compatibility": compatibility,
+            "job": job_summary,
+            "matrix": {
+                "stats": preview["stats"],
+                "failed_reviews": preview["failed_reviews"],
+                "blocker_counts": dict(blocker_counts),
+                "first_blocker": preview["blockers"][0]
+                if preview["blockers"]
+                else None,
+            },
+            "dataset": None,
+        }
+
+    def materialize(
+        self, project_id: str, job_id: str, target_schema_id: str | None = None
+    ) -> dict[str, Any]:
         preview = self.preview(project_id, job_id)
         if (
             preview["blockers"]
@@ -216,6 +303,16 @@ class ReviewMatrixService:
             raise ValueError("评价矩阵仍有失败评论、缺失日期、销量或历史压力问题")
         if not preview["records"]:
             raise ValueError("没有可保存的评价矩阵记录")
+        target_schema_id = target_schema_id or preview["schema_id"]
+        target_schema = self.repository.get_schema(project_id, target_schema_id)
+        if target_schema is None:
+            raise ValueError("目标准则版本不存在")
+        if target_schema["status"] != "frozen":
+            raise ValueError("目标准则版本尚未冻结")
+        if self._schema_fingerprint(target_schema["criteria"]) != self._schema_fingerprint(
+            self.repository.get_job(job_id)["criteria"]
+        ):
+            raise ValueError("目标准则版本与评论任务的准则内容不一致")
         records = preview["records"]
         canonical = json.dumps(
             records,
@@ -228,9 +325,11 @@ class ReviewMatrixService:
         return self.repository.save_matrix_dataset(
             dataset_id=uuid.uuid4().hex,
             project_id=project_id,
-            schema_id=preview["schema_id"],
-            name=f"评论标注矩阵-{job_id[:8]}",
+            schema_id=target_schema_id,
+            name=f"评论标注矩阵-{job_id[:8]}-V{target_schema['version']}",
             digest=digest,
             records=records,
             created_at=_now(),
+            source_job_id=job_id,
+            source_schema_id=preview["schema_id"],
         )
