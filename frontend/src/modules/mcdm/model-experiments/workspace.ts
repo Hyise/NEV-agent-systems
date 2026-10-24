@@ -17,6 +17,7 @@ export function createModelExperimentWorkspace(
   api: ModelExperimentApi,
   projectId: Ref<string>,
   schemaId: Ref<string>,
+  availableMonths: Ref<number> = ref(0),
 ) {
   const capabilities = ref<ModelCapability[]>([]);
   const runs = ref<ModelExperimentRun[]>([]);
@@ -32,6 +33,7 @@ export function createModelExperimentWorkspace(
   const busy = ref(false);
   const error = ref("");
   let active = false;
+  let splitDefaultsInitialized = false;
   let generation = 0;
   let timer: ReturnType<typeof setTimeout> | undefined;
 
@@ -40,6 +42,18 @@ export function createModelExperimentWorkspace(
     selectedModelKeys.value = capabilities.value
       .filter((item) => item.available)
       .map((item) => item.key);
+  }
+
+  function selectSplitDefaults() {
+    if (splitDefaultsInitialized || !availableMonths.value) return;
+    if (availableMonths.value < 5) {
+      validationMonths.value = 1;
+      testMonths.value = 1;
+    } else {
+      validationMonths.value = 2;
+      testMonths.value = 2;
+    }
+    splitDefaultsInitialized = true;
   }
 
   function schedule() {
@@ -64,6 +78,7 @@ export function createModelExperimentWorkspace(
       capabilities.value = modelRows;
       runs.value = runPage.rows;
       selectDefaults();
+      selectSplitDefaults();
       if (
         !selectedRunId.value ||
         !runs.value.some((run) => run.id === selectedRunId.value)
@@ -95,6 +110,13 @@ export function createModelExperimentWorkspace(
   async function createRun() {
     if (!selectedModelKeys.value.length) {
       error.value = "请至少选择一个当前可运行的模型";
+      return;
+    }
+    if (
+      availableMonths.value > 0 &&
+      validationMonths.value + testMonths.value >= availableMonths.value
+    ) {
+      error.value = "验证集与测试集合计过大，请至少保留 1 个月作为训练集";
       return;
     }
     busy.value = true;
@@ -135,9 +157,13 @@ export function createModelExperimentWorkspace(
     runs.value = [];
     selectedRunId.value = "";
     selectedModelKeys.value = [];
+    validationMonths.value = 2;
+    testMonths.value = 2;
+    splitDefaultsInitialized = false;
     error.value = "";
     if (reload) void activate();
   });
+  watch(availableMonths, () => selectSplitDefaults());
 
   return {
     capabilities,

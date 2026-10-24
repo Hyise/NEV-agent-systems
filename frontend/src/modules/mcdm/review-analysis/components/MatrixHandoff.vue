@@ -25,6 +25,22 @@ const canMaterialize = computed(
     workspace.handoff.value?.state !== "materialized" &&
     !workspace.busy.value,
 );
+const canExcludeMissingSales = computed(
+  () =>
+    Boolean(preview.value?.stats.records) &&
+    Boolean(preview.value?.blockers.length) &&
+    !preview.value?.stats.missing_date_reviews &&
+    !preview.value?.failed_reviews &&
+    Boolean(
+      preview.value?.blockers.every(
+        (item) =>
+          item.issues.length > 0 &&
+          item.issues.every((issue) => issue.code === "missing_sales"),
+      ),
+    ) &&
+    workspace.handoff.value?.state !== "materialized" &&
+    !workspace.busy.value,
+);
 
 function hasIssue(item: MatrixBlocker, codes: string[]) {
   return item.issues.some((issue) => codes.includes(issue.code));
@@ -71,8 +87,20 @@ async function preparePost2026Rerun() {
   document.querySelector<HTMLInputElement>("#review-date-from")?.focus();
 }
 
-async function materialize() {
-  if (!(await workspace.materializeMatrix())) return;
+async function materialize(
+  exclusionPolicy: "strict" | "exclude_missing_sales" = "strict",
+) {
+  if (exclusionPolicy === "exclude_missing_sales" && preview.value) {
+    const coverage = (
+      (preview.value.stats.records / preview.value.stats.groups) *
+      100
+    ).toFixed(2);
+    const confirmed = window.confirm(
+      `来源分组 ${preview.value.stats.groups} 个；将保留 ${preview.value.stats.records} 个可用分组，排除 ${preview.value.stats.blocked_groups} 个仅缺少销量的分组，覆盖率 ${coverage}%。排除名单会写入快照，是否继续？`,
+    );
+    if (!confirmed) return;
+  }
+  if (!(await workspace.materializeMatrix(exclusionPolicy))) return;
   await main.loadWorkspace();
 }
 
@@ -130,7 +158,7 @@ async function enterExperiments() {
         <CircleAlert :size="19" aria-hidden="true" />
         <div>
           <h3 id="matrix-resolution-title">生成前需要处理</h3>
-          <p>每项问题都提供对应入口；处理后返回这里重新读取预览。</p>
+          <p>可补齐的问题应先处理；仅缺销量且确认无法取得时，可以审计排除。</p>
         </div>
       </header>
 
@@ -146,6 +174,25 @@ async function enterExperiments() {
           @click="workspace.control('retry-failures')"
         >
           重试失败评论
+        </button>
+      </article>
+
+      <article v-if="canExcludeMissingSales" class="matrix-resolution-item">
+        <div>
+          <strong>仅剩 {{ preview.blockers.length }} 个销量缺口</strong>
+          <span
+            >可排除这些分组并用其余
+            {{ preview.stats.records }}
+            个分组继续测试；原始评论不会删除，排除名单会随快照保存。</span
+          >
+        </div>
+        <button
+          class="btn primary"
+          type="button"
+          :disabled="workspace.busy.value"
+          @click="materialize('exclude_missing_sales')"
+        >
+          排除缺口并生成可用样本快照
         </button>
       </article>
 
@@ -233,7 +280,7 @@ async function enterExperiments() {
         <button
           class="btn primary"
           :disabled="!canMaterialize"
-          @click="materialize"
+          @click="materialize()"
         >
           生成评价矩阵快照
         </button>
@@ -250,7 +297,7 @@ async function enterExperiments() {
         >当前准则已有权威数据集，不会重复生成或替换。</span
       >
       <span v-else-if="preview && !canMaterialize"
-        >请按“生成前需要处理”中的入口完成必要数据</span
+        >请处理必要数据，或在仅缺销量时使用上方的审计排除入口</span
       >
     </div>
 
@@ -263,8 +310,13 @@ async function enterExperiments() {
       <div>
         <strong>{{ workspace.generatedDataset.value.name }}</strong>
         <span
-          >{{ workspace.generatedDataset.value.records }} 条记录 · 快照
-          {{ workspace.generatedDataset.value.sha256.slice(0, 10) }}</span
+          >{{
+            workspace.generatedDataset.value.included_count ??
+            workspace.generatedDataset.value.records
+          }}
+          条纳入 ·
+          {{ workspace.generatedDataset.value.excluded_count ?? 0 }} 条排除 ·
+          快照 {{ workspace.generatedDataset.value.sha256.slice(0, 10) }}</span
         >
       </div>
       <button class="btn secondary" @click="enterExperiments">

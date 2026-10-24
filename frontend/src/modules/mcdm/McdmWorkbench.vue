@@ -152,6 +152,7 @@ const modelExperimentWorkspace = createModelExperimentWorkspace(
   createModelExperimentApi(),
   projectId,
   workspace.schemaId,
+  computed(() => overview.value?.stats.months ?? 0),
 );
 provideModelExperimentWorkspace(modelExperimentWorkspace);
 const activePage = computed(

@@ -349,6 +349,40 @@ describe("review analysis workspace", () => {
     workspace.deactivate();
   });
 
+  it("forwards the explicit missing-sales exclusion policy", async () => {
+    const api = fakeApi();
+    api.listJobs.mockResolvedValue({
+      rows: [
+        {
+          id: "done",
+          schema_id: "s",
+          job_type: "review_annotation",
+          status: "completed",
+        },
+      ],
+      total: 1,
+      page: 1,
+      page_size: 20,
+    });
+    const workspace = createReviewAnalysisWorkspace(
+      api,
+      ref("p"),
+      ref("s"),
+      ref("frozen"),
+    );
+    await workspace.activate();
+
+    await workspace.materializeMatrix("exclude_missing_sales");
+
+    expect(api.materializeDataset).toHaveBeenCalledWith(
+      "p",
+      "done",
+      "s",
+      "exclude_missing_sales",
+    );
+    workspace.deactivate();
+  });
+
   it("offers a fingerprint-compatible job without mixing unrelated history", async () => {
     const api = fakeApi();
     api.getHandoff.mockResolvedValue({
@@ -374,6 +408,7 @@ describe("review analysis workspace", () => {
         },
         failed_reviews: 0,
         blocker_counts: { missing_sales: 41 },
+        exclusion_eligible: true,
         first_blocker: null,
       },
       dataset: null,
@@ -395,6 +430,59 @@ describe("review analysis workspace", () => {
       source_schema_version: 1,
     });
     expect(api.getMatrixPreview).toHaveBeenCalledWith("p", "old-v1");
+    workspace.deactivate();
+  });
+
+  it("selects the usable handoff job when a newer failed job is listed first", async () => {
+    const api = fakeApi();
+    api.listJobs.mockResolvedValue({
+      rows: [
+        { id: "new-failed", job_type: "review_annotation", status: "failed" },
+        { id: "usable", job_type: "review_annotation", status: "completed" },
+      ],
+      total: 2,
+      page: 1,
+      page_size: 20,
+    });
+    api.getHandoff.mockResolvedValue({
+      state: "blocked",
+      target_schema_id: "s",
+      target_schema_version: 1,
+      target_schema_status: "frozen",
+      compatibility: "exact",
+      job: {
+        id: "usable",
+        status: "completed",
+        source_schema_id: "s",
+        source_schema_version: 1,
+      },
+      matrix: {
+        stats: {
+          source_reviews: 300,
+          groups: 300,
+          records: 259,
+          blocked_groups: 41,
+          missing_date_reviews: 0,
+          unmentioned_criterion_groups: 0,
+        },
+        failed_reviews: 0,
+        blocker_counts: { missing_sales: 41 },
+        exclusion_eligible: true,
+        first_blocker: null,
+      },
+      dataset: null,
+    });
+    const workspace = createReviewAnalysisWorkspace(
+      api,
+      ref("p"),
+      ref("s"),
+      ref("frozen"),
+    );
+
+    await workspace.activate();
+
+    expect(workspace.selectedJobId.value).toBe("usable");
+    expect(api.getMatrixPreview).toHaveBeenCalledWith("p", "usable");
     workspace.deactivate();
   });
 
@@ -549,6 +637,11 @@ describe("review analysis workspace", () => {
         name: "人工数据",
         sha256: "f".repeat(64),
         record_count: 1,
+        included_count: 1,
+        excluded_count: 0,
+        source_group_count: 1,
+        coverage_rate: 1,
+        exclusions: [],
       },
     });
     const workspace = createReviewAnalysisWorkspace(

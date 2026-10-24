@@ -92,6 +92,14 @@ class ReviewAnalysisRepository:
                     target_schema_id TEXT NOT NULL,
                     created_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS review_matrix_dataset_exclusions (
+                    dataset_id TEXT NOT NULL REFERENCES datasets(id) ON DELETE CASCADE,
+                    month TEXT NOT NULL,
+                    series_id TEXT NOT NULL,
+                    series_name TEXT NOT NULL,
+                    issues_json TEXT NOT NULL,
+                    PRIMARY KEY(dataset_id,month,series_id)
+                );
                 CREATE INDEX IF NOT EXISTS ix_review_analysis_jobs_project
                     ON review_analysis_jobs(project_id,created_at);
                 CREATE INDEX IF NOT EXISTS ix_review_analysis_job_reviews_pending
@@ -382,10 +390,39 @@ class ReviewAnalysisRepository:
                 """,
                 (project_id, schema_id),
             ).fetchone()
+            exclusions = [] if row is None else [
+                {
+                    "month": item["month"],
+                    "series_id": item["series_id"],
+                    "series_name": item["series_name"],
+                    "issues": json.loads(item["issues_json"]),
+                }
+                for item in connection.execute(
+                    """
+                    SELECT month,series_id,series_name,issues_json
+                    FROM review_matrix_dataset_exclusions
+                    WHERE dataset_id=? ORDER BY month,series_id
+                    """,
+                    (row["id"],),
+                )
+            ]
         if row is None:
             return None
         result = dict(row)
-        result["record_count"] = len(json.loads(result.pop("records")))
+        included_count = len(json.loads(result.pop("records")))
+        source_group_count = included_count + len(exclusions)
+        result.update(
+            {
+                "record_count": included_count,
+                "included_count": included_count,
+                "excluded_count": len(exclusions),
+                "source_group_count": source_group_count,
+                "coverage_rate": (
+                    included_count / source_group_count if source_group_count else 0.0
+                ),
+                "exclusions": exclusions,
+            }
+        )
         return result
 
     @staticmethod
@@ -907,7 +944,9 @@ class ReviewAnalysisRepository:
         created_at: str,
         source_job_id: str,
         source_schema_id: str,
+        exclusions: list[dict[str, Any]] | None = None,
     ):
+        exclusions = exclusions or []
         with self.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             existing = connection.execute(
@@ -948,10 +987,45 @@ class ReviewAnalysisRepository:
                         created_at,
                     ),
                 )
+                connection.executemany(
+                    """
+                    INSERT INTO review_matrix_dataset_exclusions (
+                        dataset_id,month,series_id,series_name,issues_json
+                    ) VALUES (?,?,?,?,?)
+                    """,
+                    [
+                        (
+                            existing["id"],
+                            item["month"],
+                            item["series_id"],
+                            item["series_name"],
+                            _json(item["issues"]),
+                        )
+                        for item in exclusions
+                    ],
+                )
             lineage = connection.execute(
                 "SELECT * FROM review_matrix_dataset_lineage WHERE dataset_id=?",
                 (existing["id"],),
             ).fetchone()
+            stored_exclusions = [
+                {
+                    "month": item["month"],
+                    "series_id": item["series_id"],
+                    "series_name": item["series_name"],
+                    "issues": json.loads(item["issues_json"]),
+                }
+                for item in connection.execute(
+                    """
+                    SELECT month,series_id,series_name,issues_json
+                    FROM review_matrix_dataset_exclusions
+                    WHERE dataset_id=? ORDER BY month,series_id
+                    """,
+                    (existing["id"],),
+                )
+            ]
+        included_count = len(json.loads(existing["records"]))
+        source_group_count = included_count + len(stored_exclusions)
         return {
             "id": existing["id"],
             "name": existing["name"],
@@ -961,4 +1035,11 @@ class ReviewAnalysisRepository:
             "schema_id": schema_id,
             "source_job_id": lineage["source_job_id"] if lineage else None,
             "source_schema_id": lineage["source_schema_id"] if lineage else None,
+            "included_count": included_count,
+            "excluded_count": len(stored_exclusions),
+            "source_group_count": source_group_count,
+            "coverage_rate": (
+                included_count / source_group_count if source_group_count else 0.0
+            ),
+            "exclusions": stored_exclusions,
         }

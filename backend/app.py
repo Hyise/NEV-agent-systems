@@ -187,9 +187,23 @@ def create_app(
         with store.connect() as conn:
             row = conn.execute('SELECT * FROM datasets WHERE project_id=? AND schema_id=? ORDER BY created_at DESC LIMIT 1',
                                (project['id'], schema['id'])).fetchone()
+            excluded_count = 0 if row is None else conn.execute(
+                'SELECT COUNT(*) FROM review_matrix_dataset_exclusions WHERE dataset_id=?',
+                (row['id'],),
+            ).fetchone()[0]
         if row is None:
             return [], None
-        return json.loads(row['records']), {k: row[k] for k in ['id', 'name', 'sha256', 'created_at']}
+        records = json.loads(row['records'])
+        included_count = len(records)
+        source_group_count = included_count + excluded_count
+        metadata = {k: row[k] for k in ['id', 'name', 'sha256', 'created_at']}
+        metadata.update({
+            'included_count': included_count,
+            'excluded_count': excluded_count,
+            'source_group_count': source_group_count,
+            'coverage_rate': included_count / source_group_count if source_group_count else 0.0,
+        })
+        return records, metadata
 
     def context(project_id, schema_id=None):
         project, schema = project_and_schema(project_id, schema_id)

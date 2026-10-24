@@ -84,6 +84,45 @@ def test_schema_workflow_and_version_isolation(client):
     assert client.post(base + '/schemas/' + schema['id'] + '/fork').status_code == 409
 
 
+def test_overview_exposes_dataset_exclusion_audit(client):
+    base, schema = new_custom(client)
+    schema = freeze(client, base, schema)
+    with client.app.state.store.connect() as connection:
+        connection.execute(
+            "INSERT INTO datasets VALUES (?,?,?,?,?,?,?)",
+            (
+                "audited",
+                schema["project_id"],
+                schema["id"],
+                "可用销量样本快照",
+                "a" * 64,
+                '[{"month":"2026-01","model":"车系一","sales":100,"share":1,"pressure":0,"probabilities":{}}]',
+                "2026-10-23T00:00:00+00:00",
+            ),
+        )
+        connection.execute(
+            """
+            INSERT INTO review_matrix_dataset_exclusions (
+                dataset_id,month,series_id,series_name,issues_json
+            ) VALUES (?,?,?,?,?)
+            """,
+            (
+                "audited",
+                "2026-01",
+                "2",
+                "车系二",
+                '[{"code":"missing_sales","message":"没有匹配到销量"}]',
+            ),
+        )
+
+    overview = client.get(base + '/overview').json()
+
+    assert overview["dataset"]["included_count"] == 1
+    assert overview["dataset"]["excluded_count"] == 1
+    assert overview["dataset"]["source_group_count"] == 2
+    assert overview["dataset"]["coverage_rate"] == 0.5
+
+
 def test_optimistic_revision_and_persistence(client):
     base, schema = new_custom(client)
     body = {'criteria': [{'name': '续航评价', 'labels': ['高', '低']}], 'revision': schema['revision']}

@@ -189,7 +189,11 @@ export function createReviewAnalysisWorkspace(
         !selectedJobId.value ||
         !jobs.value.some((job) => job.id === selectedJobId.value)
       ) {
-        selectedJobId.value = activeJob.value?.id ?? jobs.value[0]?.id ?? "";
+        selectedJobId.value =
+          handoffResult.job?.id ??
+          activeJob.value?.id ??
+          jobs.value[0]?.id ??
+          "";
       }
       const resultJob =
         activeJob.value?.job_type === "review_annotation"
@@ -426,11 +430,20 @@ export function createReviewAnalysisWorkspace(
     );
     if (result) matrixPreview.value = result;
   }
-  async function materializeMatrix() {
+  async function materializeMatrix(
+    exclusionPolicy: "strict" | "exclude_missing_sales" = "strict",
+  ) {
     const jobId = selectedJobId.value;
     if (!jobId || handoff.value?.state === "materialized") return false;
     const result = await guarded(() =>
-      api.materializeDataset(projectId.value, jobId, schemaId.value),
+      exclusionPolicy === "strict"
+        ? api.materializeDataset(projectId.value, jobId, schemaId.value)
+        : api.materializeDataset(
+            projectId.value,
+            jobId,
+            schemaId.value,
+            exclusionPolicy,
+          ),
     );
     if (!result) return false;
     generatedDataset.value = result;

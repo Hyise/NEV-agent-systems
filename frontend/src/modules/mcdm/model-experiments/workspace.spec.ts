@@ -1,4 +1,4 @@
-import { ref } from "vue";
+import { nextTick, ref } from "vue";
 import { describe, expect, it, vi } from "vitest";
 import type { ModelExperimentRun } from "./api";
 import { createModelExperimentWorkspace } from "./workspace";
@@ -80,5 +80,57 @@ describe("model experiment workspace", () => {
     await workspace.activate();
     workspace.toggleModel("lightgbm");
     expect(workspace.selectedModelKeys.value).toEqual(["ridge"]);
+  });
+
+  it("keeps a training window when only four months are available", async () => {
+    const api = fakeApi();
+    const workspace = createModelExperimentWorkspace(
+      api,
+      ref("p"),
+      ref("s"),
+      ref(4),
+    );
+
+    await workspace.activate();
+
+    expect(workspace.validationMonths.value).toBe(1);
+    expect(workspace.testMonths.value).toBe(1);
+  });
+
+  it("updates split defaults when the month count arrives after activation", async () => {
+    const api = fakeApi();
+    const months = ref(0);
+    const workspace = createModelExperimentWorkspace(
+      api,
+      ref("p"),
+      ref("s"),
+      months,
+    );
+    await workspace.activate();
+    expect(workspace.validationMonths.value).toBe(2);
+
+    months.value = 4;
+    await nextTick();
+
+    expect(workspace.validationMonths.value).toBe(1);
+    expect(workspace.testMonths.value).toBe(1);
+  });
+
+  it("rejects a split that leaves no training month before creating a run", async () => {
+    const api = fakeApi();
+    const workspace = createModelExperimentWorkspace(
+      api,
+      ref("p"),
+      ref("s"),
+      ref(4),
+    );
+    await workspace.activate();
+    workspace.validationMonths.value = 2;
+    workspace.testMonths.value = 2;
+
+    await workspace.createRun();
+
+    expect(api.create).not.toHaveBeenCalled();
+    expect(workspace.error.value).toContain("至少保留 1 个月作为训练集");
   });
 });

@@ -88,6 +88,80 @@ def complete_single_annotation(client, repo, schema_id="frozen"):
     return repo.get_job(job["id"])
 
 
+def complete_two_series_annotation(client, repo, schema_id="frozen"):
+    timestamp = "2026-10-23T00:00:00+00:00"
+    with repo.connect() as connection:
+        connection.execute(
+            "INSERT INTO vehicle_series VALUES (?,?,?,?,?,?,?,?)",
+            ("autohome", "2", "车系二", "https://b", "https://b", 2, timestamp, timestamp),
+        )
+        connection.execute(
+            """
+            INSERT INTO reviews (
+                platform,review_id,series_id,series_name_snapshot,source_url,
+                original_review_json,content_hash,first_collected_at,last_confirmed_at,
+                asset_id,source_kind
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "autohome",
+                "r2",
+                "2",
+                "车系二",
+                "https://y",
+                json.dumps(
+                    {"posttime": "2026-01-06", "feeling_summary": "车内空间宽敞"},
+                    ensure_ascii=False,
+                ),
+                "2" * 64,
+                timestamp,
+                timestamp,
+                "autohome:r2",
+                "crawler",
+            ),
+        )
+        connection.execute(
+            "INSERT INTO review_asset_metadata VALUES (?,?,?,?,?,?,?)",
+            ("autohome:r2", 1, "[]", "", 1, timestamp, timestamp),
+        )
+    created = client.post(
+        "/api/projects/p/review-analysis/annotation-jobs",
+        json={
+            "schema_id": schema_id,
+            "selected_series_ids": ["1", "2"],
+            "limit": 2,
+        },
+    ).json()
+    job = repo.get_job(created["id"])
+    for snapshot in repo.pending_review_snapshots(job["id"]):
+        result = repo.save_result(
+            content_hash=snapshot["content_hash"],
+            schema_fingerprint=job["schema_fingerprint"],
+            model=job["model"],
+            prompt_version=job["prompt_manifests"][0]["version"],
+            prompt_sha256=job["prompt_manifests"][0]["sha256"],
+            result={
+                "annotations": [
+                    {
+                        "criterion": "空间",
+                        "label": "宽敞",
+                        "evidence": ["空间宽敞"],
+                        "basis": "评论明确描述空间",
+                    }
+                ],
+                "unmatched_evidence": [],
+            },
+            input_tokens=10,
+            output_tokens=5,
+            cached_tokens=0,
+        )
+        repo.mark_review_succeeded(
+            job["id"], snapshot["snapshot_id"], result["id"], cached=False
+        )
+    repo.set_job_state(job["id"], "completed")
+    return repo.get_job(job["id"])
+
+
 def add_matching_sales(repo):
     SalesCollectionRepository(repo.path)
     with repo.connect() as connection:
@@ -291,6 +365,78 @@ def test_handoff_prefers_usable_exact_job_over_newer_terminal_failure(tmp_path):
     assert response.status_code == 200
     assert response.json()["state"] == "ready"
     assert response.json()["job"]["id"] == usable["id"]
+
+
+def test_explicit_missing_sales_exclusion_persists_an_auditable_snapshot(tmp_path):
+    client, repo, _ = client_for(tmp_path)
+    job = complete_two_series_annotation(client, repo)
+    add_matching_sales(repo)
+
+    strict = client.post(
+        f"/api/projects/p/review-analysis/jobs/{job['id']}/datasets",
+        json={"target_schema_id": "frozen"},
+    )
+    excluded = client.post(
+        f"/api/projects/p/review-analysis/jobs/{job['id']}/datasets",
+        json={
+            "target_schema_id": "frozen",
+            "exclusion_policy": "exclude_missing_sales",
+        },
+    )
+    repeated = client.post(
+        f"/api/projects/p/review-analysis/jobs/{job['id']}/datasets",
+        json={
+            "target_schema_id": "frozen",
+            "exclusion_policy": "exclude_missing_sales",
+        },
+    )
+
+    assert strict.status_code == 409
+    assert excluded.status_code == 201, excluded.text
+    assert excluded.json()["included_count"] == 1
+    assert excluded.json()["excluded_count"] == 1
+    assert excluded.json()["source_group_count"] == 2
+    assert excluded.json()["coverage_rate"] == 0.5
+    assert excluded.json()["exclusions"] == [
+        {
+            "month": "2026-01",
+            "series_id": "2",
+            "series_name": "车系二",
+            "issues": [{"code": "missing_sales", "message": "没有匹配到销量"}],
+        }
+    ]
+    assert repeated.json() == excluded.json()
+    with repo.connect() as connection:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM datasets WHERE project_id='p' AND schema_id='frozen'"
+        ).fetchone()[0] == 1
+        assert connection.execute(
+            "SELECT COUNT(*) FROM review_matrix_dataset_exclusions"
+        ).fetchone()[0] == 1
+
+
+def test_missing_sales_exclusion_rejects_mixed_or_empty_snapshots(tmp_path):
+    client, repo, _ = client_for(tmp_path)
+    job = complete_single_annotation(client, repo)
+
+    empty = client.post(
+        f"/api/projects/p/review-analysis/jobs/{job['id']}/datasets",
+        json={"exclusion_policy": "exclude_missing_sales"},
+    )
+    with repo.connect() as connection:
+        connection.execute(
+            "UPDATE review_analysis_job_reviews SET review_date='2025-12-05' WHERE job_id=?",
+            (job["id"],),
+        )
+    mixed = client.post(
+        f"/api/projects/p/review-analysis/jobs/{job['id']}/datasets",
+        json={"exclusion_policy": "exclude_missing_sales"},
+    )
+
+    assert empty.status_code == 409
+    assert "没有可保存" in empty.text
+    assert mixed.status_code == 409
+    assert "不可排除" in mixed.text
 
 
 def test_sources_endpoint_aggregates_manual_and_autohome_by_series(tmp_path):

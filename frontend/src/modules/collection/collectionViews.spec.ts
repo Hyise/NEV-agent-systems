@@ -76,6 +76,7 @@ describe("guided collection views", () => {
     expect(dataCenterSource).toContain("materializeHandoff");
     expect(dataCenterSource).toContain("处理阻塞");
     expect(dataCenterSource).toContain("复用 V");
+    expect(dataCenterSource).toContain("进入模型实验");
   });
   it("provides direct handling actions for every matrix blocker category", () => {
     expect(matrixHandoffSource).toContain('intent: "sales-gap"');
@@ -84,6 +85,21 @@ describe("guided collection views", () => {
     expect(matrixHandoffSource).toContain("改用 2026 年后范围重跑");
     expect(matrixHandoffSource).toContain("中性均匀分布");
     expect(matrixHandoffSource).not.toContain("处理完上方阻塞项后即可生成");
+  });
+  it("confirms the complete exclusion audit before materializing", () => {
+    const dataConfirmation = dataCenterSource.slice(
+      dataCenterSource.indexOf("window.confirm"),
+      dataCenterSource.indexOf("window.confirm") + 500,
+    );
+    const analysisConfirmation = matrixHandoffSource.slice(
+      matrixHandoffSource.indexOf("window.confirm"),
+      matrixHandoffSource.indexOf("window.confirm") + 500,
+    );
+    for (const source of [dataConfirmation, analysisConfirmation]) {
+      expect(source).toContain("来源分组");
+      expect(source).toContain("覆盖率");
+    }
+    expect(dataCenterSource).not.toContain("exclusions.slice(0, 20)");
   });
   it("selects exactly one recommended action for each acquisition state", () => {
     expect(resolveAcquisitionGuidance(overview(0, 0), catalog(0)).action).toBe(

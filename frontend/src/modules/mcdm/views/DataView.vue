@@ -49,9 +49,15 @@ const handoffState = computed(() => {
 const handoffAction = computed(() => {
   if (matrixHandoff.value?.state === "not_frozen") return "前往准则工作台";
   if (matrixHandoff.value?.state === "ready") return "生成评价矩阵快照";
-  if (matrixHandoff.value?.state === "blocked") return "处理阻塞";
+  if (
+    matrixHandoff.value?.state === "blocked" &&
+    matrixHandoff.value.matrix?.exclusion_eligible
+  )
+    return "排除销量缺口并生成快照";
+  if (matrixHandoff.value?.state === "blocked") return "处理阻塞项";
   if (matrixHandoff.value?.state === "processing") return "查看处理进度";
   if (matrixHandoff.value?.state === "failed") return "查看失败任务";
+  if (matrixHandoff.value?.state === "materialized") return "进入模型实验";
   return "开始评论分析";
 });
 
@@ -62,6 +68,25 @@ function continueHandoff() {
   }
   if (matrixHandoff.value?.state === "ready") {
     void materializeHandoff();
+    return;
+  }
+  if (
+    matrixHandoff.value?.state === "blocked" &&
+    matrixHandoff.value.matrix?.exclusion_eligible
+  ) {
+    const matrix = matrixHandoff.value.matrix;
+    const coverage = (
+      (matrix.stats.records / matrix.stats.groups) *
+      100
+    ).toFixed(2);
+    const confirmed = window.confirm(
+      `来源分组 ${matrix.stats.groups} 个；将保留 ${matrix.stats.records} 个可用分组，排除 ${matrix.stats.blocked_groups} 个仅缺少销量的分组，覆盖率 ${coverage}%。排除名单会随快照保存，是否继续？`,
+    );
+    if (confirmed) void materializeHandoff("exclude_missing_sales");
+    return;
+  }
+  if (matrixHandoff.value?.state === "materialized") {
+    navigate("experiments");
     return;
   }
   navigate("review-analysis");
@@ -123,7 +148,7 @@ function continueHandoff() {
       }}
     </div>
     <section
-      v-if="!isPreset && matrixHandoff && !overview.dataset"
+      v-if="!isPreset && matrixHandoff"
       class="dataset-handoff"
       aria-labelledby="dataset-handoff-title"
     >
@@ -132,7 +157,7 @@ function continueHandoff() {
           <span class="section-kicker">内部研究结果</span>
           <h3 id="dataset-handoff-title">评论研究交接</h3>
           <p>
-            评论判定先按月份与车系聚合，再与同期销量匹配；全部通过后才能形成正式数据快照。
+            评论判定先按月份与车系聚合，再与同期销量匹配；无法取得销量时可显式排除，并保留审计记录。
           </p>
         </div>
         <span
@@ -144,7 +169,32 @@ function continueHandoff() {
         >
       </header>
 
-      <div v-if="matrixHandoff.matrix" class="dataset-handoff__track">
+      <div
+        v-if="matrixHandoff.state === 'materialized' && matrixHandoff.dataset"
+        class="dataset-handoff__track"
+      >
+        <div>
+          <span>来源分组</span>
+          <strong>{{ count(matrixHandoff.dataset.source_group_count) }}</strong>
+          <small>生成前总量</small>
+        </div>
+        <div>
+          <span>纳入快照</span>
+          <strong>{{ count(matrixHandoff.dataset.included_count) }}</strong>
+          <small>可用于模型</small>
+        </div>
+        <div :class="{ blocked: matrixHandoff.dataset.excluded_count }">
+          <span>审计排除</span>
+          <strong>{{ count(matrixHandoff.dataset.excluded_count) }}</strong>
+          <small>原始数据仍保留</small>
+        </div>
+        <div>
+          <span>样本覆盖</span>
+          <strong>{{ pct(matrixHandoff.dataset.coverage_rate) }}</strong>
+          <small>纳入 / 来源</small>
+        </div>
+      </div>
+      <div v-else-if="matrixHandoff.matrix" class="dataset-handoff__track">
         <div>
           <span>评论快照</span>
           <strong>{{
@@ -170,6 +220,7 @@ function continueHandoff() {
           <small>阻塞分组</small>
         </div>
       </div>
+
       <div v-else class="dataset-handoff__pending">
         <Database :size="24" aria-hidden="true" />
         <span v-if="matrixHandoff.state === 'processing'"
@@ -183,6 +234,25 @@ function continueHandoff() {
         >
         <span v-else>当前版本还没有可交接的评论标注任务。</span>
       </div>
+
+      <details
+        v-if="matrixHandoff.dataset?.excluded_count"
+        class="matrix-coverage-note"
+      >
+        <summary>
+          查看 {{ count(matrixHandoff.dataset.excluded_count) }} 个排除分组
+        </summary>
+        <p>这些分组仅因缺少销量而未进入模型矩阵，评论与排除原因均未被删除。</p>
+        <ul>
+          <li
+            v-for="item in matrixHandoff.dataset.exclusions"
+            :key="item.month + ':' + item.series_id"
+          >
+            {{ item.month }} · {{ item.series_name }} ·
+            {{ item.issues.map((issue) => issue.message).join("；") }}
+          </li>
+        </ul>
+      </details>
 
       <div
         v-if="matrixHandoff.compatibility === 'fingerprint'"
@@ -198,11 +268,19 @@ function continueHandoff() {
       <footer class="dataset-handoff__actions">
         <div v-if="matrixHandoff.state === 'blocked'">
           <CircleAlert :size="17" aria-hidden="true" />
-          <span
+          <span v-if="matrixHandoff.matrix?.exclusion_eligible"
+            >有
+            {{ count(matrixHandoff.matrix?.stats.blocked_groups ?? 0) }}
+            个分组仅缺少销量；确认后可审计排除，剩余分组的月内份额会重新归一化。</span
+          >
+          <span v-else
             >还有
             {{ count(matrixHandoff.matrix?.stats.blocked_groups ?? 0) }}
-            个分组未通过，正式快照不会忽略这些样本。</span
+            个不可自动排除的分组，请进入评论分析处理。</span
           >
+        </div>
+        <div v-else-if="matrixHandoff.state === 'materialized'">
+          <span>该准则版本已有不可变权威快照，可直接进入模型实验。</span>
         </div>
         <div v-else>
           <span>所有操作都绑定当前准则 V{{ overview.schema.version }}。</span>
@@ -210,7 +288,7 @@ function continueHandoff() {
         <button
           class="btn primary"
           type="button"
-          :disabled="busy || saving || matrixHandoff.state === 'materialized'"
+          :disabled="busy || saving"
           @click="continueHandoff"
         >
           {{ handoffAction }} <ArrowRight :size="15" />

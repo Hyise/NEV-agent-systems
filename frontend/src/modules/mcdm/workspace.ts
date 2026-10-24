@@ -452,19 +452,31 @@ export function createWorkspace(
       : [...curveCriteria.value, name];
   }
 
-  async function materializeHandoff() {
+  async function materializeHandoff(
+    exclusionPolicy: "strict" | "exclude_missing_sales" = "strict",
+  ) {
     const jobId = matrixHandoff.value?.job?.id;
-    if (!jobId || matrixHandoff.value?.state !== "ready") return;
+    const canCreate =
+      matrixHandoff.value?.state === "ready" ||
+      (exclusionPolicy === "exclude_missing_sales" &&
+        matrixHandoff.value?.state === "blocked" &&
+        matrixHandoff.value.matrix?.exclusion_eligible);
+    if (!jobId || !canCreate) return;
     saving.value = true;
     error.value = "";
     try {
       const result = await submit<{ records: number }>(
         apiBase() +
           `/review-analysis/jobs/${encodeURIComponent(jobId)}/datasets`,
-        { target_schema_id: schemaId.value },
+        {
+          target_schema_id: schemaId.value,
+          ...(exclusionPolicy === "exclude_missing_sales"
+            ? { exclusion_policy: exclusionPolicy }
+            : {}),
+        },
       );
       await loadWorkspace();
-      toast(`已生成 ${count(result.records)} 条评价矩阵记录`);
+      toast(`已生成 ${count(result.records)} 条可用评价矩阵记录`);
     } catch (cause) {
       error.value = (cause as Error).message;
     } finally {

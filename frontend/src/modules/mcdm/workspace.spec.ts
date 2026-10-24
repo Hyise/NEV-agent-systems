@@ -81,6 +81,7 @@ const blockedHandoff: MatrixHandoff = {
     },
     failed_reviews: 0,
     blocker_counts: { missing_sales: 41 },
+    exclusion_eligible: true,
     first_blocker: null,
   },
   dataset: null,
@@ -166,6 +167,34 @@ describe("matrix data handoff", () => {
     expect(
       request.mock.calls.filter(([path]) => path.includes("/overview")),
     ).toHaveLength(2);
+  });
+
+  it("materializes a blocked handoff only through the explicit missing-sales policy", async () => {
+    const request = requestFor(blockedHandoff);
+    const submit = vi.fn(async () => ({
+      id: "dataset-v2",
+      records: 259,
+      included_count: 259,
+      excluded_count: 41,
+    }));
+    const workspace = createWorkspace(
+      request as unknown as ApiClient,
+      submit as unknown as PostClient,
+      false,
+    );
+    workspace.projectId.value = "p";
+    workspace.schemaId.value = "s2";
+    await workspace.loadWorkspace();
+
+    await workspace.materializeHandoff("exclude_missing_sales");
+
+    expect(submit).toHaveBeenCalledWith(
+      "/projects/p/review-analysis/jobs/job-v1/datasets",
+      {
+        target_schema_id: "s2",
+        exclusion_policy: "exclude_missing_sales",
+      },
+    );
   });
 
   it("clears schema-bound results while another criteria version is loading", async () => {

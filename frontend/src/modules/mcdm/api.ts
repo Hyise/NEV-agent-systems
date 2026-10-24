@@ -47,7 +47,15 @@ export interface Overview {
   months: string[];
   prediction_months: string[];
   stats: { records: number; models: number; months: number; criteria: number };
-  dataset: { id: string; name: string; sha256: string } | null;
+  dataset: {
+    id: string;
+    name: string;
+    sha256: string;
+    included_count?: number;
+    excluded_count?: number;
+    source_group_count?: number;
+    coverage_rate?: number;
+  } | null;
   source_labels: Record<string, string[]>;
   notes: string[];
   source: { archive_name: string; archive_sha256: string } | null;
@@ -96,6 +104,7 @@ export interface MatrixHandoff {
     };
     failed_reviews: number;
     blocker_counts: Record<string, number>;
+    exclusion_eligible: boolean;
     first_blocker: MatrixHandoffBlocker | null;
   } | null;
   dataset: {
@@ -103,6 +112,16 @@ export interface MatrixHandoff {
     name: string;
     sha256: string;
     record_count: number;
+    included_count: number;
+    excluded_count: number;
+    source_group_count: number;
+    coverage_rate: number;
+    exclusions: Array<{
+      month: string;
+      series_id: string;
+      series_name: string;
+      issues: Array<{ code: string; message: string }>;
+    }>;
     source_job_id?: string | null;
     source_schema_id?: string | null;
     target_schema_id?: string | null;

@@ -76,6 +76,7 @@ class ApplyBody(_Strict):
 
 class MaterializeBody(_Strict):
     target_schema_id: str | None = None
+    exclusion_policy: Literal["strict", "exclude_missing_sales"] = "strict"
 
 
 def _snapshots(assets, limit, sampling="series"):
@@ -202,6 +203,7 @@ def create_review_analysis_router(
                 project_id,
                 job_id,
                 body.target_schema_id if body is not None else None,
+                body.exclusion_policy if body is not None else "strict",
             )
         except KeyError as exc:
             raise HTTPException(404, "任务不存在") from exc

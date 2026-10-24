@@ -295,6 +295,17 @@ class ReviewMatrixService:
             or preview["stats"]["missing_date_reviews"]
             or preview["failed_reviews"]
         )
+        exclusion_eligible = bool(
+            preview["records"]
+            and preview["blockers"]
+            and not preview["stats"]["missing_date_reviews"]
+            and not preview["failed_reviews"]
+            and all(
+                blocker["issues"]
+                and all(issue["code"] == "missing_sales" for issue in blocker["issues"])
+                for blocker in preview["blockers"]
+            )
+        )
         return {
             "state": "blocked" if blocked else "ready",
             "target_schema_id": schema_id,
@@ -306,6 +317,7 @@ class ReviewMatrixService:
                 "stats": preview["stats"],
                 "failed_reviews": preview["failed_reviews"],
                 "blocker_counts": dict(blocker_counts),
+                "exclusion_eligible": exclusion_eligible,
                 "first_blocker": preview["blockers"][0]
                 if preview["blockers"]
                 else None,
@@ -314,7 +326,11 @@ class ReviewMatrixService:
         }
 
     def materialize(
-        self, project_id: str, job_id: str, target_schema_id: str | None = None
+        self,
+        project_id: str,
+        job_id: str,
+        target_schema_id: str | None = None,
+        exclusion_policy: str = "strict",
     ) -> dict[str, Any]:
         job = self.repository.get_job(job_id)
         if job is None or job["project_id"] != project_id:
@@ -340,14 +356,36 @@ class ReviewMatrixService:
                 "schema_id": target_schema_id,
                 "source_job_id": existing.get("source_job_id"),
                 "source_schema_id": existing.get("source_schema_id"),
+                "included_count": existing["included_count"],
+                "excluded_count": existing["excluded_count"],
+                "source_group_count": existing["source_group_count"],
+                "coverage_rate": existing["coverage_rate"],
+                "exclusions": existing["exclusions"],
             }
         preview = self.preview(project_id, job_id)
-        if (
-            preview["blockers"]
-            or preview["stats"]["missing_date_reviews"]
-            or preview["failed_reviews"]
-        ):
+        if preview["stats"]["missing_date_reviews"] or preview["failed_reviews"]:
             raise ValueError("评价矩阵仍有失败评论、缺失日期、销量或历史压力问题")
+        exclusions: list[dict[str, Any]] = []
+        if preview["blockers"]:
+            if exclusion_policy == "strict":
+                raise ValueError("评价矩阵仍有失败评论、缺失日期、销量或历史压力问题")
+            ineligible = [
+                blocker
+                for blocker in preview["blockers"]
+                if not blocker["issues"]
+                or any(issue["code"] != "missing_sales" for issue in blocker["issues"])
+            ]
+            if ineligible:
+                raise ValueError("阻塞中含有销量缺失以外的问题，不可排除后生成数据集")
+            exclusions = [
+                {
+                    "month": blocker["month"],
+                    "series_id": blocker["series_id"],
+                    "series_name": blocker["series_name"],
+                    "issues": blocker["issues"],
+                }
+                for blocker in preview["blockers"]
+            ]
         if not preview["records"]:
             raise ValueError("没有可保存的评价矩阵记录")
         records = preview["records"]
@@ -369,4 +407,5 @@ class ReviewMatrixService:
             created_at=_now(),
             source_job_id=job_id,
             source_schema_id=preview["schema_id"],
+            exclusions=exclusions,
         )

@@ -119,6 +119,16 @@ export interface GeneratedDataset {
   schema_id?: string;
   source_job_id?: string;
   source_schema_id?: string;
+  included_count?: number;
+  excluded_count?: number;
+  source_group_count?: number;
+  coverage_rate?: number;
+  exclusions?: Array<{
+    month: string;
+    series_id: string;
+    series_name: string;
+    issues: Array<{ code: string; message: string }>;
+  }>;
 }
 
 const base = (projectId: string) =>
@@ -194,12 +204,18 @@ export function createReviewAnalysisApi(fetcher = api) {
       projectId: string,
       jobId: string,
       targetSchemaId: string,
+      exclusionPolicy: "strict" | "exclude_missing_sales" = "strict",
     ) =>
       request<GeneratedDataset>(
         `${base(projectId)}/jobs/${encodeURIComponent(jobId)}/datasets`,
         {
           method: "POST",
-          body: JSON.stringify({ target_schema_id: targetSchemaId }),
+          body: JSON.stringify({
+            target_schema_id: targetSchemaId,
+            ...(exclusionPolicy === "exclude_missing_sales"
+              ? { exclusion_policy: exclusionPolicy }
+              : {}),
+          }),
         },
       ),
   };
