@@ -8,6 +8,7 @@ import {
   Play,
   XCircle,
 } from "lucide-vue-next";
+import { METRIC_GUIDANCE, modelGuidance } from "../model-experiments/guidance";
 import { useModelExperimentWorkspace } from "../model-experiments/workspace";
 import { count, pct, useWorkspace } from "../workspace";
 
@@ -118,6 +119,9 @@ const metricName = (name: string) =>
                   model.available
                     ? `实现 ${model.implementation_version}`
                     : model.reason
+                }}</small>
+                <small class="model-option__summary">{{
+                  modelGuidance(model.key).summary
                 }}</small></span
               >
               <Check
@@ -126,6 +130,31 @@ const metricName = (name: string) =>
                 aria-hidden="true"
               />
             </label>
+            <details class="model-guide">
+              <summary>了解各模型的原理、适用价值与局限</summary>
+              <div class="model-guide__grid">
+                <article
+                  v-for="model in workspace.capabilities.value"
+                  :key="`guide-${model.key}`"
+                >
+                  <h3>{{ model.label }}</h3>
+                  <dl>
+                    <div>
+                      <dt>原理</dt>
+                      <dd>{{ modelGuidance(model.key).principle }}</dd>
+                    </div>
+                    <div>
+                      <dt>适用价值</dt>
+                      <dd>{{ modelGuidance(model.key).value }}</dd>
+                    </div>
+                    <div>
+                      <dt>注意事项</dt>
+                      <dd>{{ modelGuidance(model.key).caution }}</dd>
+                    </div>
+                  </dl>
+                </article>
+              </div>
+            </details>
           </fieldset>
 
           <div class="experiment-parameters">
@@ -291,6 +320,24 @@ const metricName = (name: string) =>
             <p class="run-metric-caption">
               下表仅统计测试月份；验证集指标与模型参数一同保存在运行记录中，不参与测试成绩计算。
             </p>
+            <section class="metric-guide" aria-label="评价指标说明">
+              <header>
+                <h3>如何阅读评价指标</h3>
+                <p>
+                  四项指标均基于本次运行的测试月份。比较模型时应保持数据切分、车型范围和样本量一致，不能用单一指标代替完整判断。
+                </p>
+              </header>
+              <div class="metric-guide__grid">
+                <article v-for="metric in METRIC_GUIDANCE" :key="metric.key">
+                  <div>
+                    <strong>{{ metric.label }}</strong>
+                    <span>{{ metric.direction }}</span>
+                  </div>
+                  <p>{{ metric.meaning }}</p>
+                  <small>{{ metric.caution }}</small>
+                </article>
+              </div>
+            </section>
             <div class="table-scroll">
               <table>
                 <thead>
