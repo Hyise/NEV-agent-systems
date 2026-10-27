@@ -98,6 +98,52 @@ def test_clamped_bspline_basis_including_right_boundary_is_partition_of_unity():
     assert basis[-1, -1] == pytest.approx(1.0)
 
 
+def test_beast_persists_monthly_diagnostics_with_zero_pressure_from_2026():
+    future_rows = records(4)
+    for month_index in range(4):
+        for row in future_rows[month_index * 3 : (month_index + 1) * 3]:
+            row["month"] = f"2026-{month_index + 1:02d}"
+            row["pressure"] = 0.9
+    snapshot = build_snapshot(
+        future_rows,
+        criteria=[
+            {"name": "空间", "labels": ["高", "中", "低"]},
+            {"name": "续航", "labels": ["高", "中", "低"]},
+        ],
+        source={"id": "future", "name": "2026测试矩阵", "sha256": "b" * 64},
+    )
+
+    result = ExperimentEngine().run(
+        snapshot,
+        model_keys=["beast_mcdm"],
+        validation_months=1,
+        test_months=1,
+        seed=7,
+        simulations=16,
+    )
+
+    curves = result.models[0].metadata["diagnostic_curves"]
+    assert [row["month"] for row in curves["weights"]] == [
+        "2026-01",
+        "2026-02",
+        "2026-03",
+        "2026-04",
+    ]
+    assert [row["month"] for row in curves["rationality"]] == [
+        "2026-01",
+        "2026-02",
+        "2026-03",
+        "2026-04",
+    ]
+    for kind in ("weights", "rationality"):
+        for row in curves[kind]:
+            assert row["pressure"] == 0.0
+            assert set(row["values"]) == {"空间", "续航"}
+    assert curves["rationality"][0]["values"] == pytest.approx(
+        curves["rationality"][-1]["values"]
+    )
+
+
 @pytest.mark.parametrize(
     "model_key", ["ridge", "random_forest", "xgboost", "lightgbm", "beast_mcdm"]
 )

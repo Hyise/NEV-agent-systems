@@ -70,7 +70,7 @@ class DeepSeekClient:
         }
         try:
             response = self._client.post("/chat/completions", json=request_body)
-        except (httpx.TimeoutException, httpx.NetworkError) as exc:
+        except httpx.TransportError as exc:
             raise LlmTransientError("DeepSeek 网络请求暂时失败") from exc
 
         if response.status_code in (401, 403):

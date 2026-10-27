@@ -1,7 +1,7 @@
 ﻿param(
     [string]$PythonExe = '',
     [string]$NpmExe = '',
-    [int]$Port = 8018,
+    [int]$Port = 8029,
     [switch]$NoBrowser,
     [switch]$SkipBuild
 )

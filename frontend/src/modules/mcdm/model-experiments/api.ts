@@ -15,6 +15,19 @@ export interface ModelPrediction {
   predicted: number;
 }
 
+export interface ExperimentCurve {
+  month: string;
+  pressure: number;
+  values: Record<string, number>;
+}
+
+export interface ExecutedModelMetadata extends Record<string, unknown> {
+  diagnostic_curves?: {
+    weights: ExperimentCurve[];
+    rationality: ExperimentCurve[];
+  };
+}
+
 export interface ExecutedModelResult {
   key: string;
   label: string;
@@ -22,7 +35,7 @@ export interface ExecutedModelResult {
   implementation_version: string;
   metrics: Record<"RMSE" | "WAPE" | "R2" | "MAE", number>;
   predictions: ModelPrediction[];
-  metadata: Record<string, unknown>;
+  metadata: ExecutedModelMetadata;
 }
 
 export interface ModelExperimentRun {
@@ -67,7 +80,10 @@ export function createModelExperimentApi(fetcher = api) {
   return {
     capabilities: (projectId: string) =>
       fetcher<ModelCapability[]>(`${base(projectId)}/capabilities`),
-    list: (projectId: string) => fetcher<RunPage>(base(projectId)),
+    list: (projectId: string, schemaId: string) =>
+      fetcher<RunPage>(
+        `${base(projectId)}?schema_id=${encodeURIComponent(schemaId)}`,
+      ),
     get: (projectId: string, runId: string) =>
       fetcher<ModelExperimentRun>(`${base(projectId)}/${runId}`),
     create: (projectId: string, body: unknown) =>

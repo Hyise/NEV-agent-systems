@@ -137,6 +137,38 @@ class BeastMcdmModel:
             options={"maxiter": 80, "ftol": 1e-10},
         )
         importance = softmax(fitted.x[:criterion_count])
+        intercepts = fitted.x[criterion_count : 2 * criterion_count]
+        slopes = fitted.x[2 * criterion_count : 3 * criterion_count]
+        coefficients = intercepts[:, None] + slopes[:, None] * control_grid[None, :]
+        diagnostic_curves = {"weights": [], "rationality": []}
+        for month in sorted(set(months)):
+            index = int(np.flatnonzero(months == month)[0])
+            pressure = float(pressures[index])
+            rationality = 0.2 + 0.65 * expit(basis[index] @ coefficients.T)
+            diagnostic_curves["weights"].append(
+                {
+                    "month": str(month),
+                    "pressure": pressure,
+                    "values": {
+                        name: float(value)
+                        for name, value in zip(
+                            snapshot.criteria, importance, strict=True
+                        )
+                    },
+                }
+            )
+            diagnostic_curves["rationality"].append(
+                {
+                    "month": str(month),
+                    "pressure": pressure,
+                    "values": {
+                        name: float(value)
+                        for name, value in zip(
+                            snapshot.criteria, rationality, strict=True
+                        )
+                    },
+                }
+            )
         metadata = {
             "simulations": max(16, int(simulations)),
             "optimizer_success": bool(fitted.success),
@@ -147,6 +179,7 @@ class BeastMcdmModel:
             },
             "semantic_scale": "monotonic[-0.5,0.5]",
             "rationality": "clamped-cubic-bspline[0.2,0.85]",
+            "diagnostic_curves": diagnostic_curves,
             "validation_metrics": compute_metrics(
                 predict(fitted.x, validation), targets[validation]
             ),

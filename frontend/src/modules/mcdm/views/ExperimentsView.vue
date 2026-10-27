@@ -41,6 +41,9 @@ const metricName = (name: string) =>
     "Our Model (Without Num. Scales)": "去除语义数值化",
     "Our Model (Without Sampling)": "去除心理抽样",
   })[name] || name;
+function selectExperimentRun(event: Event) {
+  void workspace.selectRun((event.target as HTMLSelectElement).value);
+}
 </script>
 
 <template>
@@ -219,7 +222,10 @@ const metricName = (name: string) =>
             v-if="workspace.runs.value.length"
             class="experiment-history-select"
             >历史记录
-            <select v-model="workspace.selectedRunId.value">
+            <select
+              :value="workspace.selectedRunId.value"
+              @change="selectExperimentRun"
+            >
               <option
                 v-for="run in workspace.runs.value"
                 :key="run.id"

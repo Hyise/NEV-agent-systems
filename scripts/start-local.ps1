@@ -1,6 +1,6 @@
 ﻿param(
     [string]$PythonExe = 'python',
-    [int]$Port = 8018
+    [int]$Port = 8029
 )
 $ErrorActionPreference = 'Stop'
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path

@@ -14,6 +14,7 @@ from .domain import CreateSalesJobBody, SalesRecord, SalesStepStatus
 
 def _normalized_name(value: str) -> str:
     normalized = unicodedata.normalize("NFKC", value).casefold()
+    normalized = normalized.replace("+", "plus")
     return "".join(character for character in normalized if character.isalnum())
 
 

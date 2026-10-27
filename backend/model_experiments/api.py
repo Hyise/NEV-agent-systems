@@ -48,9 +48,10 @@ def create_model_experiment_router(repository, service, engine, snapshot_factory
         project_id: str,
         page: int = Query(1, ge=1),
         page_size: int = Query(20, ge=1, le=100),
+        schema_id: str | None = None,
     ):
         snapshot_factory(project_id, None, validate_only=True)
-        return repository.list(project_id, page, page_size)
+        return repository.list(project_id, page, page_size, schema_id)
 
     @router.post("", status_code=201)
     def create(project_id: str, body: CreateExperimentBody):

@@ -12,6 +12,16 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS_DIR = PROJECT_ROOT / "scripts"
 
 
+def test_production_launchers_use_port_8029_by_default() -> None:
+    launcher = (PROJECT_ROOT / "启动观衡网站.cmd").read_text(encoding="utf-8-sig")
+    start_site = (SCRIPTS_DIR / "start-site.ps1").read_text(encoding="utf-8-sig")
+    start_local = (SCRIPTS_DIR / "start-local.ps1").read_text(encoding="utf-8-sig")
+
+    assert '-Port 8029' in launcher
+    assert '[int]$Port = 8029' in start_site
+    assert '[int]$Port = 8029' in start_local
+
+
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows CMD integration test")
 @pytest.mark.parametrize(
     ("launcher_name", "script_name"),

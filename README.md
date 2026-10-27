@@ -55,7 +55,7 @@ Set-Location 'E:\aaaxz\daima1022\软著\nev-mcdm-platform'
 .\scripts\start-site.ps1
 ```
 
-脚本会自动打开 <http://127.0.0.1:8018> 的研究平台入口。接口文档：<http://127.0.0.1:8018/docs>。
+脚本会自动打开 <http://127.0.0.1:8029> 的研究平台入口。接口文档：<http://127.0.0.1:8029/docs>。
 
 仅启动服务、不打开浏览器：
 

@@ -22,8 +22,12 @@ export function createModelExperimentWorkspace(
   const capabilities = ref<ModelCapability[]>([]);
   const runs = ref<ModelExperimentRun[]>([]);
   const selectedRunId = ref("");
+  const selectedRunDetail = ref<ModelExperimentRun | null>(null);
   const selectedRun = computed(
-    () => runs.value.find((run) => run.id === selectedRunId.value) ?? null,
+    () =>
+      (selectedRunDetail.value?.id === selectedRunId.value
+        ? selectedRunDetail.value
+        : runs.value.find((run) => run.id === selectedRunId.value)) ?? null,
   );
   const selectedModelKeys = ref<string[]>([]);
   const validationMonths = ref(2);
@@ -36,6 +40,7 @@ export function createModelExperimentWorkspace(
   let splitDefaultsInitialized = false;
   let generation = 0;
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let detailRequestId = 0;
 
   function selectDefaults() {
     if (selectedModelKeys.value.length) return;
@@ -64,6 +69,34 @@ export function createModelExperimentWorkspace(
     if (active && running) timer = setTimeout(() => void activate(), 1200);
   }
 
+  async function loadSelectedRun() {
+    const runId = selectedRunId.value;
+    const project = projectId.value;
+    const token = ++detailRequestId;
+    selectedRunDetail.value = null;
+    if (!runId) return;
+    try {
+      const detail = await api.get(project, runId);
+      if (detail.schema_id !== schemaId.value) {
+        throw new Error("所选实验与当前准则版本不匹配");
+      }
+      if (
+        token === detailRequestId &&
+        project === projectId.value &&
+        runId === selectedRunId.value
+      ) {
+        selectedRunDetail.value = detail;
+      }
+    } catch (cause) {
+      if (token === detailRequestId) error.value = (cause as Error).message;
+    }
+  }
+
+  async function selectRun(runId: string) {
+    selectedRunId.value = runId;
+    await loadSelectedRun();
+  }
+
   async function activate() {
     active = true;
     const token = ++generation;
@@ -72,11 +105,13 @@ export function createModelExperimentWorkspace(
     try {
       const [modelRows, runPage] = await Promise.all([
         api.capabilities(projectId.value),
-        api.list(projectId.value),
+        api.list(projectId.value, schemaId.value),
       ]);
       if (token !== generation) return;
       capabilities.value = modelRows;
-      runs.value = runPage.rows;
+      runs.value = runPage.rows.filter(
+        (run) => !run.schema_id || run.schema_id === schemaId.value,
+      );
       selectDefaults();
       selectSplitDefaults();
       if (
@@ -84,6 +119,7 @@ export function createModelExperimentWorkspace(
         !runs.value.some((run) => run.id === selectedRunId.value)
       )
         selectedRunId.value = runs.value[0]?.id ?? "";
+      await loadSelectedRun();
       schedule();
     } catch (cause) {
       if (token === generation) error.value = (cause as Error).message;
@@ -97,6 +133,7 @@ export function createModelExperimentWorkspace(
     generation += 1;
     if (timer) clearTimeout(timer);
     timer = undefined;
+    detailRequestId += 1;
   }
 
   function toggleModel(key: string) {
@@ -132,6 +169,7 @@ export function createModelExperimentWorkspace(
       });
       runs.value = [run, ...runs.value.filter((item) => item.id !== run.id)];
       selectedRunId.value = run.id;
+      selectedRunDetail.value = null;
       schedule();
     } catch (cause) {
       error.value = (cause as Error).message;
@@ -156,6 +194,8 @@ export function createModelExperimentWorkspace(
     capabilities.value = [];
     runs.value = [];
     selectedRunId.value = "";
+    selectedRunDetail.value = null;
+    detailRequestId += 1;
     selectedModelKeys.value = [];
     validationMonths.value = 2;
     testMonths.value = 2;
@@ -169,6 +209,7 @@ export function createModelExperimentWorkspace(
     capabilities,
     runs,
     selectedRunId,
+    selectedRunDetail,
     selectedRun,
     selectedModelKeys,
     validationMonths,
@@ -182,6 +223,7 @@ export function createModelExperimentWorkspace(
     toggleModel,
     createRun,
     cancelRun,
+    selectRun,
   };
 }
 

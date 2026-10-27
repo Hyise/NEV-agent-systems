@@ -65,13 +65,13 @@ export function createCollectionWorkspace(
     if (!active || !hasRunningJob()) return;
     pollTimer = setTimeout(() => {
       pollTimer = undefined;
-      void loadWorkspace();
+      void refreshWorkspace(true);
     }, POLL_INTERVAL_MS);
   }
 
-  async function loadWorkspace() {
+  async function refreshWorkspace(silent: boolean) {
     const token = ++requestId;
-    busy.value = true;
+    if (!silent) busy.value = true;
     error.value = "";
     clearPoll();
     try {
@@ -86,10 +86,14 @@ export function createCollectionWorkspace(
       if (token === requestId) error.value = (cause as Error).message;
     } finally {
       if (token === requestId) {
-        busy.value = false;
+        if (!silent) busy.value = false;
         schedulePoll();
       }
     }
+  }
+
+  async function loadWorkspace() {
+    await refreshWorkspace(false);
   }
 
   function navigate(nextPage: CollectionPage) {

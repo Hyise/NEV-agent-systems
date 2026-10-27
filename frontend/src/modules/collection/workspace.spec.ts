@@ -114,6 +114,49 @@ describe("collection workspace", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  it("keeps the loaded workspace visible while a running job is polled", async () => {
+    const running = job();
+    let resolveOverview!: (value: CollectionOverview) => void;
+    let resolveJobs!: (value: Page<CollectionJob>) => void;
+    const pendingOverview = new Promise<CollectionOverview>((resolve) => {
+      resolveOverview = resolve;
+    });
+    const pendingJobs = new Promise<Page<CollectionJob>>((resolve) => {
+      resolveJobs = resolve;
+    });
+    const client = api({
+      getOverview: vi
+        .fn()
+        .mockResolvedValueOnce(overview(running))
+        .mockReturnValueOnce(pendingOverview),
+      listJobs: vi
+        .fn()
+        .mockResolvedValueOnce(page([running]))
+        .mockReturnValueOnce(pendingJobs),
+    });
+    const workspace = createCollectionWorkspace(client, false);
+
+    const firstLoad = workspace.activate();
+    expect(workspace.busy.value).toBe(true);
+    await firstLoad;
+    expect(workspace.busy.value).toBe(false);
+    expect(workspace.overview.value?.active_job?.status).toBe("collecting");
+
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    expect(client.getOverview).toHaveBeenCalledTimes(2);
+    expect(workspace.busy.value).toBe(false);
+    expect(workspace.overview.value?.active_job?.status).toBe("collecting");
+
+    resolveOverview(overview(null));
+    resolveJobs(page([job("completed")]));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(workspace.jobs.value.rows[0]?.status).toBe("completed");
+    expect(workspace.busy.value).toBe(false);
+  });
+
   it("controls jobs, loads persisted events, and invalidates late state", async () => {
     let resolveOverview!: (value: CollectionOverview) => void;
     const pending = new Promise<CollectionOverview>((resolve) => {

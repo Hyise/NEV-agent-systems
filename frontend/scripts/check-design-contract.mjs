@@ -249,6 +249,11 @@ expectContains("src/modules/mcdm/views/ScenarioView.vue", [
   "curve-filters",
   "查看曲线对应数值",
   "选择至少一个准则",
+  "实验记录",
+  "此实验没有可用的BEAST月度诊断",
+  "workspace.selectRun",
+  "activeCurveCriteria",
+  "scenarioSourceNote",
 ]);
 expectContains("src/modules/mcdm/views/SharesView.vue", [
   "research-surface",
@@ -260,6 +265,10 @@ expectContains("src/modules/mcdm/views/SharesView.vue", [
   "真实样本份额",
   "归档模型估计",
   "delta-label",
+  "实验记录",
+  "预测模型",
+  "测试月份",
+  "workspace.selectRun",
 ]);
 expectContains("src/modules/mcdm/views/ExperimentsView.vue", [
   "research-surface",

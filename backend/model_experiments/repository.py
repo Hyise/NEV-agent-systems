@@ -148,18 +148,30 @@ class ModelExperimentRepository:
             row["sha256"],
         )
 
-    def list(self, project_id: str, page=1, page_size=20):
+    def list(
+        self,
+        project_id: str,
+        page=1,
+        page_size=20,
+        schema_id: str | None = None,
+    ):
+        where = "WHERE project_id=?"
+        filter_params: tuple[str, ...] = (project_id,)
+        if schema_id is not None:
+            where += " AND schema_id=?"
+            filter_params += (schema_id,)
         with self.connect() as connection:
             total = connection.execute(
-                "SELECT COUNT(*) FROM model_experiment_runs WHERE project_id=?",
-                (project_id,),
+                f"SELECT COUNT(*) FROM model_experiment_runs {where}",
+                filter_params,
             ).fetchone()[0]
             rows = connection.execute(
-                """SELECT r.*,s.source_json,s.record_count
+                f"""SELECT r.*,s.source_json,s.record_count
                    FROM model_experiment_runs r JOIN model_experiment_snapshots s
                      ON s.sha256=r.snapshot_sha256
-                   WHERE r.project_id=? ORDER BY r.created_at DESC LIMIT ? OFFSET ?""",
-                (project_id, page_size, (page - 1) * page_size),
+                   {where.replace('project_id', 'r.project_id').replace('schema_id', 'r.schema_id')}
+                   ORDER BY r.created_at DESC LIMIT ? OFFSET ?""",
+                (*filter_params, page_size, (page - 1) * page_size),
             ).fetchall()
         values = []
         for row in rows:

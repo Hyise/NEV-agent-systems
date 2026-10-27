@@ -149,6 +149,80 @@ def test_list_records_keeps_unmatched_series_explicit(tmp_path):
     assert page["rows"][0]["match_status"] == "unmatched"
 
 
+def test_sales_matching_distinguishes_plus_suffix_from_base_model(tmp_path):
+    database = tmp_path / "platform.sqlite3"
+    CollectionRepository(database)
+    repository = SalesCollectionRepository(database)
+    repository.create_job(
+        "sales-job",
+        CreateSalesJobBody(
+            start_month="2026-03",
+            end_month="2026-03",
+            platforms=["autohome"],
+        ),
+        NOW,
+    )
+    with repository.connect() as connection:
+        connection.execute(
+            """
+            INSERT INTO vehicle_series (
+                platform,series_id,series_name,series_url,review_url,
+                discovery_rank,first_discovered_at,last_confirmed_at
+            ) VALUES ('autohome','7554','小鹏P7+','series','reviews',1,?,?)
+            """,
+            (NOW, NOW),
+        )
+        connection.execute(
+            """
+            INSERT INTO reviews (
+                platform,review_id,series_id,series_name_snapshot,source_url,
+                original_review_json,content_hash,first_collected_at,last_confirmed_at,
+                asset_id,source_kind
+            ) VALUES ('autohome','r-plus','7554','小鹏P7+','source',?,'hash',?, ?,
+                      'autohome:r-plus','autohome')
+            """,
+            (json.dumps({"content": "review", "posttime": "2026-03-12"}), NOW, NOW),
+        )
+
+    repository.save_month_records(
+        "sales-job",
+        "autohome",
+        "2026-03",
+        [
+            SalesRecord(
+                platform="autohome",
+                month="2026-03",
+                series_id="7554",
+                series_name="小鹏P7+",
+                sales_volume=3748,
+                rank=1,
+                source_url="https://www.autohome.com.cn/rank/1",
+            ),
+            SalesRecord(
+                platform="autohome",
+                month="2026-03",
+                series_id="5213",
+                series_name="小鹏P7",
+                sales_volume=1592,
+                rank=2,
+                source_url="https://www.autohome.com.cn/rank/1",
+            ),
+        ],
+        "snapshot-march",
+        NOW,
+    )
+
+    plus = repository.list_records(month="2026-03", search="7554")["rows"]
+    base = repository.list_records(month="2026-03", search="5213")["rows"]
+
+    assert len(plus) == 1
+    assert plus[0]["review_series_id"] == "7554"
+    assert plus[0]["match_status"] == "matched"
+    assert len(base) == 1
+    assert base[0]["review_series_id"] is None
+    assert base[0]["match_status"] == "unmatched"
+
+
 def test_sales_series_only_matches_reviews_from_the_same_month(tmp_path):
     database = tmp_path / "platform.sqlite3"
     CollectionRepository(database)

@@ -95,6 +95,14 @@ def test_http_errors_are_classified_without_leaking_key(status, error_type):
     assert SECRET not in str(error.value)
 
 
+def test_remote_protocol_error_is_classified_as_transient():
+    def handler(request: httpx.Request):
+        raise httpx.RemoteProtocolError("peer closed connection", request=request)
+
+    with pytest.raises(LlmTransientError):
+        client_for(handler).complete_json(prompt(), max_tokens=20)
+
+
 @pytest.mark.parametrize(
     "payload",
     [response_payload(content=""), response_payload(content="not-json"), response_payload(finish_reason="length")],
